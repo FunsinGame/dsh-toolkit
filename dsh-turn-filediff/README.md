@@ -1,22 +1,23 @@
 # dsh-turn-filediff
 
 A DeepSeek Harness (DSH) Web plugin that records the files a conversation has
-changed and renders a taskbar-style file list above the chat input box:
+changed and renders a collapsible file list above the chat input box:
 
 ```
-[📋 8 files] [server.js 修改] [app.ts 新增] [old.txt 删除] ...
+▸ 8 conversation file changes  3 added  2 deleted  5 modified
 ```
 
-Each file appears as a taskbar item with its final conversation state — **新增 /
-Added**, **删除 / Deleted**, or **修改 / Modified** — and two actions:
+The list is **collapsed by default**. Clicking the bar expands a vertical list
+of files; each file row shows its final conversation state — **新增 / Added**,
+**删除 / Deleted**, or **修改 / Modified** — plus two actions:
 
-- Click the file name to open it in the external editor at the first changed
+- **打开 / Open** — open the file in the external editor at the first changed
   line (VS Code by default, via `code --goto path:line`), falling back to the
   chat view's default file opener when the editor handoff fails.
-- Click **差异 / Diff** to open the conversation-level change in the editor's
-  diff view. The plugin accumulates every applied `FileDiff` hunk for the file,
-  then reconstructs the full before/after text by reverse-applying those hunks
-  to the file's current content and writes the snapshots to temporary files for
+- **差异 / Diff** — open the conversation-level change in the editor's diff
+  view. The plugin accumulates every applied `FileDiff` hunk for the file, then
+  reconstructs the full before/after text by reverse-applying those hunks to the
+  file's current content and writes the snapshots to temporary files for
   `code --diff before after`. This shows the whole conversation's changes for
   the file, not just the last hunk.
 
