@@ -45,11 +45,19 @@ window.__ModuleLoader__.load({
 		function messagePreview(content) {
 			return content.flatMap((block) => block.type === "text" ? [block.text] : []).join("\n").replace(/\s+/g, " ").trim();
 		}
-		/** Find a rendered transcript row by its stable session-event sequence. */
-		function rowForSeq(scrollport, seq) {
-			const key = `node:${String(seq)}`;
-			for (const row of scrollport.querySelectorAll("[data-chat-anchor-key]")) if (row.dataset.chatAnchorKey === key) return row;
-			return null;
+		/**
+		* User-turn rows currently rendered inside the transcript, in flow order.
+		* The chat flow anchors rows by their conversation Context key (kind+id),
+		* which the snapshot's legacy node projection does not expose, so markers
+		* pair with rows positionally: the i-th settled user turn renders the i-th
+		* user row.
+		*/
+		function userRows(scrollport) {
+			return [...scrollport.querySelectorAll("[data-chat-flow-kind=\"user\"]")];
+		}
+		/** Resolve the rendered row for the marker at `index` among user turns. */
+		function rowForTurn(scrollport, index) {
+			return userRows(scrollport)[index] ?? null;
 		}
 		/**
 		* Resolve the turn crossing the reading line. The bottom position always
@@ -64,11 +72,13 @@ window.__ModuleLoader__.load({
 			const viewport = scrollport.getBoundingClientRect();
 			const visibleBottom = scrollport.querySelector("[data-composer-seat]")?.getBoundingClientRect().top ?? viewport.bottom;
 			const readingLine = viewport.top + Math.min(120, Math.max(24, (visibleBottom - viewport.top) * .28));
+			const rows = userRows(scrollport);
 			let active = earliest;
 			let found = false;
-			for (const turn of turns) {
-				const row = rowForSeq(scrollport, turn.seq);
-				if (row === null) continue;
+			for (let index = 0; index < turns.length; index += 1) {
+				const turn = turns[index];
+				const row = rows[index];
+				if (row === void 0) continue;
 				found = true;
 				if (row.getBoundingClientRect().top > readingLine) break;
 				active = turn;
@@ -129,7 +139,9 @@ window.__ModuleLoader__.load({
 			const jumpTo = (seq) => {
 				const scrollport = rootRef.current?.closest("[data-conversation-scroll]");
 				if (scrollport === null || scrollport === void 0) return;
-				const row = rowForSeq(scrollport, seq);
+				const index = turns.findIndex((turn) => turn.seq === seq);
+				if (index < 0) return;
+				const row = rowForTurn(scrollport, index);
 				if (row === null) return;
 				scrollport.dispatchEvent(new WheelEvent("wheel", { deltaY: -1 }));
 				scrollport.scrollTop += row.getBoundingClientRect().top - scrollport.getBoundingClientRect().top;

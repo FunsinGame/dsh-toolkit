@@ -11,8 +11,16 @@ export interface TurnMarker {
 export type TurnNavigatorProps = PropsRuntime<'conversation.chat.navigator'> & PropsLocale<'turnNavigator'>;
 /** Collapse the text blocks of one user message into a compact hover preview. */
 export declare function messagePreview(content: UserMessageNode['content']): string;
-/** Find a rendered transcript row by its stable session-event sequence. */
-export declare function rowForSeq(scrollport: HTMLElement, seq: number): HTMLElement | null;
+/**
+ * User-turn rows currently rendered inside the transcript, in flow order.
+ * The chat flow anchors rows by their conversation Context key (kind+id),
+ * which the snapshot's legacy node projection does not expose, so markers
+ * pair with rows positionally: the i-th settled user turn renders the i-th
+ * user row.
+ */
+export declare function userRows(scrollport: HTMLElement): HTMLElement[];
+/** Resolve the rendered row for the marker at `index` among user turns. */
+export declare function rowForTurn(scrollport: HTMLElement, index: number): HTMLElement | null;
 /**
  * Resolve the turn crossing the reading line. The bottom position always
  * selects the newest turn, including a transcript shorter than its viewport.

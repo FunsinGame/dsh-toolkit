@@ -5,7 +5,7 @@ import type {
   ConversationSnapshot, SessionId, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import {
-  activeTurnSeq, messagePreview, MIN_TURNS, rowForSeq, TurnNavigator,
+  activeTurnSeq, messagePreview, MIN_TURNS, rowForTurn, TurnNavigator, userRows,
   type TurnNavigatorProps, type TurnMarker,
 } from '../src/client/TurnNavigator.tsx'
 import { en } from '../src/client/locales.ts'
@@ -77,7 +77,7 @@ function mount(
     <div data-conversation-scroll="">
       <div data-composer-seat="" />
       {nodes.map(node => (
-        <div key={node.seq} data-chat-anchor-key={`node:${String(node.seq)}`} />
+        <div key={node.seq} data-chat-flow-kind="user" />
       ))}
       <TurnNavigator {...props} />
     </div>,
@@ -93,7 +93,7 @@ function mount(
     .mockReturnValue({ top: 250, bottom: 300 } as DOMRect)
   const rowTops = [0, 260, 520]
   nodes.forEach((node, index) => {
-    const row = rowForSeq(host, node.seq)!
+    const row = rowForTurn(host, index)!
     vi.spyOn(row, 'getBoundingClientRect').mockImplementation(() => {
       const top = (rowTops[index] ?? index * 260) - host.scrollTop
       return { top, bottom: top + 80 } as DOMRect
@@ -115,7 +115,7 @@ describe('turn projection helpers', () => {
     expect(messagePreview(user(2, '', [{ type: 'image', url: 'x' }]).content)).toBe('')
   })
 
-  it('finds stable rows and resolves the reading line, bottom, and missing-row fallback', () => {
+  it('finds user rows positionally and resolves the reading line, bottom, and missing-row fallback', () => {
     const host = document.createElement('div')
     const composer = document.createElement('div')
     composer.dataset.composerSeat = ''
@@ -123,7 +123,7 @@ describe('turn projection helpers', () => {
     const turns: TurnMarker[] = [1, 2, 3].map(seq => ({ seq, preview: String(seq) }))
     for (const [index, turn] of turns.entries()) {
       const row = document.createElement('div')
-      row.dataset.chatAnchorKey = `node:${String(turn.seq)}`
+      row.dataset.chatFlowKind = 'user'
       vi.spyOn(row, 'getBoundingClientRect').mockReturnValue({
         top: index * 140, bottom: index * 140 + 80,
       } as DOMRect)
@@ -137,8 +137,9 @@ describe('turn projection helpers', () => {
     vi.spyOn(host, 'getBoundingClientRect').mockReturnValue({ top: 0, bottom: 300 } as DOMRect)
     vi.spyOn(composer, 'getBoundingClientRect').mockReturnValue({ top: 250, bottom: 300 } as DOMRect)
     expect(activeTurnSeq(host, [])).toBeNull()
-    expect(rowForSeq(host, 2)?.dataset.chatAnchorKey).toBe('node:2')
-    expect(rowForSeq(host, 99)).toBeNull()
+    expect(userRows(host)).toHaveLength(3)
+    expect(rowForTurn(host, 1)?.dataset.chatFlowKind).toBe('user')
+    expect(rowForTurn(host, 99)).toBeNull()
     expect(activeTurnSeq(host, turns)).toBe(1)
     host.scrollTop = 1
     expect(activeTurnSeq(host, turns)).toBe(1)
@@ -150,7 +151,7 @@ describe('turn projection helpers', () => {
       scrollTop: { value: 0, writable: true, configurable: true },
     })
     expect(activeTurnSeq(host, turns)).toBe(3)
-    host.querySelectorAll('[data-chat-anchor-key]').forEach((row) => { row.remove() })
+    host.querySelectorAll('[data-chat-flow-kind="user"]').forEach((row) => { row.remove() })
     host.scrollTop = 100
     expect(activeTurnSeq(host, turns)).toBe(3)
     composer.remove()
@@ -237,7 +238,7 @@ describe('standalone TurnNavigator', () => {
     fireEvent.click(second)
     expect(h.host.scrollTop).toBe(260)
 
-    rowForSeq(h.host, 3)?.remove()
+    rowForTurn(h.host, 2)?.remove()
     fireEvent.click(third)
     expect(h.host.scrollTop).toBe(260)
   })

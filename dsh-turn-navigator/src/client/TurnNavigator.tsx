@@ -26,13 +26,20 @@ export function messagePreview(content: UserMessageNode['content']): string {
     .trim()
 }
 
-/** Find a rendered transcript row by its stable session-event sequence. */
-export function rowForSeq(scrollport: HTMLElement, seq: number): HTMLElement | null {
-  const key = `node:${String(seq)}`
-  for (const row of scrollport.querySelectorAll<HTMLElement>('[data-chat-anchor-key]')) {
-    if (row.dataset.chatAnchorKey === key) return row
-  }
-  return null
+/**
+ * User-turn rows currently rendered inside the transcript, in flow order.
+ * The chat flow anchors rows by their conversation Context key (kind+id),
+ * which the snapshot's legacy node projection does not expose, so markers
+ * pair with rows positionally: the i-th settled user turn renders the i-th
+ * user row.
+ */
+export function userRows(scrollport: HTMLElement): HTMLElement[] {
+  return [...scrollport.querySelectorAll<HTMLElement>('[data-chat-flow-kind="user"]')]
+}
+
+/** Resolve the rendered row for the marker at `index` among user turns. */
+export function rowForTurn(scrollport: HTMLElement, index: number): HTMLElement | null {
+  return userRows(scrollport)[index] ?? null
 }
 
 /**
@@ -50,11 +57,13 @@ export function activeTurnSeq(scrollport: HTMLElement, turns: readonly TurnMarke
   const composer = scrollport.querySelector<HTMLElement>('[data-composer-seat]')
   const visibleBottom = composer?.getBoundingClientRect().top ?? viewport.bottom
   const readingLine = viewport.top + Math.min(120, Math.max(24, (visibleBottom - viewport.top) * 0.28))
+  const rows = userRows(scrollport)
   let active = earliest
   let found = false
-  for (const turn of turns) {
-    const row = rowForSeq(scrollport, turn.seq)
-    if (row === null) continue
+  for (let index = 0; index < turns.length; index += 1) {
+    const turn = turns[index]!
+    const row = rows[index]
+    if (row === undefined) continue
     found = true
     if (row.getBoundingClientRect().top > readingLine) break
     active = turn
@@ -115,7 +124,9 @@ export function TurnNavigator({ useSession, loadOlder, t }: TurnNavigatorProps) 
   const jumpTo = (seq: number): void => {
     const scrollport = rootRef.current?.closest<HTMLElement>('[data-conversation-scroll]')
     if (scrollport === null || scrollport === undefined) return
-    const row = rowForSeq(scrollport, seq)
+    const index = turns.findIndex(turn => turn.seq === seq)
+    if (index < 0) return
+    const row = rowForTurn(scrollport, index)
     if (row === null) return
     scrollport.dispatchEvent(new WheelEvent('wheel', { deltaY: -1 }))
     scrollport.scrollTop += row.getBoundingClientRect().top - scrollport.getBoundingClientRect().top
