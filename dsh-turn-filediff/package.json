@@ -1,6 +1,6 @@
 {
   "name": "dsh-turn-filediff",
-  "description": "Per-turn file-modification summary bar for the DSH Web UI: collapsible \"N files modified +added -removed\" with an expandable file list that opens each file in an external editor (VS Code)",
+  "description": "Conversation-wide file-change taskbar for the DSH Web UI: a bar above the chat input lists added/deleted/modified files and opens each file or diff in an external editor (VS Code)",
   "version": "0.1.0",
   "type": "module",
   "main": "lib/index.js",

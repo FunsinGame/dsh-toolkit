@@ -25,11 +25,13 @@ the leading `@` is left as plain text.
   trigger is dropped. Code blocks, links, buttons, and KaTeX are left untouched,
   and relative paths are resolved against the current session's workspace `cwd`
   before opening.
-- The same detector drives a **live composer strip** registered in the
-  `conversation.input.dock` slot: as you type or paste a path, clickable
-  basename chips appear above the input box. A native `<textarea>` cannot host
-  inline clickable links, so the strip is the interactive affordance while
-  composing (the sent message is still linkified inline).
+- The same detector also runs inside the composer. While you type or paste a
+  complete `@path...`, it is replaced at the caret with an inline reference chip
+  (e.g. `[TroopStateCountdownHead.cs:16-23]`). The chip is backed by the DSH
+  input machine's reference-occurrence mechanism: the visible text is compact,
+  while copy/cut and the sent message still use the authored `@path...` text, so
+  the sent message is linkified exactly as before. This uses a hidden
+  `conversation.input.dock` entry plus a `ctx.inputTriggers` reference codec.
 - **Host half** (`lib/index.js`) registers a Typert Remote service
   (`fileref/openFile`) that spawns the configured editor command. The strict
   invocation descriptor is shipped in `lib/typert.host.js` and picked up
@@ -86,6 +88,15 @@ Run `pnpm install` once after cloning to install the host-face peer dependencies
   extension are not detected.
 - Relative paths resolve against the current session's workspace `cwd`; if no
   session `cwd` is available they are handed to the editor as-is.
+- The inline composer chip depends on the standard DSH web input pipeline
+  (`ui-input-trigger` + the conversation input machine). If that pipeline is not
+  composed, sent-message linkification still works.
+- The composer chip uses the built-in fixed-width chip cell; long labels are
+  rendered as multi-cell chips so the full basename (including `:line` /
+  `:line-line`) is visible and the caret lands exactly after the reference.
+  Left/right arrow keys skip over the whole chip, and Backspace deletes the
+  whole chip. The full `@path...` is preserved in the draft, copy/cut, and sent
+  message (and shown as the chip tooltip).
 - `lib/` is the shipped, hand-authored source (plain JavaScript, no build step).
   The Host half is ESM; the browser half uses the `window.__ModuleLoader__`
   factory form (no JSX/TypeScript/React).

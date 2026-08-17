@@ -208,11 +208,78 @@ window.__ModuleLoader__.load({
 			],
 		};
 
-		// ── per-turn file-modification accumulator ─────────────────────────────
+		// ── conversation-wide file-modification accumulator ────────────────────
 
 		/** Only count the final (append) surface emission of a tool result. */
 		function isAppendSurfaceEvent(event) {
 			return event.surfaceOp !== undefined && event.surfaceOp === "append";
+		}
+
+		/**
+		 * Apply one applied FileDiff hunk to the conversation-wide state.
+		 *
+		 * The state keeps each touched path in first-seen order and collapses a
+		 * path to its final conversation status:
+		 * - `added`    — did not exist when the conversation started and still exists;
+		 * - `deleted`  — existed when the conversation started and is gone/empty now;
+		 * - `modified` — existed before and still exists, but its content changed.
+		 * A file that was created and later deleted cancels out and is removed.
+		 */
+		function applyDiffToFiles(files, order, diff, seq) {
+			const stats = diffStats(diff);
+			const path = diff.path;
+			const hunk = {
+				oldText: diff.oldText == null ? null : diff.oldText,
+				newText: diff.newText == null ? "" : diff.newText,
+			};
+			const existing = files.get(path);
+
+			if (existing === undefined) {
+				const status = diff.oldText === null
+					? "added"
+					: diff.newText === ""
+						? "deleted"
+						: "modified";
+				order.push(path);
+				files.set(path, {
+					path,
+					status,
+					added: stats.added,
+					removed: stats.removed,
+					firstLine: stats.firstLine,
+					diffs: [hunk],
+					seq,
+				});
+				return;
+			}
+
+			if (existing.status === "added" && diff.oldText !== null && diff.newText === "") {
+				// Temporary file created earlier in this conversation and deleted
+				// later: drop it from the final summary entirely.
+				files.delete(path);
+				const at = order.indexOf(path);
+				if (at !== -1) order.splice(at, 1);
+				return;
+			}
+
+			let status = existing.status;
+			if (existing.status === "deleted") {
+				status = diff.oldText !== null && diff.newText === "" ? "deleted" : "modified";
+			} else if (existing.status === "modified" && diff.oldText !== null && diff.newText === "") {
+				status = "deleted";
+			} else if (existing.status !== "added") {
+				status = "modified";
+			}
+
+			files.set(path, {
+				...existing,
+				status,
+				added: existing.added + stats.added,
+				removed: existing.removed + stats.removed,
+				firstLine: existing.firstLine != null ? existing.firstLine : stats.firstLine,
+				diffs: [...existing.diffs, hunk],
+				seq,
+			});
 		}
 
 		const turnFilediffDefinition = {
@@ -226,11 +293,22 @@ window.__ModuleLoader__.load({
 				}
 				return null;
 			},
-			start: (_context, match) => {
+			start: (_context, match, reader) => {
 				if (match.event.type !== "turn/start") {
 					throw new Error("turnFilediff start requires turn/start");
 				}
-				return { turn: match.event.data.turn, files: new Map(), order: [] };
+				// Carry the previous turn's files forward so the state describes
+				// the whole conversation, not just the current turn.
+				const previous =
+					typeof reader?.previous === "function"
+						? reader.previous("turnFilediff")
+						: undefined;
+				const prevState = previous && previous.state ? previous.state : undefined;
+				return {
+					turn: match.event.data.turn,
+					files: new Map(prevState ? prevState.files : []),
+					order: [...(prevState ? prevState.order : [])],
+				};
 			},
 			update: (context, match) => {
 				if (match.event.type !== "tool/result") return context.state;
@@ -244,36 +322,7 @@ window.__ModuleLoader__.load({
 				const order = [...context.state.order];
 				for (const diff of view.diffs) {
 					if (diff == null || typeof diff.path !== "string") continue;
-					const stats = diffStats(diff);
-					const path = diff.path;
-					const hunk = {
-						oldText: diff.oldText == null ? null : diff.oldText,
-						newText: diff.newText == null ? "" : diff.newText,
-					};
-					const existing = files.get(path);
-					if (existing === undefined) {
-						order.push(path);
-						files.set(path, {
-							path,
-							added: stats.added,
-							removed: stats.removed,
-							firstLine: stats.firstLine,
-							diffs: [hunk],
-							seq: match.event.seq,
-						});
-					} else {
-						files.set(path, {
-							path,
-							added: existing.added + stats.added,
-							removed: existing.removed + stats.removed,
-							firstLine:
-								existing.firstLine != null
-									? existing.firstLine
-									: stats.firstLine,
-							diffs: [...existing.diffs, hunk],
-							seq: match.event.seq,
-						});
-					}
+					applyDiffToFiles(files, order, diff, match.event.seq);
 				}
 				return { ...context.state, files, order };
 			},
@@ -282,7 +331,9 @@ window.__ModuleLoader__.load({
 				const files = context.state.order
 					.map((path) => context.state.files.get(path))
 					.filter(Boolean);
-				if (files.length === 0) return null;
+				// Publish even an empty list so the latest turn can clear a
+				// previously published conversation summary (e.g. a temporary
+				// file was created and then deleted).
 				return {
 					kind: "turn",
 					turn: context.state.turn,
@@ -292,39 +343,68 @@ window.__ModuleLoader__.load({
 			},
 		};
 
-		/** Claim the turn-tail chain when the closing turn modified files. */
-		function selectTurnFilediff(owner) {
-			const data = owner.turn.data.get("turnFilediff");
-			if (data === undefined) return null;
-			const seq = owner.seq ?? Number.POSITIVE_INFINITY;
+		/** Normalize a stored file record into the current hunk-list shape. */
+		function normalizeFileRecord(file) {
+			if (file == null) return null;
+			let status = file.status;
+			if (status !== "added" && status !== "deleted" && status !== "modified") {
+				status = file.oldText == null ? "added" : file.newText === "" ? "deleted" : "modified";
+			}
+			if (Array.isArray(file.diffs) && file.diffs.length > 0) {
+				return { ...file, status };
+			}
+			if (typeof file.oldText === "string" || typeof file.newText === "string") {
+				return {
+					...file,
+					status,
+					diffs: [
+						{
+							oldText: file.oldText == null ? null : file.oldText,
+							newText: file.newText == null ? "" : file.newText,
+						},
+					],
+				};
+			}
+			return null;
+		}
+
+		/** Summarize one conversation-wide turn-location value into UI/mention shape. */
+		function summarizeData(data, seq) {
+			if (data === undefined || !Array.isArray(data.files)) return null;
 			const files = data.files
 				.filter((file) => file.seq <= seq)
-				.map((file) => {
-					// Normalize older persisted summaries (single oldText/newText)
-					// into the hunk-list shape the diff action now requires.
-					if (Array.isArray(file.diffs) && file.diffs.length > 0) return file;
-					if (
-						typeof file.oldText === "string" ||
-						typeof file.newText === "string"
-					) {
-						return {
-							...file,
-							diffs: [
-								{
-									oldText: file.oldText == null ? null : file.oldText,
-									newText: file.newText == null ? "" : file.newText,
-								},
-							],
-						};
-					}
-					return file;
-				})
-				.filter((file) => Array.isArray(file.diffs) && file.diffs.length > 0);
+				.map(normalizeFileRecord)
+				.filter((file) => file !== null && file.diffs.length > 0);
 			if (files.length === 0) return null;
 			const count = files.length;
 			const totalAdded = files.reduce((sum, file) => sum + file.added, 0);
 			const totalRemoved = files.reduce((sum, file) => sum + file.removed, 0);
-			return { files, count, totalAdded, totalRemoved };
+			const addedCount = files.filter((file) => file.status === "added").length;
+			const deletedCount = files.filter((file) => file.status === "deleted").length;
+			const modifiedCount = files.filter((file) => file.status === "modified").length;
+			return { files, count, totalAdded, totalRemoved, addedCount, deletedCount, modifiedCount };
+		}
+
+		/** Summarize one turn-location value (used by closing-message mentions). */
+		function selectTurnFilediff(owner) {
+			return summarizeData(
+				owner.turn.data.get("turnFilediff"),
+				owner.seq ?? Number.POSITIVE_INFINITY,
+			);
+		}
+
+		/** Read the latest published conversation-wide summary from a snapshot. */
+		function latestTurnFilediff(timeline) {
+			if (timeline == null || !Array.isArray(timeline.turnOrder) || timeline.turns == null) {
+				return null;
+			}
+			const order = [...timeline.turnOrder].sort((left, right) => right - left);
+			for (const turnNumber of order) {
+				const turn = timeline.turns.get(turnNumber);
+				const data = turn && turn.data && turn.data.get("turnFilediff");
+				if (data !== undefined) return data;
+			}
+			return null;
 		}
 
 		// ── UI component ───────────────────────────────────────────────────────
@@ -334,147 +414,170 @@ window.__ModuleLoader__.load({
 			return at === -1 ? path : path.slice(at + 1);
 		}
 
+		const STATUS_COLOR = {
+			added: "#2ea043",
+			deleted: "#d1242f",
+			modified: "#9a6700",
+		};
+
+		const STATUS_STYLE = {
+			added: "added",
+			deleted: "deleted",
+			modified: "modified",
+		};
+
+		function statusLabel(file, t) {
+			if (file.status === "added") return t("file.added");
+			if (file.status === "deleted") return t("file.deleted");
+			return t("file.modified");
+		}
+
 		const styles = {
-			root: { marginTop: 10, fontSize: 13, lineHeight: "20px" },
-			bar: {
+			taskbar: {
+				display: "flex",
+				alignItems: "center",
+				gap: 6,
+				width: "100%",
+				maxWidth: "var(--dsh-composer-card-max-width, 780px)",
+				margin: "0 auto",
+				boxSizing: "border-box",
+				padding: "4px 8px",
+				overflowX: "auto",
+				background: "var(--dsw-alias-surface-raised, rgba(0,0,0,0.03))",
+				border: "1px solid var(--dsw-alias-border-l2, rgba(0,0,0,0.08))",
+				borderRadius: 8,
+				fontSize: 12,
+				lineHeight: "20px",
+				color: "var(--dsw-alias-label-secondary, #59636e)",
+			},
+			summary: { flex: "0 0 auto", fontWeight: 600, marginRight: 2, whiteSpace: "nowrap" },
+			added: { color: "#2ea043", fontWeight: 600 },
+			deleted: { color: "#d1242f", fontWeight: 600 },
+			modified: { color: "#9a6700", fontWeight: 600 },
+			task: {
 				display: "inline-flex",
 				alignItems: "center",
-				gap: 7,
-				cursor: "pointer",
+				flex: "0 0 auto",
+				gap: 2,
+				padding: 1,
+				borderRadius: 6,
+				background: "var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04))",
+				border: "1px solid transparent",
+			},
+			taskOpen: {
+				appearance: "none",
+				display: "inline-flex",
+				alignItems: "center",
+				gap: 5,
 				background: "transparent",
 				border: "none",
-				padding: "2px 8px 2px 4px",
-				borderRadius: 6,
+				borderRadius: 5,
+				padding: "1px 6px",
 				font: "inherit",
-				color: "var(--dsw-alias-label-secondary, #59636e)",
-				textAlign: "left",
-			},
-			chevron: {
-				display: "inline-block",
-				width: 10,
-				color: "var(--dsw-alias-label-tertiary, #818b98)",
-			},
-			added: { color: "#2ea043", fontWeight: 600 },
-			removed: { color: "#d1242f", fontWeight: 600 },
-			list: {
-				listStyle: "none",
-				margin: "2px 0 0 18px",
-				padding: 0,
-				display: "flex",
-				flexDirection: "column",
-				gap: 1,
-			},
-			fileItem: {
-				display: "flex",
-				alignItems: "center",
-				gap: 8,
-				padding: "2px 8px",
-				borderRadius: 6,
 				color: "var(--dsw-alias-label-primary, #1f2328)",
-			},
-			filePath: {
-				overflow: "hidden",
-				textOverflow: "ellipsis",
+				cursor: "pointer",
 				whiteSpace: "nowrap",
-				maxWidth: 360,
 			},
-			spacer: { flex: 1 },
-			action: {
+			taskDiff: {
 				appearance: "none",
 				background: "transparent",
 				border: "none",
-				borderRadius: 6,
-				padding: "1px 8px",
+				borderRadius: 5,
+				padding: "1px 6px",
 				font: "inherit",
+				fontSize: 11,
 				cursor: "pointer",
-				color: "var(--dsw-alias-label-secondary, #59636e)",
+				color: "var(--dsw-alias-label-tertiary, #818b98)",
+				whiteSpace: "nowrap",
+			},
+			statusDot: {
+				width: 8,
+				height: 8,
+				borderRadius: 4,
+				display: "inline-block",
+				flex: "0 0 auto",
+			},
+			taskName: {
+				maxWidth: 180,
+				overflow: "hidden",
+				textOverflow: "ellipsis",
 			},
 		};
 
-		function TurnFilediffBar({ matched, openFile, openEditor, openDiff, t }) {
-			const [expanded, setExpanded] = React.useState(false);
-			const { files, count, totalAdded, totalRemoved } = matched;
+		/** Taskbar-style file list mounted above the chat input. */
+		function TurnFilediffBar({ useSession, openFile, openEditor, openDiff, t }) {
+			const timeline = useSession(
+				(session) => (session && session.chat && session.chat.timeline) || null,
+			);
+			const matched = React.useMemo(() => {
+				const data = latestTurnFilediff(timeline);
+				return summarizeData(data, Number.POSITIVE_INFINITY);
+			}, [timeline]);
+			if (matched === null) return null;
+			const { files, count } = matched;
 			return React.createElement(
 				"div",
-				{ style: styles.root },
+				{ style: styles.taskbar, className: "tdf-taskbar" },
 				React.createElement(
-					"button",
-					{
-						type: "button",
-						style: styles.bar,
-						className: "tdf-bar",
-						"aria-expanded": expanded,
-						onClick: () => setExpanded((value) => !value),
-					},
-					React.createElement(
-						"span",
-						{ style: styles.chevron, "aria-hidden": "true" },
-						expanded ? "▾" : "▸",
-					),
-					React.createElement(
-						"span",
-						null,
-						t("bar.modified", { count: String(count) }),
-					),
-					React.createElement("span", { style: styles.added }, "+" + totalAdded),
-					React.createElement("span", { style: styles.removed }, "-" + totalRemoved),
+					"span",
+					{ style: styles.summary, className: "tdf-summary" },
+					t("bar.conversation", { count: String(count) }),
 				),
-				expanded &&
+				files.map((file) =>
 					React.createElement(
-						"ul",
-						{ style: styles.list },
-						files.map((file) =>
+						"div",
+						{ key: file.path, style: styles.task, className: "tdf-task", title: file.path },
+						React.createElement(
+							"button",
+							{
+								type: "button",
+								style: styles.taskOpen,
+								className: "tdf-task-open",
+								"aria-label": t("file.open", { name: file.path }),
+								onClick: async () => {
+									const opened =
+										typeof openEditor === "function"
+											? await openEditor(file.path, file.firstLine)
+											: false;
+									if (!opened && typeof openFile === "function") {
+										openFile(file.path);
+									}
+								},
+							},
+							React.createElement("span", {
+								style: {
+									...styles.statusDot,
+									background: STATUS_COLOR[file.status] || STATUS_COLOR.modified,
+								},
+							}),
 							React.createElement(
-								"li",
-								{ key: file.path },
-								React.createElement(
-									"div",
-									{ style: styles.fileItem, className: "tdf-file" },
-									React.createElement(
-										"span",
-										{ style: styles.filePath, title: file.path },
-										basename(file.path),
-									),
-									React.createElement("span", { style: styles.added }, "+" + file.added),
-									React.createElement("span", { style: styles.removed }, "-" + file.removed),
-									React.createElement("span", { style: styles.spacer }),
-									React.createElement(
-										"button",
-										{
-											type: "button",
-											className: "tdf-action",
-											style: styles.action,
-											"aria-label": t("file.open", { name: file.path }),
-											onClick: async () => {
-												const opened =
-													typeof openEditor === "function"
-														? await openEditor(file.path, file.firstLine)
-														: false;
-												if (!opened && typeof openFile === "function") {
-													openFile(file.path);
-												}
-											},
-										},
-										t("file.openBtn"),
-									),
-									React.createElement(
-										"button",
-										{
-											type: "button",
-											className: "tdf-action",
-											style: styles.action,
-											onClick: async () => {
-												if (typeof openDiff === "function") {
-													await openDiff(file.path, file.diffs);
-												}
-											},
-										},
-										t("file.diff"),
-									),
-								),
+								"span",
+								{ style: styles.taskName },
+								basename(file.path),
+							),
+							React.createElement(
+								"span",
+								{ style: styles[STATUS_STYLE[file.status] || "modified"] },
+								statusLabel(file, t),
 							),
 						),
+						React.createElement(
+							"button",
+							{
+								type: "button",
+								style: styles.taskDiff,
+								className: "tdf-task-diff",
+								title: t("file.diff"),
+								onClick: async () => {
+									if (typeof openDiff === "function") {
+										await openDiff(file.path, file.diffs);
+									}
+								},
+							},
+							t("file.diff"),
+						),
 					),
+				),
 			);
 		}
 
@@ -482,23 +585,45 @@ window.__ModuleLoader__.load({
 
 		const NS = "turnFilediff";
 		const zh = {
-			"bar.modified": "{count} 个文件已修改",
+			"bar.conversation": "会话文件变更 {count} 个",
+			"bar.added": "新增 {count}",
+			"bar.deleted": "删除 {count}",
+			"bar.modified": "修改 {count}",
+			"file.added": "新增",
+			"file.deleted": "删除",
+			"file.modified": "修改",
 			"file.open": "在编辑器中打开 {name}",
 			"file.openBtn": "打开",
 			"file.diff": "差异",
 		};
 		const en = {
-			"bar.modified": "{count} files modified",
+			"bar.conversation": "{count} conversation file changes",
+			"bar.added": "{count} added",
+			"bar.deleted": "{count} deleted",
+			"bar.modified": "{count} modified",
+			"file.added": "Added",
+			"file.deleted": "Deleted",
+			"file.modified": "Modified",
 			"file.open": "Open {name} in editor",
 			"file.openBtn": "Open",
 			"file.diff": "Diff",
 		};
 
 		const css = `
-.tdf-bar:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04)); }
-.tdf-file:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04)); }
-.tdf-action:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04)); color: var(--dsw-alias-label-primary, #1f2328); }
-.tdf-bar:focus-visible, .tdf-file:focus-visible, .tdf-action:focus-visible {
+.tdf-taskbar {
+  scrollbar-width: thin;
+}
+.tdf-taskbar::-webkit-scrollbar {
+  height: 4px;
+}
+.tdf-task:hover {
+  border-color: var(--dsw-alias-border-l3, #818b98);
+}
+.tdf-task-open:hover, .tdf-task-diff:hover {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04));
+  color: var(--dsw-alias-label-primary, #1f2328);
+}
+.tdf-task-open:focus-visible, .tdf-task-diff:focus-visible {
   box-shadow: inset 0 0 0 2px var(--dsw-alias-border-l3, #818b98);
   outline: none;
 }
@@ -512,7 +637,7 @@ window.__ModuleLoader__.load({
 			return matches.length === 1 ? matches[0] : void 0;
 		}
 
-		/** Resolve an inline-code token to one of the turn's modified files. */
+		/** Resolve an inline-code token to one of the conversation's changed files. */
 		function producedFileMentions(paths, openFile, label) {
 			return {
 				resolve(value) {
@@ -548,15 +673,16 @@ window.__ModuleLoader__.load({
 				return () => tag.remove();
 			}, "turn-filediff: styles");
 
-			// Mount the Host Remote before the tail can be clicked. The mount is
+			// Mount the Host Remote before the taskbar can be clicked. The mount is
 			// owned by this plugin's fiber, so stop/update withdraws it too.
 			await ctx.remote.$mount(TYPERT_REMOTE);
 
-			ctx.slots.inject("conversation.chat.turnTail", () =>
+			ctx.slots.inject("conversation.input.dock", () =>
 				ctx.slots.register(
 					{
-						name: "conversation.chat.turnTail",
-						select: selectTurnFilediff,
+						name: "conversation.input.dock",
+						id: "dsh-turn-filediff",
+						order: 10,
 						locale: NS,
 						inject: () => ({
 							openEditor: async (path, line) => {
@@ -600,7 +726,7 @@ window.__ModuleLoader__.load({
 			);
 
 			// Replace ui-deliverables' inline file-mention resolver with one over
-			// this plugin's modified-file vocabulary.
+			// this plugin's conversation-wide changed-file vocabulary.
 			ctx.provide("chatFileMentions", {
 				forClosing(owner) {
 					const data = selectTurnFilediff(owner);

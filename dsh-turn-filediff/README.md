@@ -1,41 +1,62 @@
 # dsh-turn-filediff
 
-A DeepSeek Harness (DSH) Web plugin that records the files a conversation turn
-modified and renders a collapsible summary bar under each closing assistant
-message:
+A DeepSeek Harness (DSH) Web plugin that records the files a conversation has
+changed and renders a taskbar-style file list above the chat input box:
 
 ```
-> 3 files modified  +142  -18
+[📋 8 files] [server.js 修改] [app.ts 新增] [old.txt 删除] ...
 ```
 
-Clicking the bar expands the per-file list. Each file row shows its
-`+added -removed` counts and two buttons:
+Each file appears as a taskbar item with its final conversation state — **新增 /
+Added**, **删除 / Deleted**, or **修改 / Modified** — and two actions:
 
-- **打开 (Open)** — open the file in the external editor at the first changed
+- Click the file name to open it in the external editor at the first changed
   line (VS Code by default, via `code --goto path:line`), falling back to the
   chat view's default file opener when the editor handoff fails.
-- **差异 (Diff)** — open the change in the editor's diff view. The plugin
-  accumulates every applied `FileDiff` hunk for the file, then reconstructs the
-  full before/after text by reverse-applying those hunks to the file's current
-  content and writes the snapshots to temporary files for `code --diff before
-  after`. This shows the whole turn's changes for the file, not just the last
-  hunk.
+- Click **差异 / Diff** to open the conversation-level change in the editor's
+  diff view. The plugin accumulates every applied `FileDiff` hunk for the file,
+  then reconstructs the full before/after text by reverse-applying those hunks
+  to the file's current content and writes the snapshots to temporary files for
+  `code --diff before after`. This shows the whole conversation's changes for
+  the file, not just the last hunk.
+
+## Behavior
+
+The plugin deliberately does **not** report a separate file-change list per
+turn. Instead it maintains one conversation-wide summary:
+
+1. **新增的文件 (Added)** — files that did not exist when the conversation
+   started and still exist now.
+2. **删除的文件 (Deleted)** — files that existed when the conversation started
+   and no longer exist (or were reduced to empty by a mutation diff).
+3. **修改的文件 (Modified)** — files that existed before and still exist, but
+   whose content changed.
+
+A file that was temporarily created and later deleted cancels out: it is not
+shown in the final summary at all.
 
 ## How it works
 
-- **Browser half** (`lib/client.js`) registers a per-turn accumulator with the
-  client `conversationEvents` registry. It reads the `diff` render intent of
-  settled `write`/`edit` tool results (the applied `FileDiff` list with
-  `oldText`/`newText`), computes exact added/removed line counts per file, and
-  keeps every hunk in order so the Diff action can reconstruct the full change.
-  It renders the summary into the existing `conversation.chat.turnTail` slot.
-  That slot is a chain that elects a single entry (first non-null `select`
-  wins), and the shipped "Produced" files row (`ui-deliverables`) registers
-  first — so the bundle disables `ui-deliverables` and replaces its turn-tail
-  row, its inline file-mention resolver, and its model guidance.
+- **Browser half** (`lib/client.js`) registers a conversation-wide accumulator
+  with the client `conversationEvents` registry. Each turn's state starts from
+  the previous turn's state (`reader.previous("turnFilediff")`), so file changes
+  accumulate across the entire conversation instead of resetting at every
+  `turn/start`. It reads the `diff` render intent of settled `write`/`edit`
+  tool results (the applied `FileDiff` list with `oldText`/`newText`), computes
+  exact added/removed line counts per hunk, keeps every hunk in order so the
+  Diff action can reconstruct the full conversation change, and collapses each
+  path to its final `added` / `deleted` / `modified` status.
+- The file list is rendered into the existing `conversation.input.dock` slot,
+  directly above the chat input box, so it stays visible for the whole session
+  instead of being attached to one assistant turn.
+- The plugin also replaces the `chatFileMentions` provider, so inline-code file
+  references in assistant messages resolve against the conversation-wide
+  changed-file vocabulary.
 - **Host half** (`lib/index.js`) registers a Typert Remote service with two
   methods — `turnFilediff/openFile` (open at line) and `turnFilediff/openDiff`
-  (diff view) — that spawn the configured editor command. The strict invocation
+  (diff view) — that spawn the configured editor command. When a tracked file no
+  longer exists on disk, `openDiff` treats the current content as empty so a
+  deletion can still be shown as a before/after diff. The strict invocation
   descriptors are shipped in `lib/typert.host.js` and picked up automatically
   by the typert-loader.
 
@@ -90,9 +111,13 @@ Run `pnpm install` once after cloning to install the host-face peer dependencies
 ## Notes / limitations
 
 - Files modified indirectly through shell commands (e.g. a `bash`/`pwsh`
-  command that rewrites a file) carry no diff render intent, so they are not
-  counted — the same boundary as the shipped produced-files row. Diff stats
-  come from the mutation tools' own `FileDiff` vocabulary.
+  command that rewrites or removes a file) carry no diff render intent, so they
+  are not counted — the same boundary as the shipped produced-files row. Diff
+  stats come from the mutation tools' own `FileDiff` vocabulary; shell-level
+  `rm` is not observed by this plugin.
+- Deletion is recognized when a mutation tool's diff reports an existing file
+  becoming empty, and `openDiff` also supports a file that has disappeared from
+  disk. A file that is created and later deleted is removed from the summary.
 - `lib/` is the shipped, hand-authored source (plain JavaScript, no build step).
   The Host half is ESM; the browser half uses the `window.__ModuleLoader__`
   factory form and `React.createElement` (no JSX/TypeScript).

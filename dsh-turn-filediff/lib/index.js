@@ -7,10 +7,11 @@
  *                 harness is embedded in VS Code (`DSH_VSCODE=1`), it asks
  *                 the extension host to open the file in the current window
  *                 through the `DSH_VSCODE_BRIDGE` endpoint instead.
- * - `openDiff`  — show a file change in VS Code's diff view by writing the
- *                 before/after text to temporary files and running
- *                 `code --diff before after`, or by asking the extension
- *                 host to open the diff in the current window when embedded.
+ * - `openDiff`  — show a file's conversation-level change in VS Code's diff
+ *                 view by writing the before/after text to temporary files and
+ *                 running `code --diff before after`, or by asking the
+ *                 extension host to open the diff in the current window when
+ *                 embedded.
  *
  * The strict invocation descriptors live in ./typert.host.js and are
  * discovered automatically by the typert-loader.
@@ -111,7 +112,7 @@ async function callVscodeBridge(method, body) {
 
 /** Replaces ui-deliverables' model guidance (same section name/order). */
 const FILE_REFERENCE_PROMPT =
-  "When you successfully create or modify files, mention the primary outputs in your final response. To make those and any other changed-file references clickable in Web, format them as Markdown inline code using the exact file-tool path, or a basename when unique among the files changed in that turn.";
+  "When you successfully create or modify files, mention the primary outputs in your final response. To make those and any other changed-file references clickable in Web, format them as Markdown inline code using the exact file-tool path, or a basename when unique among the files changed in this conversation.";
 
 /**
  * Quote one Windows shell token when it contains whitespace or a quote.
@@ -249,18 +250,22 @@ function reverseHunk(text, hunk) {
 }
 
 /**
- * Reconstruct the pre-turn full text of a file by reverse-applying the ordered
- * hunks to the file's current content. The collected hunks are contextual
- * `FileDiff` snippets, not whole files, so this is what lets the VS Code diff
- * show every change in the turn instead of only the last hunk.
- * @param filePath - absolute path of the modified file.
+ * Reconstruct the pre-conversation full text of a file by reverse-applying the
+ * ordered hunks to the file's current content. The collected hunks are
+ * contextual `FileDiff` snippets, not whole files, so this is what lets the VS
+ * Code diff show every change in the conversation instead of only the last hunk.
+ * @param filePath - absolute path of the changed file.
  * @param diffs - ordered applied hunks for this file.
+ * @param currentText - optional LF-normalized current content; when omitted the
+ * file is read from disk. Pass `""` for a deleted file that no longer exists.
  * @returns LF-normalized `{ oldText, newText }` full-file snapshots.
  */
-async function reconstructBeforeText(filePath, diffs) {
-  const current = (await readFile(filePath, "utf8"))
-    .replace(/^\uFEFF/, "")
-    .replace(/\r\n/g, "\n");
+async function reconstructBeforeText(filePath, diffs, currentText = null) {
+  const current = currentText === null
+    ? (await readFile(filePath, "utf8"))
+        .replace(/^\uFEFF/, "")
+        .replace(/\r\n/g, "\n")
+    : currentText;
   let text = current;
   for (let i = diffs.length - 1; i >= 0; i--) {
     const hunk = diffs[i];
@@ -370,9 +375,10 @@ export class TurnFilediffGateway extends TypertRemoteService {
    * The browser sends the ordered `FileDiff` hunks it accumulated for the file
    * (each a contextual snippet, not a whole file). This method reads the file's
    * current content and reverse-applies the hunks to reconstruct the full
-   * pre-turn text, so VS Code's diff shows every change in the turn instead of
-   * only the last hunk. The legacy `{ oldText, newText }` request shape is also
-   * accepted for older persisted summaries.
+   * pre-conversation text, so VS Code's diff shows every change in the
+   * conversation instead of only the last hunk. Deleted files are treated as
+   * empty current content. The legacy `{ oldText, newText }` request shape is
+   * also accepted for older persisted summaries.
    * @param request - `{ path, diffs }` or `{ path, oldText, newText }`.
    * @returns `{ opened: boolean }`.
    */
@@ -410,7 +416,20 @@ export class TurnFilediffGateway extends TypertRemoteService {
           console.warn(`[turn-filediff] openDiff rejected: invalid diffs`);
           return { opened: false };
         }
-        const reconstructed = await reconstructBeforeText(path, diffs);
+        let currentText;
+        try {
+          currentText = (await readFile(path, "utf8"))
+            .replace(/^\uFEFF/, "")
+            .replace(/\r\n/g, "\n");
+        } catch (error) {
+          if (error && error.code === "ENOENT") {
+            // The file was deleted during the conversation; diff against empty.
+            currentText = "";
+          } else {
+            throw error;
+          }
+        }
+        const reconstructed = await reconstructBeforeText(path, diffs, currentText);
         oldText = reconstructed.oldText;
         newText = reconstructed.newText;
         console.log(

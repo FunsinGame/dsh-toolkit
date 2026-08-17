@@ -1,4 +1,10 @@
 .host {
+  /* The navigator slot renders after the transcript as the ChatView root's last
+     flex child. Reorder the zero-size host above the transcript so sticky
+     anchors to the scrollport viewport instead of the end of the content:
+     otherwise the rail sits at the bottom of the conversation and scrolls away
+     with it. */
+  order: -1;
   position: sticky;
   top: 12px;
   z-index: 6;

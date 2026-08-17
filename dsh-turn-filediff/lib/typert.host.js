@@ -25,9 +25,10 @@ const fileDiffSchema = z.object({
 }).readonly();
 
 /**
- * `openDiff` request: `{ path, diffs }` — the ordered hunks for one file.
- * The legacy `{ path, oldText, newText }` single-snapshot shape is still
- * accepted so old persisted summaries keep working during rollout.
+ * `openDiff` request: `{ path, diffs }` — the ordered hunks for one file
+ * accumulated across the conversation. The legacy `{ path, oldText, newText }`
+ * single-snapshot shape is still accepted so old persisted summaries keep
+ * working during rollout.
  */
 const openDiffRequestSchema = z.object({
   path: z.string().readonly(),
