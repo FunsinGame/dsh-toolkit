@@ -1,0 +1,18 @@
+# dsh-notify-sound bundle patch: one insert over the profile's composed tree.
+# The row enables the browser half (`lib/client.js`), which plays a short
+# chime when:
+#   - a turn ends normally (reason.kind === "completed"),
+#   - a durable goal changes to phase "complete",
+#   - a question / plan-review / approval card appears in the chat composer.
+- insert:
+    - id: notify-sound
+      name: dsh-notify-sound
+      # Optional per-profile audio configuration. Use http(s) URLs, data URIs,
+      # or URLs served by the DSH web app; raw local filesystem paths are not
+      # directly playable by the browser.
+      #
+      # config:
+      #   completeSound: "https://example.com/complete.mp3"
+      #   questionSound: "data:audio/wav;base64,..."
+      #   volume: 0.4
+      #   enabled: true
