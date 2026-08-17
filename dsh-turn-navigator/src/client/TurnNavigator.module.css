@@ -1,0 +1,144 @@
+.host {
+  position: sticky;
+  top: 12px;
+  z-index: 6;
+  width: 0;
+  height: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.rail {
+  position: absolute;
+  top: 0;
+  left: 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  width: 40px;
+  height: clamp(140px, calc(100dvh - var(--dsh-composer-height, 152px) - 116px), 720px);
+  padding: 2px 0;
+  pointer-events: auto;
+}
+
+.marker {
+  position: relative;
+  z-index: 0;
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  min-height: 3px;
+  max-height: 12px;
+  width: 40px;
+  padding: 0;
+  border: 0;
+  color: var(--dsw-alias-label-primary);
+  background: transparent;
+  cursor: pointer;
+}
+
+.marker:hover,
+.marker:focus-visible {
+  z-index: 1;
+  outline: none;
+}
+
+.marker:focus-visible::after {
+  position: absolute;
+  left: -3px;
+  width: 34px;
+  height: 18px;
+  border: 1px solid var(--dsw-alias-state-business-primary);
+  border-radius: 5px;
+  content: '';
+}
+
+.tick {
+  width: 10px;
+  height: 1px;
+  border-radius: 1px;
+  background: var(--dsw-alias-label-dimmed);
+  transform-origin: left center;
+  transition: transform 180ms var(--ds-ease-in-out), background-color 180ms var(--ds-ease-in-out);
+}
+
+.marker:hover .tick,
+.marker:focus-visible .tick {
+  background: var(--dsw-alias-label-secondary);
+  transform: scaleX(2.1);
+}
+
+.marker[aria-current='step'] .tick {
+  height: 2px;
+  background: var(--dsw-alias-label-primary);
+  transform: scaleX(3.1);
+}
+
+.preview {
+  position: absolute;
+  top: 50%;
+  left: 42px;
+  width: min(384px, calc(100vw - 96px));
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.preview[data-edge='first'] {
+  top: 0;
+  transform: none;
+}
+
+.preview[data-edge='last'] {
+  top: auto;
+  bottom: 0;
+  transform: none;
+}
+
+.previewCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 14px;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-3);
+  box-shadow: var(--dsw-shadow-lv2);
+  text-align: left;
+  animation: turn-preview-in 180ms var(--ds-ease-in-out) both;
+}
+
+.previewCard strong {
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+}
+
+.previewCard > span {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+@keyframes turn-preview-in {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tick {
+    transition: none;
+  }
+
+  .previewCard {
+    animation: none;
+  }
+}

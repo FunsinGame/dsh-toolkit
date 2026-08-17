@@ -1,0 +1,3 @@
+- insert:
+    - id: turn-navigator
+      name: '@deepseek-ai/dsh-turn-navigator'

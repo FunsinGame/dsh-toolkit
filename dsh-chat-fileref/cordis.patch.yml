@@ -1,0 +1,16 @@
+# dsh-chat-fileref bundle patch: one insert over the profile's composed tree.
+# The row is dual-face — its node half (`lib/index.js`) registers the Host
+# Remote that opens a file in an external editor, and the `dsh.client` manifest
+# in package.json exposes the browser half (`lib/client.js`), which detects
+# path-like text in chat messages and renders it as clickable blue basename
+# chips.
+#
+# `editor` is the external editor command (default `code`). Override it in the
+# profile's own cordis.patch.yml, or set DSH_CHAT_FILEREF_EDITOR in the host
+# environment.
+
+- insert:
+    - id: chat-fileref
+      name: dsh-chat-fileref
+      config:
+        editor: code
