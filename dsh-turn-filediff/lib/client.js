@@ -304,11 +304,6 @@ window.__ModuleLoader__.load({
 						? reader.previous("turnFilediff")
 						: undefined;
 				const prevState = previous && previous.state ? previous.state : undefined;
-				console.log("[turn-filediff] turn/start", {
-					turn: match.event.data.turn,
-					inheritedFiles: prevState ? prevState.order.length : 0,
-					hasPrevious: previous !== undefined,
-				});
 				return {
 					turn: match.event.data.turn,
 					files: new Map(prevState ? prevState.files : []),
@@ -325,20 +320,10 @@ window.__ModuleLoader__.load({
 				}
 				const files = new Map(context.state.files);
 				const order = [...context.state.order];
-				console.log("[turn-filediff] tool/result diff", {
-					turn: match.event.data.turn,
-					seq: match.event.seq,
-					diffCount: view.diffs.length,
-				});
 				for (const diff of view.diffs) {
 					if (diff == null || typeof diff.path !== "string") continue;
 					applyDiffToFiles(files, order, diff, match.event.seq);
 				}
-				console.log("[turn-filediff] tool/result applied", {
-					turn: match.event.data.turn,
-					seq: match.event.seq,
-					fileCount: order.length,
-				});
 				return { ...context.state, files, order };
 			},
 			buildLocationData: (context, scope) => {
@@ -349,10 +334,6 @@ window.__ModuleLoader__.load({
 				// Publish even an empty list so the latest turn can clear a
 				// previously published conversation summary (e.g. a temporary
 				// file was created and then deleted).
-				console.log("[turn-filediff] buildLocationData", {
-					turn: context.state.turn,
-					fileCount: files.length,
-				});
 				return {
 					kind: "turn",
 					turn: context.state.turn,
@@ -454,8 +435,8 @@ window.__ModuleLoader__.load({
 		const styles = {
 			root: {
 				display: "block",
-				width: "100%",
-				maxWidth: "var(--dsh-composer-card-max-width, 780px)",
+				width: "calc(100% - 2 * var(--dsh-composer-side-clearance, 16px) - 4 * var(--dsh-composer-dock-inset, 8px))",
+				maxWidth: "calc(var(--dsh-composer-card-max-width, 780px) - 4 * var(--dsh-composer-dock-inset, 8px))",
 				margin: "0 auto",
 				boxSizing: "border-box",
 				padding: "4px 8px",
@@ -537,14 +518,6 @@ window.__ModuleLoader__.load({
 				const data = latestTurnFilediff(timeline);
 				return summarizeData(data, Number.POSITIVE_INFINITY);
 			}, [timeline]);
-			const latestData = latestTurnFilediff(timeline);
-			console.log("[turn-filediff] taskbar render", {
-				hasTimeline: timeline != null,
-				turnCount: timeline && timeline.turnOrder ? timeline.turnOrder.length : 0,
-				latestDataFileCount: latestData ? latestData.files.length : -1,
-				matchedCount: matched === null ? 0 : matched.count,
-				expanded,
-			});
 			if (matched === null) return null;
 			const { files, count, addedCount, deletedCount, modifiedCount } = matched;
 			return React.createElement(
@@ -723,10 +696,8 @@ window.__ModuleLoader__.load({
 		const inject = ["slots", "locale", "conversationEvents", "remote"];
 
 		async function apply(ctx) {
-			console.log("[turn-filediff] client apply begin");
 			const t = ctx.locale.bind(NS);
 			ctx.conversationEvents.register(turnFilediffDefinition);
-			console.log("[turn-filediff] conversationEvents registered");
 			ctx.effect(
 				() => ctx.locale.register(NS, { zh, en }),
 				"turn-filediff: dictionaries",
@@ -790,7 +761,6 @@ window.__ModuleLoader__.load({
 					TurnFilediffBar,
 				),
 			);
-			console.log("[turn-filediff] conversation.input.dock registered");
 
 			// Replace ui-deliverables' inline file-mention resolver with one over
 			// this plugin's conversation-wide changed-file vocabulary.
@@ -805,7 +775,6 @@ window.__ModuleLoader__.load({
 					);
 				},
 			});
-			console.log("[turn-filediff] client apply done");
 		}
 
 		exports.TurnFilediffBar = TurnFilediffBar;
