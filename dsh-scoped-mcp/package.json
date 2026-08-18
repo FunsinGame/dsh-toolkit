@@ -1,0 +1,48 @@
+{
+  "name": "dsh-scoped-mcp",
+  "description": "Workspace-scoped MCP manager for DSH: per-workspace MCP server configs, per-agent dynamic tool registration, and a settings UI",
+  "version": "0.2.1",
+  "type": "module",
+  "main": "lib/index.js",
+  "bin": {
+    "dsh-scoped-mcp": "lib/cli.js"
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./typert": "./lib/typert.host.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-api-gateway"
+      ]
+    }
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "check": "node --check lib/index.js && node --check lib/config.js && node --check lib/mcp-bridge.js && node --check lib/cli.js && node --check lib/mcp-service.js && node --check lib/typert.host.js && node --check lib/client.js"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "@deepseek-ai/dsh-typert-protocol": "^0.1.0-rc.6",
+    "react": "^18.2.0",
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  }
+}
