@@ -615,7 +615,7 @@ window.__ModuleLoader__.load({
 			ctx.slots.inject("settings.plugin.item", function* () {
 				yield ctx.slots.register({
 					name: "settings.plugin.item",
-					id: "notify-sound",
+					key: "notify-sound",
 					order: 30,
 					locale: NOTIFY_LOCALE_NS,
 					inject: () => ({

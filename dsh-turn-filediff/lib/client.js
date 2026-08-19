@@ -476,6 +476,12 @@ window.__ModuleLoader__.load({
 				display: "flex",
 				flexDirection: "column",
 				gap: 2,
+				maxHeight: "min(320px, 40vh)",
+				overflowY: "auto",
+				overscrollBehavior: "contain",
+			},
+			fileListItem: {
+				flexShrink: 0,
 			},
 			fileItem: {
 				display: "flex",
@@ -568,7 +574,7 @@ window.__ModuleLoader__.load({
 						files.map((file) =>
 							React.createElement(
 								"li",
-								{ key: file.path },
+								{ key: file.path, style: styles.fileListItem },
 								React.createElement(
 									"div",
 									{ style: styles.fileItem, className: "tdf-file" },
