@@ -288,6 +288,12 @@ window.__ModuleLoader__.load({
 				if (event.type === "turn/start") {
 					return { id: String(event.data.turn), role: "start" };
 				}
+				// Track the call-time render intent too: the result view can be
+				// absent (e.g. an edit whose applied metadata did not carry a
+				// replay-safe diff), but the call view still describes the file.
+				if (event.type === "tool/call") {
+					return { id: String(event.data.turn), role: "update" };
+				}
 				if (event.type === "tool/result" && isAppendSurfaceEvent(event)) {
 					return { id: String(event.data.turn), role: "update" };
 				}
@@ -308,14 +314,34 @@ window.__ModuleLoader__.load({
 					turn: match.event.data.turn,
 					files: new Map(prevState ? prevState.files : []),
 					order: [...(prevState ? prevState.order : [])],
+					calls: new Map(),
 				};
 			},
 			update: (context, match) => {
+				if (match.event.type === "tool/call") {
+					const calls = new Map(context.state.calls ?? []);
+					calls.set(
+						String(match.event.data.callId),
+						match.view?.for === "call" ? match.view.view : null,
+					);
+					return { ...context.state, calls };
+				}
 				if (match.event.type !== "tool/result") return context.state;
 				const content = match.event.data.message.content[0];
-				if (content.isError === true) return context.state;
-				const view = match.view?.for === "result" ? match.view.view : null;
-				if (view == null || view.card !== "diff" || !Array.isArray(view.diffs)) {
+				if (content == null || content.isError === true) return context.state;
+				// Prefer the settled result view (applied hunks); fall back to
+				// the call-time diff view when the result carried no diff card.
+				const resultView = match.view?.for === "result" ? match.view.view : null;
+				const callView = (context.state.calls ?? new Map()).get(
+					String(match.event.data.message.source.callId),
+				) ?? null;
+				const view =
+					resultView != null && resultView.card === "diff"
+						? resultView
+						: callView != null && callView.card === "diff"
+							? callView
+							: null;
+				if (view == null || !Array.isArray(view.diffs)) {
 					return context.state;
 				}
 				const files = new Map(context.state.files);
@@ -517,13 +543,18 @@ window.__ModuleLoader__.load({
 				return null;
 			}
 			const [expanded, setExpanded] = React.useState(false);
-			const timeline = useSession(
-				(session) => (session && session.chat && session.chat.timeline) || null,
+			// Select the published turnFilediff value itself, not the timeline
+			// object: the timeline reference is stable while the location data
+			// store mutates in place, so selecting `timeline` would never
+			// re-render when a new file-change summary is published.
+			const data = useSession((session) => {
+				const timeline = session && session.chat && session.chat.timeline;
+				return latestTurnFilediff(timeline);
+			});
+			const matched = React.useMemo(
+				() => summarizeData(data, Number.POSITIVE_INFINITY),
+				[data],
 			);
-			const matched = React.useMemo(() => {
-				const data = latestTurnFilediff(timeline);
-				return summarizeData(data, Number.POSITIVE_INFINITY);
-			}, [timeline]);
 			if (matched === null) return null;
 			const { files, count, addedCount, deletedCount, modifiedCount } = matched;
 			return React.createElement(
@@ -717,8 +748,14 @@ window.__ModuleLoader__.load({
 			}, "turn-filediff: styles");
 
 			// Mount the Host Remote before the taskbar can be clicked. The mount is
-			// owned by this plugin's fiber, so stop/update withdraws it too.
-			await ctx.remote.$mount(TYPERT_REMOTE);
+			// owned by this plugin's fiber, so stop/update withdraws it too. A mount
+			// failure must not take the whole UI down: the list can still render,
+			// and Open/Diff will report the missing namespace in the console.
+			try {
+				await ctx.remote.$mount(TYPERT_REMOTE);
+			} catch (error) {
+				console.error("[turn-filediff] remote mount failed (UI stays active):", error);
+			}
 
 			ctx.slots.inject("conversation.input.dock", () =>
 				ctx.slots.register(
