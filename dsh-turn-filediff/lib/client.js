@@ -150,6 +150,27 @@ window.__ModuleLoader__.load({
 				return { opened: value.opened };
 			},
 		};
+		const revertedResultSchema = {
+			parse(value) {
+				if (typeof value !== "object" || value === null || Array.isArray(value)) {
+					throw new Error("expected an object");
+				}
+				if (typeof value.reverted !== "boolean") {
+					throw new Error("expected a boolean `reverted`");
+				}
+				return { reverted: value.reverted };
+			},
+		};
+		const revertRequestSchema = {
+			parse(value) {
+				if (typeof value !== "object" || value === null || Array.isArray(value)) {
+					throw new Error("expected an object");
+				}
+				const path = stringSchema.parse(value.path);
+				const hunk = fileDiffSchema.parse(value.hunk);
+				return { path, hunk };
+			},
+		};
 
 		/** Client Remote contribution mounted through `ctx.remote.$mount`. */
 		const TYPERT_REMOTE = {
@@ -202,6 +223,31 @@ window.__ModuleLoader__.load({
 						mode: "strict",
 						typeSymbol: "OpenedResult",
 						schema: openedResultSchema,
+					},
+					sourceLocation: { file: "lib/client.js", line: 1, column: 1 },
+				},
+				{
+					id: "dsh-turn-filediff#turnFilediff/revert",
+					service: "turnFilediff",
+					namespace: "turnFilediff",
+					method: "revert",
+					invocation: { kind: "direct" },
+					parameters: [
+						{
+							name: "request",
+							wire: "request",
+							source: "json",
+							codec: {
+								mode: "strict",
+								typeSymbol: "RevertRequest",
+								schema: revertRequestSchema,
+							},
+						},
+					],
+					result: {
+						mode: "strict",
+						typeSymbol: "RevertedResult",
+						schema: revertedResultSchema,
 					},
 					sourceLocation: { file: "lib/client.js", line: 1, column: 1 },
 				},
@@ -282,6 +328,41 @@ window.__ModuleLoader__.load({
 			});
 		}
 
+		/**
+		 * Derive a turn-wide file state from a context's raw matches.
+		 *
+		 * The conversation window can begin inside a turn (no `turn/start` in the
+		 * loaded page), in which case the engine never calls `start` and the
+		 * context state stays undefined. This replay lets `buildLocationData`
+		 * still publish the files observed in the loaded window.
+		 */
+		function stateFromMatches(matches) {
+			let state = { turn: undefined, files: new Map(), order: [], calls: new Map() };
+			for (const match of matches) {
+				const event = match.event;
+				if (state.turn === undefined && event.data && event.data.turn !== undefined) {
+					state.turn = event.data.turn;
+				}
+				if (event.type === "tool/call") {
+					const calls = new Map(state.calls);
+					calls.set(String(event.data.callId), null);
+					state = { ...state, calls };
+				} else if (event.type === "tool/result" && isAppendSurfaceEvent(event)) {
+					const meta = event.data.meta;
+					const diffs = meta && Array.isArray(meta.diffs) ? meta.diffs : null;
+					if (diffs == null || diffs.length === 0) continue;
+					const files = new Map(state.files);
+					const order = [...state.order];
+					for (const diff of diffs) {
+						if (diff == null || typeof diff.path !== "string") continue;
+						applyDiffToFiles(files, order, diff, event.seq);
+					}
+					state = { ...state, files, order };
+				}
+			}
+			return state.turn === undefined ? undefined : state;
+		}
+
 		const turnFilediffDefinition = {
 			kind: "turnFilediff",
 			match: (event) => {
@@ -320,49 +401,36 @@ window.__ModuleLoader__.load({
 			update: (context, match) => {
 				if (match.event.type === "tool/call") {
 					const calls = new Map(context.state.calls ?? []);
-					calls.set(
-						String(match.event.data.callId),
-						match.view?.for === "call" ? match.view.view : null,
-					);
+					calls.set(String(match.event.data.callId), null);
 					return { ...context.state, calls };
 				}
 				if (match.event.type !== "tool/result") return context.state;
-				const content = match.event.data.message.content[0];
-				if (content == null || content.isError === true) return context.state;
-				// Prefer the settled result view (applied hunks); fall back to
-				// the call-time diff view when the result carried no diff card.
-				const resultView = match.view?.for === "result" ? match.view.view : null;
-				const callView = (context.state.calls ?? new Map()).get(
-					String(match.event.data.message.source.callId),
-				) ?? null;
-				const view =
-					resultView != null && resultView.card === "diff"
-						? resultView
-						: callView != null && callView.card === "diff"
-							? callView
-							: null;
-				if (view == null || !Array.isArray(view.diffs)) {
+				const meta = match.event.data.meta;
+				const diffs = meta && Array.isArray(meta.diffs) ? meta.diffs : null;
+				if (diffs == null || diffs.length === 0) {
 					return context.state;
 				}
 				const files = new Map(context.state.files);
 				const order = [...context.state.order];
-				for (const diff of view.diffs) {
+				for (const diff of diffs) {
 					if (diff == null || typeof diff.path !== "string") continue;
 					applyDiffToFiles(files, order, diff, match.event.seq);
 				}
 				return { ...context.state, files, order };
 			},
 			buildLocationData: (context, scope) => {
-				if (scope !== "turn" || context.state === undefined) return null;
-				const files = context.state.order
-					.map((path) => context.state.files.get(path))
+				if (scope !== "turn") return null;
+				const state = context.state ?? stateFromMatches(context.matches);
+				if (state === undefined) return null;
+				const files = state.order
+					.map((path) => state.files.get(path))
 					.filter(Boolean);
 				// Publish even an empty list so the latest turn can clear a
 				// previously published conversation summary (e.g. a temporary
 				// file was created and then deleted).
 				return {
 					kind: "turn",
-					turn: context.state.turn,
+					turn: state.turn,
 					key: "turnFilediff",
 					value: { files },
 				};
@@ -438,6 +506,18 @@ window.__ModuleLoader__.load({
 		function basename(path) {
 			const at = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
 			return at === -1 ? path : path.slice(at + 1);
+		}
+
+		/** Whether a path is absolute on Windows/POSIX. */
+		function isAbsolutePath(path) {
+			return /^[A-Za-z]:[\\/]/.test(path) || /^[\\/]/.test(path);
+		}
+
+		/** Resolve a relative path against the session workspace cwd. */
+		function resolveToAbsolute(cwd, path) {
+			if (isAbsolutePath(path)) return path;
+			if (cwd === undefined || cwd === "") return path;
+			return cwd.replace(/[\\/]+$/, "") + "/" + path.replace(/^[\\/]+/, "");
 		}
 
 		const STATUS_COLOR = {
@@ -534,23 +614,150 @@ window.__ModuleLoader__.load({
 				cursor: "pointer",
 				color: "var(--dsw-alias-label-secondary, #59636e)",
 			},
+			fileToggle: {
+				appearance: "none",
+				background: "transparent",
+				border: "none",
+				padding: "1px 2px",
+				margin: 0,
+				cursor: "pointer",
+				color: "var(--dsw-alias-label-tertiary, #818b98)",
+				font: "inherit",
+				width: 14,
+				flexShrink: 0,
+			},
+			reviewList: {
+				display: "flex",
+				flexDirection: "column",
+				gap: 6,
+				padding: "2px 0 6px 22px",
+			},
+			hunk: {
+				border: "1px solid var(--dsw-alias-border-l2, rgba(0,0,0,0.08))",
+				borderRadius: 6,
+				background: "var(--dsw-alias-markdown-code-block, #f6f8fa)",
+				overflow: "hidden",
+			},
+			hunkBody: {
+				padding: "6px 10px",
+				font: "var(--dsw-font-markdown-code-block, inherit)",
+				fontSize: 12,
+				lineHeight: "20px",
+				overflowX: "auto",
+				overflowY: "hidden",
+			},
+			hunkLine: {
+				minHeight: 20,
+				whiteSpace: "pre",
+			},
+			hunkActions: {
+				display: "flex",
+				alignItems: "center",
+				gap: 8,
+				padding: "3px 8px",
+				borderTop: "1px solid var(--dsw-alias-border-l2, rgba(0,0,0,0.08))",
+			},
+			hunkStats: {
+				color: "var(--dsw-alias-label-tertiary, #818b98)",
+				fontSize: 12,
+			},
+			reviewBtn: {
+				appearance: "none",
+				background: "transparent",
+				border: "none",
+				borderRadius: 6,
+				padding: "1px 8px",
+				font: "inherit",
+				fontSize: 12,
+				cursor: "pointer",
+			},
+			acceptedBadge: { color: "#2ea043", fontSize: 12, fontWeight: 600 },
+			rejectedBadge: { color: "#d1242f", fontSize: 12, fontWeight: 600 },
 		};
 
+		/**
+		 * One hunk's inline review surface: the removed block (red `-`) and the
+		 * added block (green `+`), then an action row with accept/reject. The
+		 * line/terminator rules and color tokens mirror the shipped DiffBlock so
+		 * the review reads as one family with the tool card.
+		 */
+		function ReviewHunk({ hunk, state, onAccept, onReject, t }) {
+			const oldLines = hunk.oldText === null ? [] : splitLines(hunk.oldText);
+			const newLines = splitLines(hunk.newText);
+			const rows = [];
+			for (const line of oldLines) rows.push({ kind: "del", text: line });
+			for (const line of newLines) rows.push({ kind: "add", text: line });
+			return React.createElement(
+				"div",
+				{ className: "tdf-hunk", style: styles.hunk },
+				React.createElement(
+					"div",
+					{ className: "tdf-hunk-body", style: styles.hunkBody },
+					rows.map((row, index) =>
+						React.createElement(
+							"div",
+							{
+								key: index,
+								className: row.kind === "del" ? "tdf-del" : "tdf-add",
+								style: styles.hunkLine,
+							},
+							row.text,
+						),
+					),
+				),
+				React.createElement(
+					"div",
+					{ className: "tdf-hunk-actions", style: styles.hunkActions },
+					React.createElement(
+						"span",
+						{ style: styles.hunkStats },
+						"+" + newLines.length + " -" + oldLines.length,
+					),
+					state === "accepted" &&
+						React.createElement("span", { style: styles.acceptedBadge }, t("hunk.accepted")),
+					state === "rejected" &&
+						React.createElement("span", { style: styles.rejectedBadge }, t("hunk.rejected")),
+					React.createElement("span", { style: styles.spacer }),
+					state === undefined &&
+						React.createElement(
+							"button",
+							{
+								type: "button",
+								className: "tdf-review-btn tdf-accept",
+								style: styles.reviewBtn,
+								onClick: onAccept,
+							},
+							t("hunk.accept"),
+						),
+					state === undefined &&
+						React.createElement(
+							"button",
+							{
+								type: "button",
+								className: "tdf-review-btn tdf-reject",
+								style: styles.reviewBtn,
+								onClick: onReject,
+							},
+							t("hunk.reject"),
+						),
+				),
+			);
+		}
+
 		/** Collapsible vertical file list mounted above the chat input. */
-		function TurnFilediffBar({ useSession, openFile, openEditor, openDiff, t }) {
-			if (typeof useSession !== "function") {
-				console.error("[turn-filediff] taskbar missing useSession prop");
+		function TurnFilediffBar({ useChat, fallbackOpenFile, openEditor, openDiff, revert, t }) {
+			if (typeof useChat !== "function") {
+				console.error("[turn-filediff] taskbar missing useChat prop");
 				return null;
 			}
 			const [expanded, setExpanded] = React.useState(false);
+			const [expandedPath, setExpandedPath] = React.useState(null);
+			const [reviews, setReviews] = React.useState({});
 			// Select the published turnFilediff value itself, not the timeline
 			// object: the timeline reference is stable while the location data
 			// store mutates in place, so selecting `timeline` would never
 			// re-render when a new file-change summary is published.
-			const data = useSession((session) => {
-				const timeline = session && session.chat && session.chat.timeline;
-				return latestTurnFilediff(timeline);
-			});
+			const data = useChat((chat) => latestTurnFilediff(chat && chat.timeline));
 			const matched = React.useMemo(
 				() => summarizeData(data, Number.POSITIVE_INFINITY),
 				[data],
@@ -602,13 +809,27 @@ window.__ModuleLoader__.load({
 					React.createElement(
 						"ul",
 						{ style: styles.list, className: "tdf-list" },
-						files.map((file) =>
-							React.createElement(
+						files.map((file) => {
+							const isOpen = expandedPath === file.path;
+							const fileReviews = reviews[file.path] ?? {};
+							return React.createElement(
 								"li",
 								{ key: file.path, style: styles.fileListItem },
 								React.createElement(
 									"div",
 									{ style: styles.fileItem, className: "tdf-file" },
+									React.createElement(
+										"button",
+										{
+											type: "button",
+											className: "tdf-file-toggle",
+											style: styles.fileToggle,
+											"aria-expanded": isOpen,
+											"aria-label": t("file.review"),
+											onClick: () => setExpandedPath(isOpen ? null : file.path),
+										},
+										isOpen ? "▾" : "▸",
+									),
 									React.createElement(
 										"span",
 										{
@@ -637,8 +858,8 @@ window.__ModuleLoader__.load({
 													typeof openEditor === "function"
 														? await openEditor(file.path, file.firstLine)
 														: false;
-												if (!opened && typeof openFile === "function") {
-													openFile(file.path);
+												if (!opened && typeof fallbackOpenFile === "function") {
+													await fallbackOpenFile(file.path);
 												}
 											},
 										},
@@ -659,8 +880,52 @@ window.__ModuleLoader__.load({
 										t("file.diff"),
 									),
 								),
-							),
-						),
+								isOpen &&
+									React.createElement(
+										"div",
+										{ style: styles.reviewList, className: "tdf-review" },
+										file.diffs.map((hunk, index) =>
+											React.createElement(
+												ReviewHunk,
+												{
+													key: index,
+													hunk,
+													state: fileReviews[index],
+													t,
+													onAccept: () =>
+														setReviews((prev) => ({
+															...prev,
+															[file.path]: {
+																...(prev[file.path] ?? {}),
+																[index]: "accepted",
+															},
+														})),
+													onReject: async () => {
+														const reverted =
+															typeof revert === "function"
+																? await revert(file.path, hunk)
+																: false;
+														if (reverted) {
+															setReviews((prev) => ({
+																...prev,
+																[file.path]: {
+																	...(prev[file.path] ?? {}),
+																	[index]: "rejected",
+																},
+															}));
+														} else {
+															console.error(
+																"[turn-filediff] revert did not apply:",
+																file.path,
+															);
+														}
+													},
+												},
+											),
+										),
+									),
+							);
+						}),
 					),
 			);
 		}
@@ -679,6 +944,11 @@ window.__ModuleLoader__.load({
 			"file.open": "在编辑器中打开 {name}",
 			"file.openBtn": "打开",
 			"file.diff": "差异",
+			"file.review": "展开/收起该文件的逐条审阅",
+			"hunk.accept": "接受",
+			"hunk.reject": "拒绝",
+			"hunk.accepted": "已接受",
+			"hunk.rejected": "已撤销",
 		};
 		const en = {
 			"bar.conversation": "{count} conversation file changes",
@@ -691,6 +961,11 @@ window.__ModuleLoader__.load({
 			"file.open": "Open {name} in editor",
 			"file.openBtn": "Open",
 			"file.diff": "Diff",
+			"file.review": "Expand/collapse per-hunk review for this file",
+			"hunk.accept": "Accept",
+			"hunk.reject": "Reject",
+			"hunk.accepted": "Accepted",
+			"hunk.rejected": "Reverted",
 		};
 
 		const css = `
@@ -698,6 +973,18 @@ window.__ModuleLoader__.load({
 .tdf-file:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04)); }
 .tdf-action:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04)); color: var(--dsw-alias-label-primary, #1f2328); }
 .tdf-bar:focus-visible, .tdf-file:focus-visible, .tdf-action:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--dsw-alias-border-l3, #818b98);
+  outline: none;
+}
+.tdf-del { color: var(--dsw-alias-state-error-primary, #d1242f); }
+.tdf-del::before { content: '- '; color: var(--dsw-alias-state-error-primary, #d1242f); }
+.tdf-add { color: var(--dsw-alias-state-success-primary, #2ea043); }
+.tdf-add::before { content: '+ '; color: var(--dsw-alias-state-success-primary, #2ea043); }
+.tdf-accept { color: #2ea043; }
+.tdf-reject { color: #d1242f; }
+.tdf-review-btn:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04)); }
+.tdf-file-toggle:hover { color: var(--dsw-alias-label-primary, #1f2328); }
+.tdf-file-toggle:focus-visible, .tdf-review-btn:focus-visible {
   box-shadow: inset 0 0 0 2px var(--dsw-alias-border-l3, #818b98);
   outline: none;
 }
@@ -730,11 +1017,11 @@ window.__ModuleLoader__.load({
 
 		// ── plugin body ────────────────────────────────────────────────────────
 
-		const inject = ["slots", "locale", "conversationEvents", "remote"];
+		const inject = ["slots", "locale", "uiConversation", "remote"];
 
 		async function apply(ctx) {
 			const t = ctx.locale.bind(NS);
-			ctx.conversationEvents.register(turnFilediffDefinition);
+			ctx.uiConversation.events.register(turnFilediffDefinition);
 			ctx.effect(
 				() => ctx.locale.register(NS, { zh, en }),
 				"turn-filediff: dictionaries",
@@ -757,6 +1044,34 @@ window.__ModuleLoader__.load({
 				console.error("[turn-filediff] remote mount failed (UI stays active):", error);
 			}
 
+			const currentCwd = () => {
+				try {
+					const sessions = ctx.get("sessions");
+					if (sessions === undefined || sessions.list === undefined) return undefined;
+					if (typeof sessions.list.getSnapshot !== "function") return undefined;
+					const snapshot = sessions.list.getSnapshot();
+					const id = snapshot && snapshot.current;
+					if (id === undefined) return undefined;
+					const row = snapshot.byId && snapshot.byId[id];
+					return row ? row.cwd : undefined;
+				} catch (error) {
+					return undefined;
+				}
+			};
+			const openFileFallback = async (path) => {
+				const absolute = resolveToAbsolute(currentCwd(), path);
+				try {
+					const workspaces = ctx.get("workspaces");
+					if (workspaces !== undefined && typeof workspaces.openPath === "function") {
+						await workspaces.openPath(absolute);
+						return true;
+					}
+				} catch (error) {
+					console.error("[turn-filediff] openPath fallback threw:", error);
+				}
+				return false;
+			};
+
 			ctx.slots.inject("conversation.input.dock", () =>
 				ctx.slots.register(
 					{
@@ -765,6 +1080,7 @@ window.__ModuleLoader__.load({
 						order: 10,
 						locale: NS,
 						inject: () => ({
+							fallbackOpenFile: openFileFallback,
 							openEditor: async (path, line) => {
 								const namespace = ctx.get("remote.turnFilediff");
 								if (namespace === undefined) {
@@ -786,16 +1102,33 @@ window.__ModuleLoader__.load({
 								const namespace = ctx.get("remote.turnFilediff");
 								if (namespace === undefined) {
 									console.error("[turn-filediff] remote.turnFilediff namespace is not mounted");
-									return false;
+									return openFileFallback(path);
 								}
 								try {
 									const result = await namespace.openDiff({ path, diffs });
-									if (result.ok !== true) {
-										console.error("[turn-filediff] openDiff failed:", result);
+									if (result.ok === true && result.value?.opened === true) {
+										return true;
 									}
-									return result.ok === true && result.value?.opened === true;
+									console.error("[turn-filediff] openDiff failed:", result);
 								} catch (error) {
 									console.error("[turn-filediff] openDiff threw:", error);
+								}
+								return openFileFallback(path);
+							},
+							revert: async (path, hunk) => {
+								const namespace = ctx.get("remote.turnFilediff");
+								if (namespace === undefined) {
+									console.error("[turn-filediff] remote.turnFilediff namespace is not mounted");
+									return false;
+								}
+								try {
+									const result = await namespace.revert({ path, hunk });
+									if (result.ok !== true) {
+										console.error("[turn-filediff] revert failed:", result);
+									}
+									return result.ok === true && result.value?.reverted === true;
+								} catch (error) {
+									console.error("[turn-filediff] revert threw:", error);
 									return false;
 								}
 							},

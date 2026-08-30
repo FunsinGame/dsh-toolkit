@@ -42,6 +42,20 @@ const openDiffRequestSchema = z.object({
   { message: "expected a non-empty diffs array or oldText/newText" },
 );
 
+/** Shared result: whether the revert was applied. */
+const revertedResultSchema = z.object({
+  reverted: z.boolean().readonly(),
+}).readonly();
+
+/**
+ * `revert` request: `{ path, hunk }` — reverse-apply one hunk to the file's
+ * current content (the "reject" of a single suggestion).
+ */
+const revertRequestSchema = z.object({
+  path: z.string().readonly(),
+  hunk: fileDiffSchema.readonly(),
+}).readonly();
+
 export const TYPERT = {
   package: "dsh-turn-filediff",
   face: "host",
@@ -94,6 +108,31 @@ export const TYPERT = {
         mode: "strict",
         typeSymbol: "OpenedResult",
         schema: openedResultSchema,
+      },
+      sourceLocation: { file: "lib/index.js", line: 1, column: 1 },
+    },
+    {
+      id: "dsh-turn-filediff#turnFilediff/revert",
+      service: "turnFilediff",
+      namespace: "turnFilediff",
+      method: "revert",
+      invocation: { kind: "direct" },
+      parameters: [
+        {
+          name: "request",
+          wire: "request",
+          source: "json",
+          codec: {
+            mode: "strict",
+            typeSymbol: "RevertRequest",
+            schema: revertRequestSchema,
+          },
+        },
+      ],
+      result: {
+        mode: "strict",
+        typeSymbol: "RevertedResult",
+        schema: revertedResultSchema,
       },
       sourceLocation: { file: "lib/index.js", line: 1, column: 1 },
     },

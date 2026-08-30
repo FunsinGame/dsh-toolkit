@@ -9,17 +9,26 @@ changed and renders a collapsible file list above the chat input box:
 
 The list is **collapsed by default**. Clicking the bar expands a vertical list
 of files; each file row shows its final conversation state — **新增 / Added**,
-**删除 / Deleted**, or **修改 / Modified** — plus two actions:
+**删除 / Deleted**, or **修改 / Modified** — plus a per-hunk inline review and
+two editor actions:
 
+- **逐条审阅 / Review** — the `▸` toggle on each row expands the file's hunks
+  in place, each rendered as a red/green inline diff with **接受 / Accept** and
+  **拒绝 / Reject** buttons. Accept keeps the change and marks the hunk
+  reviewed; Reject reverts that single hunk on disk (see below).
 - **打开 / Open** — open the file in the external editor at the first changed
   line (VS Code by default, via `code --goto path:line`), falling back to the
-  chat view's default file opener when the editor handoff fails.
+  host workspace opener when the editor handoff fails.
 - **差异 / Diff** — open the conversation-level change in the editor's diff
   view. The plugin accumulates every applied `FileDiff` hunk for the file, then
   reconstructs the full before/after text by reverse-applying those hunks to the
   file's current content and writes the snapshots to temporary files for
   `code --diff before after`. This shows the whole conversation's changes for
-  the file, not just the last hunk.
+  the file, not just the last hunk. When the hunks no longer match the current
+  file exactly (duplicate hunks, overlapping edits, or unobserved shell
+  changes), the Host falls back to a best-effort reconstruction that skips the
+  non-matching hunks so a diff can still open; if no usable before/after can be
+  produced, it opens the file in the editor instead.
 
 ## Behavior
 
@@ -60,6 +69,26 @@ shown in the final summary at all.
   deletion can still be shown as a before/after diff. The strict invocation
   descriptors are shipped in `lib/typert.host.js` and picked up automatically
   by the typert-loader.
+
+## Review (accept / reject)
+
+Clicking a file row's `▸` toggle expands its hunks into an inline review: each
+hunk shows the removed lines in red (`-`) and the added lines in green (`+`),
+followed by **接受 / Accept** and **拒绝 / Reject**.
+
+- **Accept** is a client-side review mark only — the change is already on disk
+  (DSH `write`/`edit` apply during the turn), so accepting just records the hunk
+  as reviewed.
+- **Reject** calls the new `turnFilediff/revert` remote method, which
+  reverse-applies that single hunk to the file's current content, reusing the
+  same `reverseHunk` matcher as the Diff action. A hunk that created the file
+  (`oldText === null`) removes the file; a hunk that emptied the file restores
+  its prior content; a file reduced to empty is removed.
+
+Per-hunk revert applies to the file's current on-disk state, so it is exact for
+non-overlapping hunks (the common case). Review marks live in React state for
+the page lifetime and are not persisted across a reload; after a reload the
+timeline still reports the original conversation changes.
 
 ## Install
 

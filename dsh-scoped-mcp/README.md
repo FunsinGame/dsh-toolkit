@@ -95,7 +95,7 @@ Supported fields mirror `@deepseek-ai/dsh-mcp-client`:
 | `headers` | no | extra HTTP headers |
 | `toolCallTimeoutMs` | no | per-call timeout, default `60000` |
 | `failOnStartupError` | no | accepted for compatibility; current version logs and continues on failure |
-| `reconnect.enabled` | no | accepted for compatibility; current version does not yet implement automatic reconnect |
+| `reconnect.enabled` | no | reconnect a dropped transport with the configured backoff, default `true` |
 | `disabled` | no | disable this server without removing it, default `false` |
 
 ## Notes
@@ -104,9 +104,12 @@ Supported fields mirror `@deepseek-ai/dsh-mcp-client`:
   require separate DSH profiles for different MCP server addresses.
 - The first prompt of a brand-new agent may race with async MCP discovery; the
   tools are registered as soon as connection and `tools/list` complete.
-- Reconnect and fail-on-startup options are stored in config for future
-  compatibility; this first version starts the server once and unregisters it
-  when the agent is disposed.
+- `reconnect.enabled` is honored: a dropped transport reconnects with the
+  configured backoff, and a tool call that hits a stale HTTP session or a
+  5xx transport error retries once on a fresh connection before reporting the
+  failure to the model.
+- `failOnStartupError` is accepted for compatibility; the current version logs
+  and continues on failure.
 - Mutations made through the Web settings UI apply to running agents
   immediately. CLI edits are separate processes and are picked up by the next
   agent/session.

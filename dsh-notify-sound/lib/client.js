@@ -11,7 +11,7 @@ window.__ModuleLoader__.load({
 		const { useSyncExternalStore, useState } = React;
 
 		/** Services this browser half consumes. */
-		const inject = ["conversationEvents", "slots", "locale", "settingsScope"];
+		const inject = ["uiConversation", "slots", "locale", "settingsScope"];
 
 		/**
 		 * Cards the agent can put in front of the user. `data-question-key` is
@@ -630,7 +630,7 @@ window.__ModuleLoader__.load({
 
 			// Register the event matcher. The registry ties its lifetime to this
 			// plugin's fiber, so a hot reload cleans it up automatically.
-			ctx.conversationEvents.register(notifySoundDefinition);
+			ctx.uiConversation.events.register(notifySoundDefinition);
 
 			ctx.effect(() => {
 				// Seed with cards already on screen so a reload/hot-reload does not

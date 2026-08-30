@@ -17,9 +17,10 @@
  * discovered automatically by the typert-loader.
  */
 import { TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { request as httpRequest } from "node:http";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 
@@ -125,6 +126,61 @@ function winQuote(value) {
 }
 
 /**
+ * Resolve an editor command to a concrete executable path when possible.
+ *
+ * A bare `code` often means `code.cmd` on Windows, and the DSH server process
+ * may not inherit the interactive shell's PATH, so this walks the standard
+ * resolution order: a path-like editor is used as-is, then `where`, then the
+ * well-known VS Code install locations.
+ *
+ * @param editor - editor command from the row config / environment.
+ * @returns a concrete executable path, or null when it cannot be resolved.
+ */
+function resolveEditor(editor) {
+  // A path-like editor is used directly when the file exists.
+  if (/[\\/]/.test(editor)) {
+    return existsSync(editor) ? editor : null;
+  }
+  if (process.platform !== "win32") return editor;
+
+  // Resolve a bare command (e.g. `code`) through `where`.
+  for (const name of [editor, `${editor}.cmd`, `${editor}.exe`]) {
+    try {
+      const result = spawnSync("where", [name], { encoding: "utf8" });
+      if (result.status === 0) {
+        const first = String(result.stdout || "")
+          .split(/\r?\n/)
+          .map((s) => s.trim())
+          .find(Boolean);
+        if (first) return first;
+      }
+    } catch (error) {
+      // fall through to the next candidate
+    }
+  }
+
+  // Only substitute the well-known VS Code location for the default `code`
+  // command; a custom editor name that is not on PATH must not silently become
+  // VS Code.
+  if (editor !== "code") return null;
+  const local = process.env.LOCALAPPDATA;
+  const programFiles = process.env.ProgramFiles;
+  const programFilesX86 = process.env["ProgramFiles(x86)"];
+  const known = [
+    local ? join(local, "Programs", "Microsoft VS Code", "bin", "code.cmd") : null,
+    local ? join(local, "Programs", "Microsoft VS Code", "Code.exe") : null,
+    programFiles ? join(programFiles, "Microsoft VS Code", "Code.exe") : null,
+    programFilesX86 ? join(programFilesX86, "Microsoft VS Code", "Code.exe") : null,
+  ].filter(Boolean);
+  for (const path of known) {
+    if (existsSync(path)) return path;
+  }
+  // Could not resolve the editor on Windows; signal failure so the caller can
+  // fall back instead of spawning a shell that would report a false success.
+  return null;
+}
+
+/**
  * Launch the configured editor with the given argument list.
  * @param editor - editor command (e.g. `code`).
  * @param args - command-line arguments (without the editor name).
@@ -133,17 +189,27 @@ function winQuote(value) {
 function launchEditor(editor, args) {
   return new Promise((resolve) => {
     const options = { detached: true, stdio: "ignore", windowsHide: true };
+    const resolved = resolveEditor(editor);
+    if (resolved === null) {
+      console.error(
+        `[turn-filediff] editor "${editor}" could not be resolved on this machine`,
+      );
+      resolve(false);
+      return;
+    }
     let child;
     try {
-      if (process.platform === "win32") {
-        // `code` is `code.cmd` on Windows, so it must run through the shell;
-        // build the command line manually so paths with spaces stay quoted.
-        child = spawn(`${editor} ${args.map(winQuote).join(" ")}`, {
+      if (process.platform === "win32" && /\.exe$/i.test(resolved)) {
+        // A real executable: spawn directly, no shell quoting hazards.
+        child = spawn(resolved, args, options);
+      } else if (process.platform === "win32") {
+        // `code.cmd` (a batch file) must run through the shell.
+        child = spawn(`${winQuote(resolved)} ${args.map(winQuote).join(" ")}`, {
           ...options,
           shell: true,
         });
       } else {
-        child = spawn(editor, args, options);
+        child = spawn(resolved, args, options);
       }
     } catch (error) {
       resolve(false);
@@ -289,6 +355,40 @@ async function reconstructBeforeText(filePath, diffs, currentText = null) {
 }
 
 /**
+ * Best-effort reconstruction for files whose current content no longer matches
+ * the accumulated hunks exactly (duplicate hunks, overlapping edits, or
+ * unobserved shell modifications). Unmatched hunks are skipped instead of
+ * aborting, so a diff can still open; the result is approximate when a skip
+ * occurred.
+ * @param filePath - absolute path of the changed file.
+ * @param diffs - ordered applied hunks for this file.
+ * @param currentText - LF-normalized current content ("" for a missing file).
+ * @returns LF-normalized `{ oldText, newText, skipped }` snapshots.
+ */
+function reconstructBeforeTextBestEffort(filePath, diffs, currentText) {
+  let text = currentText;
+  let skipped = 0;
+  for (let i = diffs.length - 1; i >= 0; i--) {
+    const hunk = diffs[i];
+    if (hunk == null) continue;
+    if (hunk.oldText === null) {
+      // `oldText: null` is a whole-file create/fallback hunk. Only the first
+      // recorded hunk can be a true create (prior content empty); later null
+      // hunks are no-op overwrite fallbacks and must not erase earlier edits.
+      if (i === 0) text = "";
+      continue;
+    }
+    const next = reverseHunk(text, hunk);
+    if (next === null) {
+      skipped++;
+    } else {
+      text = next;
+    }
+  }
+  return { oldText: text, newText: currentText, skipped };
+}
+
+/**
  * Write a file's before/after text to a fresh temp directory for VS Code's
  * `--diff`. The temp files are intentionally not deleted (VS Code reads them
  * when it opens the diff; the OS temp cleaner reaps the directory later).
@@ -429,13 +529,32 @@ export class TurnFilediffGateway extends TypertRemoteService {
             throw error;
           }
         }
-        const reconstructed = await reconstructBeforeText(path, diffs, currentText);
-        oldText = reconstructed.oldText;
-        newText = reconstructed.newText;
-        console.log(
-          `[turn-filediff] openDiff reconstructed full snapshots`,
-          JSON.stringify({ oldLength: oldText.length, newLength: newText.length }),
-        );
+        let reconstructed;
+        try {
+          reconstructed = await reconstructBeforeText(path, diffs, currentText);
+          oldText = reconstructed.oldText;
+          newText = reconstructed.newText;
+          console.log(
+            `[turn-filediff] openDiff reconstructed full snapshots`,
+            JSON.stringify({ oldLength: oldText.length, newLength: newText.length }),
+          );
+        } catch (error) {
+          console.warn(
+            `[turn-filediff] openDiff strict reconstruction failed; using best-effort:`,
+            error,
+          );
+          reconstructed = reconstructBeforeTextBestEffort(path, diffs, currentText);
+          oldText = reconstructed.oldText;
+          newText = reconstructed.newText;
+          console.log(
+            `[turn-filediff] openDiff best-effort reconstructed snapshots`,
+            JSON.stringify({ oldLength: oldText.length, newLength: newText.length, skipped: reconstructed.skipped }),
+          );
+        }
+        if (oldText === newText) {
+          console.warn(`[turn-filediff] openDiff produced no usable diff; opening file instead`);
+          return this.openFile({ path });
+        }
       } else if (typeof legacyOldText === "string" && typeof legacyNewText === "string") {
         oldText = legacyOldText;
         newText = legacyNewText;
@@ -472,6 +591,85 @@ export class TurnFilediffGateway extends TypertRemoteService {
     } catch (error) {
       console.error(`[turn-filediff] openDiff prepare failed:`, error);
       return { opened: false };
+    }
+  }
+
+  /**
+   * Revert one applied hunk on disk (the "reject" of a single suggestion).
+   *
+   * The browser sends one accumulated hunk (`{ oldText, newText }`); this
+   * method reverse-applies it to the file's current content, reusing the same
+   * matcher `openDiff` uses so every reverse apply shares one code path.
+   * - `oldText === null` — the hunk created the file, so rejecting it removes
+   *   the file entirely (any later hunks are moot once the creation is undone).
+   * - any other hunk — `newText` is replaced in-place with `oldText`; when the
+   *   file is reduced to empty the file is removed, matching this plugin's
+   *   "reduced to empty = deleted" rule.
+   * @param request - `{ path, hunk: { oldText: string | null, newText: string } }`.
+   * @returns `{ reverted: boolean }`.
+   */
+  async revert(request) {
+    const path = request && request.path;
+    const hunk = request && request.hunk;
+    if (typeof path !== "string" || path.length === 0) {
+      console.warn(`[turn-filediff] revert rejected: missing path`);
+      return { reverted: false };
+    }
+    if (
+      hunk == null ||
+      typeof hunk.newText !== "string" ||
+      !(hunk.oldText === null || typeof hunk.oldText === "string")
+    ) {
+      console.warn(`[turn-filediff] revert rejected: invalid hunk`);
+      return { reverted: false };
+    }
+    console.log(
+      `[turn-filediff] revert request`,
+      JSON.stringify({
+        path,
+        oldText: hunk.oldText === null ? null : `${hunk.oldText.length} chars`,
+        newText: `${hunk.newText.length} chars`,
+      }),
+    );
+    try {
+      if (hunk.oldText === null) {
+        await rm(path, { force: true });
+        console.log(`[turn-filediff] revert removed created file`, JSON.stringify({ path }));
+        return { reverted: true };
+      }
+      let current;
+      try {
+        current = (await readFile(path, "utf8"))
+          .replace(/^\uFEFF/, "")
+          .replace(/\r\n/g, "\n");
+      } catch (error) {
+        if (error && error.code === "ENOENT") {
+          // The file may already be gone; treat it as empty so a deleted file's
+          // hunk can still be restored.
+          current = "";
+        } else {
+          throw error;
+        }
+      }
+      const next = reverseHunk(current, hunk);
+      if (next === null) {
+        console.warn(
+          `[turn-filediff] revert failed: hunk no longer matches current content`,
+          JSON.stringify({ path }),
+        );
+        return { reverted: false };
+      }
+      if (next === "") {
+        await rm(path, { force: true });
+        console.log(`[turn-filediff] revert reduced file to empty and removed it`, JSON.stringify({ path }));
+      } else {
+        await writeFile(path, next, "utf8");
+        console.log(`[turn-filediff] revert wrote reverted content`, JSON.stringify({ path, length: next.length }));
+      }
+      return { reverted: true };
+    } catch (error) {
+      console.error(`[turn-filediff] revert failed:`, error);
+      return { reverted: false };
     }
   }
 }

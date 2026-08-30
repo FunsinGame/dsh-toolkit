@@ -362,7 +362,7 @@ window.__ModuleLoader__.load({
       }), "dsh-scoped-mcp: dictionaries");
 
       const mount = ctx.remote.$mount(TYPERT_REMOTE);
-      const currentSessionId = () => ctx.get("sessions").currentProvideInfo.getSnapshot().sessionId;
+      const currentSessionId = () => ctx.get("sessions")?.list.getSnapshot().current;
       async function call(method, ...args) {
         await mount;
         const remote = ctx.get("remote.scopedMcpManager");
