@@ -22,7 +22,7 @@ import { existsSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, extname, join } from "node:path";
+import { basename, extname, isAbsolute, join, resolve } from "node:path";
 
 const DEFAULT_EDITOR = "code";
 
@@ -409,6 +409,17 @@ async function writeDiffTemp(filePath, oldText, newText) {
 }
 
 /**
+ * Resolve a path against the current workspace cwd if it is relative.
+ * @param targetPath - relative or absolute file path.
+ * @returns absolute file path.
+ */
+function resolveWorkspacePath(targetPath) {
+  if (typeof targetPath !== "string" || targetPath.length === 0) return targetPath;
+  if (isAbsolute(targetPath)) return targetPath;
+  return resolve(process.cwd(), targetPath);
+}
+
+/**
  * Remote service exposing the external-editor handoff to the browser.
  */
 export class TurnFilediffGateway extends TypertRemoteService {
@@ -440,11 +451,12 @@ export class TurnFilediffGateway extends TypertRemoteService {
    * @returns `{ opened: boolean }`.
    */
   async openFile(request) {
-    const path = request && request.path;
-    if (typeof path !== "string" || path.length === 0) {
+    const rawPath = request && request.path;
+    if (typeof rawPath !== "string" || rawPath.length === 0) {
       console.warn(`[turn-filediff] openFile rejected: missing path`);
       return { opened: false };
     }
+    const path = resolveWorkspacePath(rawPath);
     const line = request && request.line;
     console.log(
       `[turn-filediff] openFile request`,
@@ -483,14 +495,15 @@ export class TurnFilediffGateway extends TypertRemoteService {
    * @returns `{ opened: boolean }`.
    */
   async openDiff(request) {
-    const path = request && request.path;
+    const rawPath = request && request.path;
     const diffs = request && request.diffs;
     const legacyOldText = request && request.oldText;
     const legacyNewText = request && request.newText;
-    if (typeof path !== "string" || path.length === 0) {
+    if (typeof rawPath !== "string" || rawPath.length === 0) {
       console.warn(`[turn-filediff] openDiff rejected: missing path`);
       return { opened: false };
     }
+    const path = resolveWorkspacePath(rawPath);
     console.log(
       `[turn-filediff] openDiff request`,
       JSON.stringify({
@@ -609,12 +622,13 @@ export class TurnFilediffGateway extends TypertRemoteService {
    * @returns `{ reverted: boolean }`.
    */
   async revert(request) {
-    const path = request && request.path;
+    const rawPath = request && request.path;
     const hunk = request && request.hunk;
-    if (typeof path !== "string" || path.length === 0) {
+    if (typeof rawPath !== "string" || rawPath.length === 0) {
       console.warn(`[turn-filediff] revert rejected: missing path`);
       return { reverted: false };
     }
+    const path = resolveWorkspacePath(rawPath);
     if (
       hunk == null ||
       typeof hunk.newText !== "string" ||

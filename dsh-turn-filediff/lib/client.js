@@ -1088,7 +1088,8 @@ window.__ModuleLoader__.load({
 									return false;
 								}
 								try {
-									const result = await namespace.openFile({ path, line });
+									const absolute = resolveToAbsolute(currentCwd(), path);
+									const result = await namespace.openFile({ path: absolute, line });
 									if (result.ok !== true) {
 										console.error("[turn-filediff] openFile failed:", result);
 									}
@@ -1105,7 +1106,8 @@ window.__ModuleLoader__.load({
 									return openFileFallback(path);
 								}
 								try {
-									const result = await namespace.openDiff({ path, diffs });
+									const absolute = resolveToAbsolute(currentCwd(), path);
+									const result = await namespace.openDiff({ path: absolute, diffs });
 									if (result.ok === true && result.value?.opened === true) {
 										return true;
 									}
@@ -1122,7 +1124,8 @@ window.__ModuleLoader__.load({
 									return false;
 								}
 								try {
-									const result = await namespace.revert({ path, hunk });
+									const absolute = resolveToAbsolute(currentCwd(), path);
+									const result = await namespace.revert({ path: absolute, hunk });
 									if (result.ok !== true) {
 										console.error("[turn-filediff] revert failed:", result);
 									}
