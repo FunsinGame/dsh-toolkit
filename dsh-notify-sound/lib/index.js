@@ -7,10 +7,10 @@
  * without editing cordis.patch.yml by hand.
  */
 import z from "@deepseek-ai/schemastery";
-import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
+import * as settingsApi from "@deepseek-ai/dsh-settings";
 
-/** Settings namespace owned by this plugin. */
-export const NOTIFY_SOUND_NS = settingsNamespace("notify-sound");
+/** Settings namespace owned by this plugin. Lowercase kebab-case, as the seam requires. */
+export const NOTIFY_SOUND_NS = "notify-sound";
 
 /** Schema for the plugin's user-facing settings. */
 export const NotifySoundConfig = z.object({
@@ -38,12 +38,18 @@ export function apply(ctx, config = {}) {
     volume: typeof config.volume === "number" ? config.volume : 0.4,
     enabled: config.enabled !== false,
   };
+  // The browser half owns playback behavior; the Host only provides the
+  // settings document, so no source/change handling is needed here.
+  const hooks = { setSource() {}, onChange() {} };
 
-  installSettingsSection(ctx, NOTIFY_SOUND_NS, NotifySoundConfig, base, {
-    // The browser half owns playback behavior; the Host only provides the
-    // settings document, so no source/change handling is needed here.
-    setSource() {},
-    onChange() {},
+  if (typeof settingsApi.installSettingsSection === "function") {
+    settingsApi.installSettingsSection(ctx, NOTIFY_SOUND_NS, NotifySoundConfig, base, hooks);
+    return;
+  }
+  // Current seam: the provider owns the optional-settings wiring, so the
+  // consumer registers on a scoped fiber instead of calling a free function.
+  ctx.inject(["settings"], (settingsCtx) => {
+    settingsCtx.settings.installSection(ctx, NOTIFY_SOUND_NS, NotifySoundConfig, base, hooks);
   });
 }
 

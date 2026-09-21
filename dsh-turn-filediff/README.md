@@ -30,6 +30,11 @@ two editor actions:
   non-matching hunks so a diff can still open; if no usable before/after can be
   produced, it opens the file in the editor instead.
 
+The expanded list is a fixed-height scroll region: it shows at most **8 file
+rows** at a time (one "page"), and any further files scroll inside it, so the
+dock above the composer never grows with the file count. Expanding a row for
+per-hunk review makes that row taller rather than the region.
+
 ## Behavior
 
 The plugin deliberately does **not** report a separate file-change list per

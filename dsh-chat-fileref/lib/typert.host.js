@@ -1,22 +1,28 @@
 /**
- * dsh-chat-fileref — generated Typert host manifest.
+ * dsh-chat-fileref — Typert host manifest.
  *
- * Hand-authored strict invocation descriptors. The typert-loader requires each
- * strict codec to be backed by a real Zod v4 schema (it checks for the `_zod`
- * marker and a `parse` method), so the codecs here are Zod schemas.
+ * Hand-authored strict invocation descriptors. Each strict codec carries a
+ * memoized `create()` factory returning the Zod v4 schema for its wire value,
+ * matching the shape @deepseek-ai/dsh-typert-registry validates.
  */
 import { z } from "zod";
 
+/** Memoize one schema factory so repeated validation reuses one Zod instance. */
+const schemaOf = (build) => {
+  let value;
+  return () => (value ??= build());
+};
+
 /** The `openFile` request object `{ path, line? }`. */
-const openFileRequestSchema = z.object({
+const openFileRequestSchema = schemaOf(() => z.object({
   path: z.string().readonly(),
   line: z.number().readonly().optional(),
-}).readonly();
+}).readonly());
 
 /** The `openFile` result object `{ opened: boolean }`. */
-const openFileResultSchema = z.object({
+const openFileResultSchema = schemaOf(() => z.object({
   opened: z.boolean().readonly(),
-}).readonly();
+}).readonly());
 
 export const TYPERT = {
   package: "dsh-chat-fileref",
@@ -37,14 +43,14 @@ export const TYPERT = {
           codec: {
             mode: "strict",
             typeSymbol: "OpenFileRequest",
-            schema: openFileRequestSchema,
+            create: openFileRequestSchema,
           },
         },
       ],
       result: {
         mode: "strict",
         typeSymbol: "OpenFileResult",
-        schema: openFileResultSchema,
+        create: openFileResultSchema,
       },
       sourceLocation: { file: "lib/index.js", line: 1, column: 1 },
     },

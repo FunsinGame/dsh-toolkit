@@ -1,25 +1,31 @@
 /**
- * dsh-turn-filediff — generated Typert host manifest.
+ * dsh-turn-filediff — Typert host manifest.
  *
- * Hand-authored strict invocation descriptors. The typert-loader requires each
- * strict codec to be backed by a real Zod v4 schema, so the codecs here are
- * Zod schemas.
+ * Hand-authored strict invocation descriptors. Each strict codec carries a
+ * memoized `create()` factory returning the Zod v4 schema for its wire value,
+ * matching the shape @deepseek-ai/dsh-typert-registry validates.
  */
 import { z } from "zod";
 
+/** Memoize one schema factory so repeated validation reuses one Zod instance. */
+const schemaOf = (build) => {
+  let value;
+  return () => (value ??= build());
+};
+
 /** Shared result: whether the editor handoff was accepted. */
-const openedResultSchema = z.object({
+const openedResultSchema = schemaOf(() => z.object({
   opened: z.boolean().readonly(),
-}).readonly();
+}).readonly());
 
 /** `openFile` request: `{ path, line? }`. */
-const openFileRequestSchema = z.object({
+const openFileRequestSchema = schemaOf(() => z.object({
   path: z.string().readonly(),
   line: z.number().readonly().optional(),
-}).readonly();
+}).readonly());
 
 /** One applied hunk: `{ oldText: string | null, newText: string }`. */
-const fileDiffSchema = z.object({
+const fileDiffSchema = () => z.object({
   oldText: z.string().nullable().readonly(),
   newText: z.string().readonly(),
 }).readonly();
@@ -30,9 +36,9 @@ const fileDiffSchema = z.object({
  * single-snapshot shape is still accepted so old persisted summaries keep
  * working during rollout.
  */
-const openDiffRequestSchema = z.object({
+const openDiffRequestSchema = schemaOf(() => z.object({
   path: z.string().readonly(),
-  diffs: z.array(fileDiffSchema).readonly().optional(),
+  diffs: z.array(fileDiffSchema()).readonly().optional(),
   oldText: z.string().readonly().optional(),
   newText: z.string().readonly().optional(),
 }).readonly().refine(
@@ -40,21 +46,21 @@ const openDiffRequestSchema = z.object({
     (value.diffs !== undefined && value.diffs.length > 0) ||
     (typeof value.oldText === "string" && typeof value.newText === "string"),
   { message: "expected a non-empty diffs array or oldText/newText" },
-);
+));
 
 /** Shared result: whether the revert was applied. */
-const revertedResultSchema = z.object({
+const revertedResultSchema = schemaOf(() => z.object({
   reverted: z.boolean().readonly(),
-}).readonly();
+}).readonly());
 
 /**
  * `revert` request: `{ path, hunk }` — reverse-apply one hunk to the file's
  * current content (the "reject" of a single suggestion).
  */
-const revertRequestSchema = z.object({
+const revertRequestSchema = schemaOf(() => z.object({
   path: z.string().readonly(),
-  hunk: fileDiffSchema.readonly(),
-}).readonly();
+  hunk: fileDiffSchema().readonly(),
+}).readonly());
 
 export const TYPERT = {
   package: "dsh-turn-filediff",
@@ -75,14 +81,14 @@ export const TYPERT = {
           codec: {
             mode: "strict",
             typeSymbol: "OpenFileRequest",
-            schema: openFileRequestSchema,
+            create: openFileRequestSchema,
           },
         },
       ],
       result: {
         mode: "strict",
         typeSymbol: "OpenedResult",
-        schema: openedResultSchema,
+        create: openedResultSchema,
       },
       sourceLocation: { file: "lib/index.js", line: 1, column: 1 },
     },
@@ -100,14 +106,14 @@ export const TYPERT = {
           codec: {
             mode: "strict",
             typeSymbol: "OpenDiffRequest",
-            schema: openDiffRequestSchema,
+            create: openDiffRequestSchema,
           },
         },
       ],
       result: {
         mode: "strict",
         typeSymbol: "OpenedResult",
-        schema: openedResultSchema,
+        create: openedResultSchema,
       },
       sourceLocation: { file: "lib/index.js", line: 1, column: 1 },
     },
@@ -125,14 +131,14 @@ export const TYPERT = {
           codec: {
             mode: "strict",
             typeSymbol: "RevertRequest",
-            schema: revertRequestSchema,
+            create: revertRequestSchema,
           },
         },
       ],
       result: {
         mode: "strict",
         typeSymbol: "RevertedResult",
-        schema: revertedResultSchema,
+        create: revertedResultSchema,
       },
       sourceLocation: { file: "lib/index.js", line: 1, column: 1 },
     },

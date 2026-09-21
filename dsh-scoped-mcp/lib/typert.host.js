@@ -2,11 +2,19 @@
  * dsh-scoped-mcp Typert host manifest.
  *
  * Strict invocation descriptors for the `scopedMcpManager` remote service.
- * The host service implementation lives in ./mcp-service.js.
+ * The host service implementation lives in ./mcp-service.js. Each strict codec
+ * carries a memoized `create()` factory returning its Zod v4 schema, matching
+ * the shape @deepseek-ai/dsh-typert-registry validates.
  */
 import { z } from "zod";
 
-const serverSchema = z.object({
+/** Memoize one schema factory so repeated validation reuses one Zod instance. */
+const schemaOf = (build) => {
+  let value;
+  return () => (value ??= build());
+};
+
+const serverSchema = schemaOf(() => z.object({
   serverName: z.string(),
   transport: z.enum(["stdio", "streamable-http"]),
   command: z.string().optional(),
@@ -24,69 +32,67 @@ const serverSchema = z.object({
     maxAttempts: z.number().optional(),
   }).optional(),
   disabled: z.boolean().optional(),
-}).passthrough();
+}).passthrough());
 
-const serverViewSchema = serverSchema.extend({
+const serverViewSchema = schemaOf(() => serverSchema().extend({
   scope: z.string().optional(),
-}).passthrough();
+}).passthrough());
 
-const scopeViewSchema = z.object({
+const scopeViewSchema = schemaOf(() => z.object({
   kind: z.enum(["global", "workspace"]),
   path: z.string().nullable().optional(),
   label: z.string().optional(),
-  servers: z.array(serverViewSchema).default([]),
-}).passthrough();
+  servers: z.array(serverViewSchema()).default([]),
+}).passthrough());
 
-const listResultSchema = z.object({
-  global: scopeViewSchema,
-  workspace: scopeViewSchema.nullable().optional(),
+const listResultSchema = schemaOf(() => z.object({
+  global: scopeViewSchema(),
+  workspace: scopeViewSchema().nullable().optional(),
   currentCwd: z.string().nullable().optional(),
-}).passthrough();
+}).passthrough());
 
-const savePayloadSchema = z.object({
+const savePayloadSchema = schemaOf(() => z.object({
   sessionId: z.string().optional(),
   scope: z.string(),
-  server: serverSchema,
+  server: serverSchema(),
   previousServerName: z.string().optional(),
-}).passthrough();
+}).passthrough());
 
-const removePayloadSchema = z.object({
+const removePayloadSchema = schemaOf(() => z.object({
   sessionId: z.string().optional(),
   scope: z.string(),
   serverName: z.string(),
-}).passthrough();
+}).passthrough());
 
-const setEnabledPayloadSchema = z.object({
+const setEnabledPayloadSchema = schemaOf(() => z.object({
   sessionId: z.string().optional(),
   scope: z.string(),
   serverName: z.string(),
   enabled: z.boolean(),
-}).passthrough();
+}).passthrough());
 
-const testPayloadSchema = z.object({
+const testPayloadSchema = schemaOf(() => z.object({
   sessionId: z.string().optional(),
   scope: z.string().optional(),
   serverName: z.string().optional(),
-  server: serverSchema.optional(),
-}).passthrough();
+  server: serverSchema().optional(),
+}).passthrough());
 
-const testResultSchema = z.object({
+const testResultSchema = schemaOf(() => z.object({
   ok: z.boolean(),
   tools: z.array(z.object({
     name: z.string(),
     description: z.string().optional(),
   })).default([]),
   error: z.string().optional(),
-}).passthrough();
+}).passthrough());
 
-const mutationResultSchema = z.object({
+const mutationResultSchema = schemaOf(() => z.object({
   ok: z.boolean(),
   scope: z.string(),
-  servers: z.array(serverViewSchema).default([]),
+  servers: z.array(serverViewSchema()).default([]),
   error: z.string().optional(),
-}).passthrough();
-
-const SERVER_REF = { type: "object" };
+}).passthrough());
 
 export const TYPERT = {
   package: "dsh-scoped-mcp",
@@ -105,10 +111,10 @@ export const TYPERT = {
           wire: "sessionId",
           source: "json",
           acceptsUndefined: true,
-          codec: { mode: "strict", typeSymbol: "SessionId", schema: z.string().optional() },
+          codec: { mode: "strict", typeSymbol: "SessionId", create: () => z.string().optional() },
         },
       ],
-      result: { mode: "strict", typeSymbol: "ScopedMcpListResult", schema: listResultSchema },
+      result: { mode: "strict", typeSymbol: "ScopedMcpListResult", create: listResultSchema },
     },
     {
       id: "dsh-scoped-mcp#scopedMcpManager/save",
@@ -121,10 +127,10 @@ export const TYPERT = {
           name: "payload",
           wire: "payload",
           source: "json",
-          codec: { mode: "strict", typeSymbol: "ScopedMcpSavePayload", schema: savePayloadSchema },
+          codec: { mode: "strict", typeSymbol: "ScopedMcpSavePayload", create: savePayloadSchema },
         },
       ],
-      result: { mode: "strict", typeSymbol: "ScopedMcpMutationResult", schema: mutationResultSchema },
+      result: { mode: "strict", typeSymbol: "ScopedMcpMutationResult", create: mutationResultSchema },
     },
     {
       id: "dsh-scoped-mcp#scopedMcpManager/removeServer",
@@ -137,10 +143,10 @@ export const TYPERT = {
           name: "payload",
           wire: "payload",
           source: "json",
-          codec: { mode: "strict", typeSymbol: "ScopedMcpRemovePayload", schema: removePayloadSchema },
+          codec: { mode: "strict", typeSymbol: "ScopedMcpRemovePayload", create: removePayloadSchema },
         },
       ],
-      result: { mode: "strict", typeSymbol: "ScopedMcpMutationResult", schema: mutationResultSchema },
+      result: { mode: "strict", typeSymbol: "ScopedMcpMutationResult", create: mutationResultSchema },
     },
     {
       id: "dsh-scoped-mcp#scopedMcpManager/setEnabled",
@@ -153,10 +159,10 @@ export const TYPERT = {
           name: "payload",
           wire: "payload",
           source: "json",
-          codec: { mode: "strict", typeSymbol: "ScopedMcpSetEnabledPayload", schema: setEnabledPayloadSchema },
+          codec: { mode: "strict", typeSymbol: "ScopedMcpSetEnabledPayload", create: setEnabledPayloadSchema },
         },
       ],
-      result: { mode: "strict", typeSymbol: "ScopedMcpMutationResult", schema: mutationResultSchema },
+      result: { mode: "strict", typeSymbol: "ScopedMcpMutationResult", create: mutationResultSchema },
     },
     {
       id: "dsh-scoped-mcp#scopedMcpManager/test",
@@ -169,10 +175,10 @@ export const TYPERT = {
           name: "payload",
           wire: "payload",
           source: "json",
-          codec: { mode: "strict", typeSymbol: "ScopedMcpTestPayload", schema: testPayloadSchema },
+          codec: { mode: "strict", typeSymbol: "ScopedMcpTestPayload", create: testPayloadSchema },
         },
       ],
-      result: { mode: "strict", typeSymbol: "ScopedMcpTestResult", schema: testResultSchema },
+      result: { mode: "strict", typeSymbol: "ScopedMcpTestResult", create: testResultSchema },
     },
   ],
   model: { services: [], events: [], objects: [] },

@@ -8,13 +8,13 @@ window.__ModuleLoader__.load({
 
 		// ── Remote codecs (mirror of the Host ./typert.host.js validators) ─────
 
-		const stringSchema = {
+		const stringSchema = () => ({
 			parse(value) {
 				if (typeof value !== "string") throw new Error("expected a string");
 				return value;
 			},
-		};
-		const optionalNumberSchema = {
+		});
+		const optionalNumberSchema = () => ({
 			parse(value) {
 				if (value === undefined) return undefined;
 				if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -22,8 +22,8 @@ window.__ModuleLoader__.load({
 				}
 				return value;
 			},
-		};
-		const openFileRequestSchema = {
+		});
+		const openFileRequestSchema = () => ({
 			parse(value) {
 				if (typeof value !== "object" || value === null || Array.isArray(value)) {
 					throw new Error("expected an object");
@@ -32,8 +32,8 @@ window.__ModuleLoader__.load({
 				const line = optionalNumberSchema.parse(value.line);
 				return line === undefined ? { path } : { path, line };
 			},
-		};
-		const openFileResultSchema = {
+		});
+		const openFileResultSchema = () => ({
 			parse(value) {
 				if (typeof value !== "object" || value === null || Array.isArray(value)) {
 					throw new Error("expected an object");
@@ -43,7 +43,7 @@ window.__ModuleLoader__.load({
 				}
 				return { opened: value.opened };
 			},
-		};
+		});
 
 		/** Client Remote contribution mounted through `ctx.remote.$mount`. */
 		const TYPERT_REMOTE = {
@@ -63,14 +63,14 @@ window.__ModuleLoader__.load({
 							codec: {
 								mode: "strict",
 								typeSymbol: "OpenFileRequest",
-								schema: openFileRequestSchema,
+								create: openFileRequestSchema,
 							},
 						},
 					],
 					result: {
 						mode: "strict",
 						typeSymbol: "OpenFileResult",
-						schema: openFileResultSchema,
+						create: openFileResultSchema,
 					},
 					sourceLocation: { file: "lib/client.js", line: 1, column: 1 },
 				},

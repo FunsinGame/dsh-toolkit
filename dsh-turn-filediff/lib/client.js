@@ -89,13 +89,13 @@ window.__ModuleLoader__.load({
 
 		// ── Remote codecs (mirror of the Host ./typert.host.js validators) ─────
 
-		const stringSchema = {
+		const stringSchema = () => ({
 			parse(value) {
 				if (typeof value !== "string") throw new Error("expected a string");
 				return value;
 			},
-		};
-		const optionalNumberSchema = {
+		});
+		const optionalNumberSchema = () => ({
 			parse(value) {
 				if (value === undefined) return undefined;
 				if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -103,8 +103,8 @@ window.__ModuleLoader__.load({
 				}
 				return value;
 			},
-		};
-		const openFileRequestSchema = {
+		});
+		const openFileRequestSchema = () => ({
 			parse(value) {
 				if (typeof value !== "object" || value === null || Array.isArray(value)) {
 					throw new Error("expected an object");
@@ -113,8 +113,8 @@ window.__ModuleLoader__.load({
 				const line = optionalNumberSchema.parse(value.line);
 				return line === undefined ? { path } : { path, line };
 			},
-		};
-		const fileDiffSchema = {
+		});
+		const fileDiffSchema = () => ({
 			parse(value) {
 				if (typeof value !== "object" || value === null || Array.isArray(value)) {
 					throw new Error("expected an object");
@@ -125,8 +125,8 @@ window.__ModuleLoader__.load({
 					: stringSchema.parse(value.oldText);
 				return { oldText, newText };
 			},
-		};
-		const openDiffRequestSchema = {
+		});
+		const openDiffRequestSchema = () => ({
 			parse(value) {
 				if (typeof value !== "object" || value === null || Array.isArray(value)) {
 					throw new Error("expected an object");
@@ -138,8 +138,8 @@ window.__ModuleLoader__.load({
 				const diffs = value.diffs.map((diff) => fileDiffSchema.parse(diff));
 				return { path, diffs };
 			},
-		};
-		const openedResultSchema = {
+		});
+		const openedResultSchema = () => ({
 			parse(value) {
 				if (typeof value !== "object" || value === null || Array.isArray(value)) {
 					throw new Error("expected an object");
@@ -149,8 +149,8 @@ window.__ModuleLoader__.load({
 				}
 				return { opened: value.opened };
 			},
-		};
-		const revertedResultSchema = {
+		});
+		const revertedResultSchema = () => ({
 			parse(value) {
 				if (typeof value !== "object" || value === null || Array.isArray(value)) {
 					throw new Error("expected an object");
@@ -160,8 +160,8 @@ window.__ModuleLoader__.load({
 				}
 				return { reverted: value.reverted };
 			},
-		};
-		const revertRequestSchema = {
+		});
+		const revertRequestSchema = () => ({
 			parse(value) {
 				if (typeof value !== "object" || value === null || Array.isArray(value)) {
 					throw new Error("expected an object");
@@ -170,7 +170,7 @@ window.__ModuleLoader__.load({
 				const hunk = fileDiffSchema.parse(value.hunk);
 				return { path, hunk };
 			},
-		};
+		});
 
 		/** Client Remote contribution mounted through `ctx.remote.$mount`. */
 		const TYPERT_REMOTE = {
@@ -190,14 +190,14 @@ window.__ModuleLoader__.load({
 							codec: {
 								mode: "strict",
 								typeSymbol: "OpenFileRequest",
-								schema: openFileRequestSchema,
+								create: openFileRequestSchema,
 							},
 						},
 					],
 					result: {
 						mode: "strict",
 						typeSymbol: "OpenedResult",
-						schema: openedResultSchema,
+						create: openedResultSchema,
 					},
 					sourceLocation: { file: "lib/client.js", line: 1, column: 1 },
 				},
@@ -215,14 +215,14 @@ window.__ModuleLoader__.load({
 							codec: {
 								mode: "strict",
 								typeSymbol: "OpenDiffRequest",
-								schema: openDiffRequestSchema,
+								create: openDiffRequestSchema,
 							},
 						},
 					],
 					result: {
 						mode: "strict",
 						typeSymbol: "OpenedResult",
-						schema: openedResultSchema,
+						create: openedResultSchema,
 					},
 					sourceLocation: { file: "lib/client.js", line: 1, column: 1 },
 				},
@@ -240,14 +240,14 @@ window.__ModuleLoader__.load({
 							codec: {
 								mode: "strict",
 								typeSymbol: "RevertRequest",
-								schema: revertRequestSchema,
+								create: revertRequestSchema,
 							},
 						},
 					],
 					result: {
 						mode: "strict",
 						typeSymbol: "RevertedResult",
-						schema: revertedResultSchema,
+						create: revertedResultSchema,
 					},
 					sourceLocation: { file: "lib/client.js", line: 1, column: 1 },
 				},
@@ -538,6 +538,14 @@ window.__ModuleLoader__.load({
 			return t("file.modified");
 		}
 
+		// The expanded file list is a fixed-height scroll region: at most
+		// VISIBLE_FILE_ROWS file rows are on screen at once ("one page"), and any
+		// further files scroll. One row is the 20px line box plus the 2px vertical
+		// padding of `styles.fileItem`, and rows are separated by `styles.list.gap`.
+		const VISIBLE_FILE_ROWS = 8;
+		const FILE_ROW_HEIGHT = 24;
+		const FILE_ROW_GAP = 2;
+
 		const styles = {
 			root: {
 				display: "block",
@@ -581,13 +589,18 @@ window.__ModuleLoader__.load({
 				borderTop: "1px solid var(--dsw-alias-border-l2, rgba(0,0,0,0.08))",
 				display: "flex",
 				flexDirection: "column",
-				gap: 2,
-				maxHeight: "min(320px, 40vh)",
+				gap: FILE_ROW_GAP,
+				// Exactly VISIBLE_FILE_ROWS rows are visible before the list
+				// scrolls, so the dock never grows with the file count.
+				maxHeight:
+					VISIBLE_FILE_ROWS * FILE_ROW_HEIGHT + (VISIBLE_FILE_ROWS - 1) * FILE_ROW_GAP,
 				overflowY: "auto",
 				overscrollBehavior: "contain",
+				scrollbarGutter: "stable",
 			},
 			fileListItem: {
 				flexShrink: 0,
+				minHeight: FILE_ROW_HEIGHT,
 			},
 			fileItem: {
 				display: "flex",

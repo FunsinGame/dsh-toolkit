@@ -10,6 +10,13 @@ coverage/
 *.tsbuildinfo
 *.tgz
 
+# VS Code extension test host
+.vscode-test/
+dsh-csv-table/*.vsix
+
+# Workspace settings file written (and reset) by the extension integration run.
+dsh-csv-table/samples/.vscode/
+
 # Logs
 logs/
 *.log
@@ -30,6 +37,8 @@ lerna-debug.log*
 Thumbs.db
 .idea/
 .vscode/
+!dsh-csv-table/.vscode/
+!dsh-csv-table/.vscode/**
 *.swp
 *.swo
 *~

@@ -8,17 +8,21 @@ window.__ModuleLoader__.load({
     const h = React.createElement;
 
     // ── Remote descriptor schemas ─────────────────────────────────────────
-    function loose(value) {
+    // Memoized schema factory, matching the typert registry's codec contract.
+    const loose = ((build) => {
+      let value;
+      return () => (value ??= build());
+    })(() => {
       return { parse(v) { return v; } };
-    }
+    });
     const TYPERT_REMOTE = {
       package: "dsh-scoped-mcp",
       descriptors: [
-        { id: "dsh-scoped-mcp#scopedMcpManager/list", service: "scopedMcpManager", namespace: "scopedMcpManager", method: "list", invocation: { kind: "direct" }, parameters: [{ name: "sessionId", wire: "sessionId", source: "json", acceptsUndefined: true, codec: { mode: "strict", typeSymbol: "SessionId", schema: loose() } }], result: { mode: "strict", typeSymbol: "ScopedMcpListResult", schema: loose() }, sourceLocation: { file: "lib/client.js", line: 1, column: 1 } },
-        { id: "dsh-scoped-mcp#scopedMcpManager/save", service: "scopedMcpManager", namespace: "scopedMcpManager", method: "save", invocation: { kind: "direct" }, parameters: [{ name: "payload", wire: "payload", source: "json", codec: { mode: "strict", typeSymbol: "ScopedMcpSavePayload", schema: loose() } }], result: { mode: "strict", typeSymbol: "ScopedMcpMutationResult", schema: loose() }, sourceLocation: { file: "lib/client.js", line: 1, column: 1 } },
-        { id: "dsh-scoped-mcp#scopedMcpManager/removeServer", service: "scopedMcpManager", namespace: "scopedMcpManager", method: "removeServer", invocation: { kind: "direct" }, parameters: [{ name: "payload", wire: "payload", source: "json", codec: { mode: "strict", typeSymbol: "ScopedMcpRemovePayload", schema: loose() } }], result: { mode: "strict", typeSymbol: "ScopedMcpMutationResult", schema: loose() }, sourceLocation: { file: "lib/client.js", line: 1, column: 1 } },
-        { id: "dsh-scoped-mcp#scopedMcpManager/setEnabled", service: "scopedMcpManager", namespace: "scopedMcpManager", method: "setEnabled", invocation: { kind: "direct" }, parameters: [{ name: "payload", wire: "payload", source: "json", codec: { mode: "strict", typeSymbol: "ScopedMcpSetEnabledPayload", schema: loose() } }], result: { mode: "strict", typeSymbol: "ScopedMcpMutationResult", schema: loose() }, sourceLocation: { file: "lib/client.js", line: 1, column: 1 } },
-        { id: "dsh-scoped-mcp#scopedMcpManager/test", service: "scopedMcpManager", namespace: "scopedMcpManager", method: "test", invocation: { kind: "direct" }, parameters: [{ name: "payload", wire: "payload", source: "json", codec: { mode: "strict", typeSymbol: "ScopedMcpTestPayload", schema: loose() } }], result: { mode: "strict", typeSymbol: "ScopedMcpTestResult", schema: loose() }, sourceLocation: { file: "lib/client.js", line: 1, column: 1 } },
+        { id: "dsh-scoped-mcp#scopedMcpManager/list", service: "scopedMcpManager", namespace: "scopedMcpManager", method: "list", invocation: { kind: "direct" }, parameters: [{ name: "sessionId", wire: "sessionId", source: "json", acceptsUndefined: true, codec: { mode: "strict", typeSymbol: "SessionId", create: loose } }], result: { mode: "strict", typeSymbol: "ScopedMcpListResult", create: loose }, sourceLocation: { file: "lib/client.js", line: 1, column: 1 } },
+        { id: "dsh-scoped-mcp#scopedMcpManager/save", service: "scopedMcpManager", namespace: "scopedMcpManager", method: "save", invocation: { kind: "direct" }, parameters: [{ name: "payload", wire: "payload", source: "json", codec: { mode: "strict", typeSymbol: "ScopedMcpSavePayload", create: loose } }], result: { mode: "strict", typeSymbol: "ScopedMcpMutationResult", create: loose }, sourceLocation: { file: "lib/client.js", line: 1, column: 1 } },
+        { id: "dsh-scoped-mcp#scopedMcpManager/removeServer", service: "scopedMcpManager", namespace: "scopedMcpManager", method: "removeServer", invocation: { kind: "direct" }, parameters: [{ name: "payload", wire: "payload", source: "json", codec: { mode: "strict", typeSymbol: "ScopedMcpRemovePayload", create: loose } }], result: { mode: "strict", typeSymbol: "ScopedMcpMutationResult", create: loose }, sourceLocation: { file: "lib/client.js", line: 1, column: 1 } },
+        { id: "dsh-scoped-mcp#scopedMcpManager/setEnabled", service: "scopedMcpManager", namespace: "scopedMcpManager", method: "setEnabled", invocation: { kind: "direct" }, parameters: [{ name: "payload", wire: "payload", source: "json", codec: { mode: "strict", typeSymbol: "ScopedMcpSetEnabledPayload", create: loose } }], result: { mode: "strict", typeSymbol: "ScopedMcpMutationResult", create: loose }, sourceLocation: { file: "lib/client.js", line: 1, column: 1 } },
+        { id: "dsh-scoped-mcp#scopedMcpManager/test", service: "scopedMcpManager", namespace: "scopedMcpManager", method: "test", invocation: { kind: "direct" }, parameters: [{ name: "payload", wire: "payload", source: "json", codec: { mode: "strict", typeSymbol: "ScopedMcpTestPayload", create: loose } }], result: { mode: "strict", typeSymbol: "ScopedMcpTestResult", create: loose }, sourceLocation: { file: "lib/client.js", line: 1, column: 1 } },
       ],
     };
 
