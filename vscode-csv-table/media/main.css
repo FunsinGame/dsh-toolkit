@@ -9,6 +9,9 @@
   --head-height: 30px;
   --rownum-width: 56px;
   --grid-border: var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.35));
+  /* 锁定区域叠加的一层淡色：优先按主题前景色混合，不支持 color-mix 时回退为中性灰。 */
+  --frozen-tint: rgba(128, 128, 128, 0.14);
+  --frozen-tint: color-mix(in srgb, var(--vscode-foreground) 9%, transparent);
 }
 
 html,
@@ -77,6 +80,23 @@ body {
 .search:focus,
 select:focus,
 .button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+/* 锁定行列的数字输入框。 */
+.freeze-input {
+  width: 46px;
+  padding: 3px 4px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 2px;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.freeze-input:focus {
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: -1px;
 }
@@ -250,6 +270,42 @@ select {
 
 .csv-table tbody tr:hover td.rownum {
   background: var(--vscode-list-hoverBackground);
+}
+
+/* 锁定的列：横向粘性定位，偏移由脚本按实际列宽写入。 */
+.csv-table td.frozen-column {
+  position: sticky;
+  z-index: 1;
+  background-color: var(--vscode-editor-background);
+}
+
+/* 锁定的行：纵向粘性定位，偏移由脚本按行高写入。 */
+.csv-table tbody tr.frozen-row > td {
+  position: sticky;
+  z-index: 2;
+  background-color: var(--vscode-editor-background);
+}
+
+/* 锁定行与行号列 / 锁定列交叉的单元格要盖在其他锁定单元格之上。 */
+.csv-table tbody tr.frozen-row > td.rownum,
+.csv-table tbody tr.frozen-row > td.frozen-column {
+  z-index: 3;
+}
+
+/* 行号列在被锁定的行里保留自己的底色。 */
+.csv-table tbody tr.frozen-row > td.rownum {
+  background-color: var(--vscode-editorGutter-background, var(--vscode-editor-background));
+}
+
+.csv-table tbody tr.frozen-row:hover > td.rownum {
+  background-color: var(--vscode-list-hoverBackground);
+}
+
+/* 锁定行、锁定列的单元格再叠一层淡色，让用户一眼看出哪些行列被锁住。
+   只改 background-image，悬停与选中规则用的是 background 简写，仍然优先。 */
+.csv-table td.frozen-cell,
+.csv-table th.frozen-cell {
+  background-image: linear-gradient(var(--frozen-tint), var(--frozen-tint));
 }
 
 .csv-table td.selected {

@@ -57,6 +57,7 @@ export const DEFAULT_VIEW_STATE: ViewState = {
 export type WebviewMessage =
   | { readonly type: 'ready' }
   | { readonly type: 'view'; readonly state: ViewState }
+  | { readonly type: 'freeze'; readonly frozenRows: number; readonly frozenColumns: number }
   | { readonly type: 'op'; readonly opId: number; readonly op: CsvOp }
   | { readonly type: 'undo' }
   | { readonly type: 'redo' }
@@ -82,6 +83,10 @@ export interface TableProjection {
   readonly bom: boolean;
   readonly columnWidthMax: number;
   readonly sort: SortState | null;
+  /** 顶部固定显示的行数（来自用户设置）。 */
+  readonly frozenRows: number;
+  /** 左侧固定显示的列数（来自用户设置）。 */
+  readonly frozenColumns: number;
 }
 
 /**
@@ -136,6 +141,17 @@ function configuredColumnWidthMax(): number {
   const config = vscode.workspace.getConfiguration('dshCsv');
   const value = config.get<number>('columnWidth.max', 480);
   return typeof value === 'number' && Number.isFinite(value) && value >= 60 ? Math.floor(value) : 480;
+}
+
+/**
+ * 读取用户设置的锁定数量。
+ *
+ * @param key - `frozenRows` 或 `frozenColumns`。
+ * @returns 非负整数；配置无效时返回 `0`。
+ */
+function configuredFrozenCount(key: 'frozenRows' | 'frozenColumns'): number {
+  const value = vscode.workspace.getConfiguration('dshCsv').get<number>(key, 0);
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
 }
 
 /**
@@ -289,6 +305,9 @@ export class CsvTableSession implements vscode.Disposable {
       case 'view':
         await this.updateViewState(message.state);
         return;
+      case 'freeze':
+        await this.updateFreeze(message.frozenRows, message.frozenColumns);
+        return;
       case 'op':
         await this.applyOperation(message.opId, message.op);
         return;
@@ -307,6 +326,28 @@ export class CsvTableSession implements vscode.Disposable {
       default:
         return;
     }
+  }
+
+  /**
+   * 把锁定行列写回用户设置。
+   *
+   * 写用户设置而不是本工作区的状态，用户下次打开任意 CSV（甚至换一个窗口）
+   * 都会沿用同一组锁定行列；配置变化事件会触发一次重新投影。
+   *
+   * @param frozenRows - 锁定的行数。
+   * @param frozenColumns - 锁定的列数。
+   */
+  private async updateFreeze(frozenRows: number, frozenColumns: number): Promise<void> {
+    const config = vscode.workspace.getConfiguration('dshCsv');
+    const rows = Number.isFinite(frozenRows) && frozenRows > 0 ? Math.floor(frozenRows) : 0;
+    const columns = Number.isFinite(frozenColumns) && frozenColumns > 0 ? Math.floor(frozenColumns) : 0;
+    if (config.get<number>('frozenRows', 0) !== rows) {
+      await config.update('frozenRows', rows, vscode.ConfigurationTarget.Global);
+    }
+    if (config.get<number>('frozenColumns', 0) !== columns) {
+      await config.update('frozenColumns', columns, vscode.ConfigurationTarget.Global);
+    }
+    this.postUpdate(null);
   }
 
   /**
@@ -436,11 +477,12 @@ export class CsvTableSession implements vscode.Disposable {
       filterError = result.error ?? '';
     }
 
+    const columnTotal = Math.max(columnCount(rows), rows.length > 0 ? 1 : 0);
     return {
       rows,
       visible,
       hasHeader,
-      columnCount: Math.max(columnCount(rows), rows.length > 0 ? 1 : 0),
+      columnCount: columnTotal,
       totalRows: table.rows.length,
       truncated,
       readOnly: truncated,
@@ -454,6 +496,9 @@ export class CsvTableSession implements vscode.Disposable {
       bom: table.dialect.bom,
       columnWidthMax: configuredColumnWidthMax(),
       sort: this.state.sort,
+      // 锁定数量来自用户设置；超过表格范围时按实际大小收敛。
+      frozenRows: Math.min(configuredFrozenCount('frozenRows'), visible.length),
+      frozenColumns: Math.min(configuredFrozenCount('frozenColumns'), columnTotal),
     };
   }
 
@@ -503,6 +548,8 @@ export class CsvTableSession implements vscode.Disposable {
       truncated: projection.truncated,
       readOnly: projection.readOnly,
       filterError: projection.filterError,
+      frozenRows: projection.frozenRows,
+      frozenColumns: projection.frozenColumns,
     });
   }
 

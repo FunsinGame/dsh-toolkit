@@ -172,6 +172,18 @@
           "default": 480,
           "minimum": 60,
           "markdownDescription": "自动列宽的上限（像素）。"
+        },
+        "dshCsv.frozenRows": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "markdownDescription": "锁定的行数：表格视图顶部固定显示前 N 行，滚动时不移动。在表格视图工具栏里修改会写回这一项用户设置，下一次打开任何 CSV 都会沿用。"
+        },
+        "dshCsv.frozenColumns": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "markdownDescription": "锁定的列数：表格视图左侧固定显示前 N 列，横向滚动时不移动。在表格视图工具栏里修改会写回这一项用户设置，下一次打开任何 CSV 都会沿用。"
         }
       }
     }

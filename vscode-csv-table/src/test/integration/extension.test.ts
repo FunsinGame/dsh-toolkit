@@ -174,4 +174,27 @@ suite('CSV 表格视图', () => {
       );
     }
   });
+
+  test('锁定行列写进用户设置，跨文件与跨窗口都保留', async () => {
+    const config = vscode.workspace.getConfiguration('dshCsv');
+    const previous = config.inspect<number>('frozenRows')?.globalValue;
+    try {
+      await config.update('frozenRows', 3, vscode.ConfigurationTarget.Global);
+      await config.update('frozenColumns', 2, vscode.ConfigurationTarget.Global);
+
+      const stored = vscode.workspace.getConfiguration('dshCsv').inspect<number>('frozenRows');
+      assert.equal(stored?.globalValue, 3, '写入的是用户设置而不是工作区设置');
+      assert.equal(stored?.workspaceValue, undefined);
+      assert.equal(vscode.workspace.getConfiguration('dshCsv').get<number>('frozenColumns', 0), 2);
+
+      // 另开一个 CSV 也能读到同一组锁定数量。
+      const uri = sample('quoted.csv');
+      await vscode.commands.executeCommand('dshCsv.showTable', uri);
+      await waitFor(tableIsActive, '表格视图打开');
+      assert.equal(vscode.workspace.getConfiguration('dshCsv').get<number>('frozenRows', 0), 3);
+    } finally {
+      await config.update('frozenRows', previous, vscode.ConfigurationTarget.Global);
+      await config.update('frozenColumns', undefined, vscode.ConfigurationTarget.Global);
+    }
+  });
 });

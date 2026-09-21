@@ -13,6 +13,9 @@
   const ROW_HEIGHT = 26;
   const HEAD_HEIGHT = 30;
   const BUFFER_ROWS = 10;
+  /** 行号列宽度，必须与 `main.css` 里的 `--rownum-width` 一致。 */
+  const ROWNUM_WIDTH = 56;
+  const DEFAULT_COLUMN_WIDTH = 140;
   /** 拖动超过这么多像素才算拖拽，保证单击仍然是单击。 */
   const DRAG_THRESHOLD = 4;
   const MIN_COLUMN_WIDTH = 56;
@@ -76,6 +79,10 @@
     insertColumnRight: '在右侧插入列',
     deleteColumn: '删除此列',
     fitColumn: '列宽自适应',
+    freeze: '锁定',
+    freezeTitle: '锁定行列：滚动时固定显示表格的前几行、前几列',
+    freezeRows: '锁定的行数',
+    freezeColumns: '锁定的列数',
     columnPrefix: '列',
     readOnly: '（只读）',
   };
@@ -114,6 +121,8 @@
     delimiter: 'auto',
     columnWidths: {},
     sort: null,
+    frozenRows: 0,
+    frozenColumns: 0,
     selection: null,
     editing: null,
     pendingRender: false,
@@ -303,8 +312,10 @@
 
   /** 当内容发生变化时重建表头行。 */
   function renderHead() {
+    const frozenColumns = Math.min(view.frozenColumns, model.columnCount);
     const signature = [
       model.columnCount,
+      frozenColumns,
       view.sort ? view.sort.column + ':' + view.sort.direction : '',
     ].join('|');
     if (signature === headSignature) {
@@ -321,8 +332,11 @@
           ? t('sortMenuAsc')
           : t('sortMenuDesc')
         : t('sortMenu');
+      const frozen = column < frozenColumns;
       markup +=
-        '<th class="head-cell" data-col="' +
+        '<th class="head-cell' +
+        (frozen ? ' frozen-column frozen-cell' : '') +
+        '" data-col="' +
         column +
         '" title="' +
         escapeAttr(t('columnPrefix') + ' ' + columnLetter(column)) +
@@ -350,14 +364,23 @@
    * 渲染一行正文。
    *
    * @param {number} rowIndex - 绝对行索引。
+   * @param {number} displayIndex - 在显示顺序中的下标，锁定行用它计算粘性偏移。
+   * @param {boolean} frozen - 该行是否为锁定行。
    * @returns {string} 该行的标记。
    */
-  function rowMarkup(rowIndex) {
+  function rowMarkup(rowIndex, displayIndex, frozen) {
     const row = model.rows[rowIndex] || [];
     const rect = selectionRect();
     const active = view.selection ? view.selection.focus : null;
+    const frozenColumns = Math.min(view.frozenColumns, model.columnCount);
     let markup =
-      '<tr><td class="rownum" data-row="' +
+      '<tr data-display="' +
+      displayIndex +
+      '"' +
+      (frozen ? ' class="frozen-row"' : '') +
+      '><td class="rownum' +
+      (frozen ? ' frozen-cell' : '') +
+      '" data-row="' +
       rowIndex +
       '">' +
       (rowIndex + 1) +
@@ -365,6 +388,13 @@
     for (let column = 0; column < model.columnCount; column += 1) {
       const value = row[column] === undefined ? '' : row[column];
       let classes = 'cell';
+      if (column < frozenColumns) {
+        classes += ' frozen-column';
+      }
+      // 锁定行或锁定列里的单元格都算锁定区域，用来显示淡色底纹。
+      if (frozen || column < frozenColumns) {
+        classes += ' frozen-cell';
+      }
       if (rect && rowIndex >= rect.r1 && rowIndex <= rect.r2 && column >= rect.c1 && column <= rect.c2) {
         classes += ' selected';
       }
@@ -398,20 +428,36 @@
     }
     const rows = displayRows();
     const total = rows.length;
+    const frozenRows = Math.min(view.frozenRows, total);
     const viewport = scroll.clientHeight || 400;
     const firstVisible = Math.max(0, Math.floor((scroll.scrollTop - HEAD_HEIGHT) / ROW_HEIGHT));
     const lastVisible = Math.ceil((scroll.scrollTop + viewport - HEAD_HEIGHT) / ROW_HEIGHT);
-    const start = Math.max(0, firstVisible - BUFFER_ROWS);
-    const end = Math.min(total, lastVisible + BUFFER_ROWS);
+    // 锁定的行始终渲染在最前面（粘性定位依赖它们的自然位置），窗口从它们之后开始。
+    const start = Math.max(frozenRows, firstVisible - BUFFER_ROWS);
+    const end = Math.min(total, Math.max(start, lastVisible + BUFFER_ROWS));
 
-    padTop.style.height = start * ROW_HEIGHT + 'px';
+    padTop.style.height = (start - frozenRows) * ROW_HEIGHT + 'px';
     padBottom.style.height = Math.max(0, (total - end) * ROW_HEIGHT) + 'px';
 
     let markup = '';
+    for (let index = 0; index < frozenRows; index += 1) {
+      markup += rowMarkup(rows[index], index, true);
+    }
     for (let index = start; index < end; index += 1) {
-      markup += rowMarkup(rows[index]);
+      markup += rowMarkup(rows[index], index, false);
     }
     tbody.innerHTML = markup;
+    applyStickyOffsets();
+  }
+
+  /**
+   * 某一列当前的像素宽度。
+   *
+   * @param {number} column - 列索引。
+   * @returns 像素宽度。
+   */
+  function columnWidth(column) {
+    return view.columnWidths[column] || DEFAULT_COLUMN_WIDTH;
   }
 
   /** 把已保存或自动计算的列宽应用到表格。 */
@@ -419,14 +465,53 @@
     if (table === null) {
       return;
     }
-    let total = 56;
-    colgroup.children[0].style.width = '56px';
+    colgroup.children[0].style.width = ROWNUM_WIDTH + 'px';
+    let total = ROWNUM_WIDTH;
     for (let column = 0; column < model.columnCount; column += 1) {
-      const width = view.columnWidths[column] || 140;
-      colgroup.children[column + 1].style.width = width + 'px';
-      total += width;
+      total += columnWidth(column);
     }
-    table.style.width = Math.max(total, scroll.clientWidth) + 'px';
+    const target = Math.max(total, scroll.clientWidth);
+    const last = model.columnCount - 1;
+    for (let column = 0; column < model.columnCount; column += 1) {
+      // 多余宽度全部给最后一列，其余列保持精确宽度，锁定列的左偏移才能对上。
+      const width = columnWidth(column) + (column === last ? target - total : 0);
+      colgroup.children[column + 1].style.width = width + 'px';
+    }
+    table.style.width = target + 'px';
+  }
+
+  /** 给锁定的行、列设置粘性定位偏移。 */
+  function applyStickyOffsets() {
+    if (table === null) {
+      return;
+    }
+    const frozenColumns = Math.min(view.frozenColumns, model.columnCount);
+    const frozenRows = Math.min(view.frozenRows, displayRows().length);
+
+    const offsets = [];
+    let left = ROWNUM_WIDTH;
+    for (let column = 0; column < model.columnCount; column += 1) {
+      offsets.push(left);
+      left += columnWidth(column);
+    }
+
+    for (const header of thead.querySelectorAll('th.head-cell')) {
+      const column = Number(header.getAttribute('data-col'));
+      header.style.left = column < frozenColumns ? offsets[column] + 'px' : '';
+    }
+
+    if (tbody === null) {
+      return;
+    }
+    for (const cell of tbody.querySelectorAll('td.frozen-column')) {
+      cell.style.left = offsets[Number(cell.getAttribute('data-col'))] + 'px';
+    }
+    if (frozenRows > 0) {
+      for (const cell of tbody.querySelectorAll('tr.frozen-row > td')) {
+        const display = Number(cell.parentElement.getAttribute('data-display'));
+        cell.style.top = HEAD_HEIGHT + display * ROW_HEIGHT + 'px';
+      }
+    }
   }
 
   /**
@@ -566,6 +651,35 @@
       vscode.postMessage({ type: 'redo' });
     });
 
+    // 锁定行列：两个数字输入框，形如「锁定 行 [4] 列 [2]」。
+    controls.freezeLabel = document.createElement('span');
+    controls.freezeLabel.className = 'info';
+    controls.freezeLabel.textContent = t('freeze');
+
+    controls.freezeRows = document.createElement('input');
+    controls.freezeRows.id = 'freeze-rows';
+    controls.freezeRows.type = 'number';
+    controls.freezeRows.className = 'freeze-input';
+    controls.freezeRows.min = '0';
+    controls.freezeRows.value = '0';
+    controls.freezeRows.addEventListener('change', applyFreezeInputs);
+
+    controls.freezeRowsUnit = document.createElement('span');
+    controls.freezeRowsUnit.className = 'info';
+    controls.freezeRowsUnit.textContent = t('rows');
+
+    controls.freezeColumns = document.createElement('input');
+    controls.freezeColumns.id = 'freeze-columns';
+    controls.freezeColumns.type = 'number';
+    controls.freezeColumns.className = 'freeze-input';
+    controls.freezeColumns.min = '0';
+    controls.freezeColumns.value = '0';
+    controls.freezeColumns.addEventListener('change', applyFreezeInputs);
+
+    controls.freezeColumnsUnit = document.createElement('span');
+    controls.freezeColumnsUnit.className = 'info';
+    controls.freezeColumnsUnit.textContent = t('columns');
+
     controls.info = document.createElement('span');
     controls.info.className = 'info';
 
@@ -578,6 +692,11 @@
     toolbar.appendChild(divider);
     toolbar.appendChild(controls.header);
     toolbar.appendChild(controls.delimiter);
+    toolbar.appendChild(controls.freezeLabel);
+    toolbar.appendChild(controls.freezeRows);
+    toolbar.appendChild(controls.freezeRowsUnit);
+    toolbar.appendChild(controls.freezeColumns);
+    toolbar.appendChild(controls.freezeColumnsUnit);
     toolbar.appendChild(
       (function () {
         const spacer = document.createElement('span');
@@ -632,6 +751,20 @@
     controls.delimiter.title = t('delimiter');
     controls.addRow.disabled = model.readOnly;
     controls.addColumn.disabled = model.readOnly;
+    controls.freezeLabel.title = t('freezeTitle');
+    controls.freezeRows.title = t('freezeRows');
+    controls.freezeColumns.title = t('freezeColumns');
+    controls.freezeRows.max = String(displayRows().length);
+    controls.freezeColumns.max = String(model.columnCount);
+    controls.freezeRows.disabled = model.readOnly;
+    controls.freezeColumns.disabled = model.readOnly;
+    // 正在输入时不要覆盖用户敲进去的内容。
+    if (document.activeElement !== controls.freezeRows) {
+      controls.freezeRows.value = String(Math.min(view.frozenRows, displayRows().length));
+    }
+    if (document.activeElement !== controls.freezeColumns) {
+      controls.freezeColumns.value = String(Math.min(view.frozenColumns, model.columnCount));
+    }
     controls.info.textContent =
       model.totalRows +
       ' ' +
@@ -641,6 +774,30 @@
       ' ' +
       t('columns') +
       (model.readOnly ? t('readOnly') : '');
+  }
+
+  /** 读取工具栏上的锁定行列输入。 */
+  function applyFreezeInputs() {
+    const rows = Number(controls.freezeRows.value);
+    const columns = Number(controls.freezeColumns.value);
+    view.frozenRows = Number.isFinite(rows) && rows > 0 ? Math.floor(rows) : 0;
+    view.frozenColumns = Number.isFinite(columns) && columns > 0 ? Math.floor(columns) : 0;
+    constrainFreeze();
+    controls.freezeRows.value = String(view.frozenRows);
+    controls.freezeColumns.value = String(view.frozenColumns);
+    render();
+    // 锁定数量是用户设置，交给编辑器写入，下次打开任意 CSV 都会沿用。
+    vscode.postMessage({
+      type: 'freeze',
+      frozenRows: view.frozenRows,
+      frozenColumns: view.frozenColumns,
+    });
+  }
+
+  /** 把锁定数量限制在当前表格范围内。 */
+  function constrainFreeze() {
+    view.frozenRows = Math.min(Math.max(0, view.frozenRows), displayRows().length);
+    view.frozenColumns = Math.min(Math.max(0, view.frozenColumns), model.columnCount);
   }
 
   /** 渲染列筛选标签（chip）。 */
@@ -761,6 +918,7 @@
     renderHead();
     applyColumnWidths();
     renderBody();
+    applyStickyOffsets();
     renderStatus();
   }
 
@@ -923,17 +1081,22 @@
   }
 
   /**
-   * 滚动视图，使某个显示行保持在固定表头下方的可见区域内。
+   * 滚动视图，使某个显示行保持在固定表头与锁定行下方的可见区域内。
    *
    * @param {number} index - 显示顺序中的索引。
    */
   function scrollIntoView(index) {
+    const frozenRows = Math.min(view.frozenRows, displayRows().length);
+    // 锁定的行一直显示在顶部，不需要为它们滚动。
+    if (index < frozenRows) {
+      return;
+    }
     const top = HEAD_HEIGHT + index * ROW_HEIGHT;
     const bottom = top + ROW_HEIGHT;
-    const visibleTop = scroll.scrollTop + HEAD_HEIGHT;
+    const visibleTop = scroll.scrollTop + HEAD_HEIGHT + frozenRows * ROW_HEIGHT;
     const visibleBottom = scroll.scrollTop + (scroll.clientHeight || 400);
     if (top < visibleTop) {
-      scroll.scrollTop = top - HEAD_HEIGHT;
+      scroll.scrollTop = top - HEAD_HEIGHT - frozenRows * ROW_HEIGHT;
     } else if (bottom > visibleBottom) {
       scroll.scrollTop = bottom - (scroll.clientHeight || 400);
     }
@@ -1540,12 +1703,8 @@
     const move = function (moveEvent) {
       const width = Math.max(MIN_COLUMN_WIDTH, Math.round(startWidth + moveEvent.clientX - startX));
       view.columnWidths[column] = width;
-      colgroup.children[column + 1].style.width = width + 'px';
-      let total = 56;
-      for (let index = 0; index < model.columnCount; index += 1) {
-        total += view.columnWidths[index] || 140;
-      }
-      table.style.width = Math.max(total, scroll.clientWidth) + 'px';
+      applyColumnWidths();
+      applyStickyOffsets();
     };
     const up = function () {
       document.removeEventListener('mousemove', move);
@@ -1945,6 +2104,9 @@
     model.delimiterIsAuto = message.delimiterIsAuto !== false;
     model.columnWidthMax = message.columnWidthMax || MAX_COLUMN_WIDTH_DEFAULT;
     view.sort = message.sort || null;
+    view.frozenRows = Number.isFinite(message.frozenRows) && message.frozenRows > 0 ? Math.floor(message.frozenRows) : 0;
+    view.frozenColumns =
+      Number.isFinite(message.frozenColumns) && message.frozenColumns > 0 ? Math.floor(message.frozenColumns) : 0;
     if (first) {
       // 后续更新不得覆盖用户正在输入的控件。
       adoptViewState(message.viewState);
@@ -1952,6 +2114,7 @@
     } else if (model.columnCount !== previousColumns) {
       view.columnWidths = {};
     }
+    constrainFreeze();
     constrainSelection();
     render();
     if (model.columnCount > 0 && Object.keys(view.columnWidths).length === 0) {
@@ -2021,6 +2184,10 @@
     model.truncated = message.truncated === true;
     model.readOnly = message.readOnly === true;
     model.filterError = message.filterError || '';
+    view.frozenRows = Number.isFinite(message.frozenRows) && message.frozenRows > 0 ? Math.floor(message.frozenRows) : 0;
+    view.frozenColumns =
+      Number.isFinite(message.frozenColumns) && message.frozenColumns > 0 ? Math.floor(message.frozenColumns) : 0;
+    constrainFreeze();
     constrainSelection();
     render();
   }

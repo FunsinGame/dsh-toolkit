@@ -380,6 +380,103 @@ test('只按下不拖动不会产生移动操作', () => {
   assert.deepEqual(plain(harness.posted.filter(message => message.type === 'op')), []);
 });
 
+test('设定锁定行列后给前几行几列加上粘性偏移', () => {
+  const harness = createHarness();
+  send(harness, updateMessage(SAMPLE));
+  const document = harness.window.document;
+  const rowsInput = document.getElementById('freeze-rows');
+  const columnsInput = document.getElementById('freeze-columns');
+  rowsInput.value = '2';
+  columnsInput.value = '1';
+  rowsInput.dispatchEvent(new harness.window.Event('change', { bubbles: true }));
+  columnsInput.dispatchEvent(new harness.window.Event('change', { bubbles: true }));
+
+  const frozenRows = document.querySelectorAll('tbody tr.frozen-row');
+  assert.equal(frozenRows.length, 2);
+  // 固定表头高 30px，行高 26px；粘性偏移写在单元格上。
+  assert.equal(frozenRows[0].querySelector('td').style.top, '30px');
+  assert.equal(frozenRows[1].querySelector('td').style.top, '56px');
+
+  const frozenCells = document.querySelectorAll('tbody tr:nth-child(3) td.frozen-column');
+  assert.equal(frozenCells.length, 1, '只有第 1 列被锁定');
+  assert.equal(frozenCells[0].style.left, '56px', '锁定列固定在行号列右侧');
+
+  const headers = document.querySelectorAll('thead th.head-cell');
+  assert.equal(headers[0].style.left, '56px');
+  assert.equal(headers[1].style.left, '', '未锁定的列没有粘性偏移');
+
+  // 锁定行整行、锁定列整列都算锁定区域，用于叠加淡色底纹。
+  assert.equal(
+    document.querySelectorAll('tbody tr:nth-child(1) td.frozen-cell').length,
+    4,
+    '锁定行的所有单元格（含行号列）都在锁定区域内',
+  );
+  assert.equal(
+    document.querySelectorAll('tbody tr:nth-child(3) td.frozen-cell').length,
+    1,
+    '普通行里只有锁定列的单元格在锁定区域内',
+  );
+  assert.equal(document.querySelectorAll('thead th.frozen-cell').length, 1);
+});
+
+test('锁定单元格有独立的淡色底纹样式', () => {
+  const css = readFileSync(path.join(PACKAGE_ROOT, 'media', 'main.css'), 'utf8');
+  assert.match(css, /--frozen-tint: color-mix\(in srgb, var\(--vscode-foreground\)/, '按主题前景色生成叠加色');
+  assert.match(css, /--frozen-tint: rgba\(/, '为不支持 color-mix 的引擎保留回退色');
+  const start = css.indexOf('.csv-table td.frozen-cell');
+  assert.ok(start >= 0, 'main.css 里应有 .frozen-cell 规则');
+  const block = css.slice(css.indexOf('{', start), css.indexOf('}', start));
+  assert.match(block, /background-image: linear-gradient\(var\(--frozen-tint\)/);
+});
+
+test('锁定行在滚动到很远处时依然渲染在最前面', async () => {
+  const harness = createHarness();
+  const rows = [['序号', '值']];
+  for (let index = 0; index < 200; index += 1) {
+    rows.push([String(index), 'x']);
+  }
+  send(harness, updateMessage(rows));
+  const document = harness.window.document;
+  const rowsInput = document.getElementById('freeze-rows');
+  rowsInput.value = '3';
+  rowsInput.dispatchEvent(new harness.window.Event('change', { bubbles: true }));
+
+  const scroll = document.getElementById('scroll');
+  scroll.scrollTop = 2000;
+  scroll.dispatchEvent(new harness.window.Event('scroll', { bubbles: true }));
+  // 滚动渲染用 requestAnimationFrame 节流。
+  await new Promise(resolve => setTimeout(resolve, 60));
+
+  const frozen = document.querySelectorAll('tbody tr.frozen-row');
+  assert.equal(frozen.length, 3, '锁定的行始终渲染');
+  assert.equal(frozen[0].getAttribute('data-display'), '0');
+  assert.equal(frozen[2].querySelector('td').style.top, '82px');
+  const rendered = document.querySelectorAll('tbody tr').length;
+  assert.ok(rendered < 100, `只渲染窗口内的行，实际 ${rendered}`);
+});
+
+test('修改锁定数量会写回用户设置，编辑器回推的数量也会被应用', () => {
+  const harness = createHarness();
+  send(harness, updateMessage(SAMPLE));
+  const rowsInput = harness.window.document.getElementById('freeze-rows');
+  rowsInput.value = '2';
+  rowsInput.dispatchEvent(new harness.window.Event('change', { bubbles: true }));
+  const posted = harness.posted.filter(entry => entry.type === 'freeze').pop() as any;
+  // 锁定数量交给编辑器写入用户设置，下次打开任意 CSV 都会沿用。
+  assert.deepEqual(plain(posted), { type: 'freeze', frozenRows: 2, frozenColumns: 0 });
+
+  // 编辑器按用户设置回推锁定数量，视图据此恢复。
+  const restored = createHarness();
+  send(restored, updateMessage(SAMPLE, { frozenRows: 1, frozenColumns: 2 }));
+  assert.equal(restored.window.document.getElementById('freeze-rows').value, '1');
+  assert.equal(restored.window.document.getElementById('freeze-columns').value, '2');
+  assert.equal(restored.window.document.querySelectorAll('tbody tr.frozen-row').length, 1);
+  assert.equal(
+    restored.window.document.querySelectorAll('tbody tr:nth-child(2) td.frozen-column').length,
+    2,
+  );
+});
+
 test('编辑单元格会回传新的值', () => {
   const harness = createHarness();
   send(harness, updateMessage(SAMPLE));
