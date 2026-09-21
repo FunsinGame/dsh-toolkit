@@ -1,0 +1,444 @@
+/*
+ * CSV 表格视图的样式。
+ *
+ * 所有颜色都取自 VS Code 的主题变量，因此表格会跟随当前主题，包括高对比度主题。
+ */
+
+:root {
+  --row-height: 26px;
+  --head-height: 30px;
+  --rownum-width: 56px;
+  --grid-border: var(--vscode-editorWidget-border, rgba(128, 128, 128, 0.35));
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+body {
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+  font-family: var(--vscode-editor-font-family, 'Segoe UI', sans-serif);
+  font-size: var(--vscode-editor-font-size, 13px);
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-height: 0;
+}
+
+/* ------------------------------------------------------------------ 工具栏 */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--grid-border);
+  background: var(--vscode-editorWidget-background, transparent);
+  flex: 0 0 auto;
+}
+
+.toolbar .spacer {
+  flex: 1 1 auto;
+}
+
+.toolbar .divider {
+  width: 1px;
+  height: 18px;
+  background: var(--grid-border);
+}
+
+.toolbar .info {
+  color: var(--vscode-descriptionForeground);
+  white-space: nowrap;
+}
+
+.search {
+  min-width: 140px;
+  flex: 1 1 180px;
+  max-width: 420px;
+  padding: 3px 6px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 2px;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.search:focus,
+select:focus,
+.button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+select {
+  padding: 3px 4px;
+  color: var(--vscode-dropdown-foreground, var(--vscode-foreground));
+  background: var(--vscode-dropdown-background, var(--vscode-input-background));
+  border: 1px solid var(--vscode-dropdown-border, transparent);
+  border-radius: 2px;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  background: var(--vscode-button-secondaryBackground, transparent);
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: 2px;
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.button:hover {
+  background: var(--vscode-button-secondaryHoverBackground, var(--vscode-toolbar-hoverBackground));
+}
+
+.button[aria-pressed='true'] {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+
+.button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.button svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.button.icon {
+  padding: 4px 6px;
+}
+
+/* -------------------------------------------------------------- 筛选条件标签 */
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--grid-border);
+  background: var(--vscode-editorWidget-background, transparent);
+  flex: 0 0 auto;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  font-size: 0.92em;
+}
+
+.chip button {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 1em;
+  line-height: 1;
+}
+
+/* ------------------------------------------------------------------ 提示条 */
+
+.banner {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--grid-border);
+  background: var(--vscode-inputValidation-infoBackground, var(--vscode-editorWidget-background));
+  color: var(--vscode-foreground);
+  flex: 0 0 auto;
+}
+
+.banner.error {
+  background: var(--vscode-inputValidation-errorBackground);
+  border-color: var(--vscode-inputValidation-errorBorder, var(--grid-border));
+}
+
+/* ------------------------------------------------------------------ 表格区 */
+
+.grid-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+}
+
+.grid-scroll:focus {
+  outline: none;
+}
+
+.csv-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.csv-table th,
+.csv-table td {
+  box-sizing: border-box;
+  height: var(--row-height);
+  padding: 0 8px;
+  border-right: 1px solid var(--grid-border);
+  border-bottom: 1px solid var(--grid-border);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+  font-weight: inherit;
+  vertical-align: middle;
+}
+
+.csv-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: var(--head-height);
+  background: var(--vscode-editorGroupHeader-tabsBackground, var(--vscode-editorWidget-background));
+  cursor: pointer;
+  user-select: none;
+}
+
+.csv-table thead th.rownum {
+  z-index: 4;
+}
+
+.csv-table th.rownum,
+.csv-table td.rownum {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  padding: 0 6px;
+  color: var(--vscode-editorLineNumber-foreground);
+  background: var(--vscode-editorGutter-background, var(--vscode-editor-background));
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.csv-table tbody tr:hover td {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.csv-table tbody tr:hover td.rownum {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.csv-table td.selected {
+  background: var(--vscode-editor-selectionBackground);
+  color: inherit;
+}
+
+.csv-table td.active-cell {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.head-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+}
+
+.head-label .letter {
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 列号右侧的下拉三角：点击弹出排序菜单。右侧留出边距，避免压到列宽拖拽手柄。 */
+.sort-button {
+  margin-left: auto;
+  margin-right: 6px;
+  padding: 0 3px;
+  border: 0;
+  border-radius: 2px;
+  background: none;
+  color: var(--vscode-descriptionForeground);
+  font-family: inherit;
+  font-size: 0.8em;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.sort-button:hover {
+  color: var(--vscode-foreground);
+  background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.25));
+}
+
+.sort-button.sorted {
+  color: var(--vscode-textLink-foreground);
+}
+
+/* 列宽拖拽手柄相对粘性定位的 `th` 定位，`th` 本身就是一个定位盒。 */
+.resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 3;
+}
+
+.resizer:hover {
+  background: var(--vscode-focusBorder);
+}
+
+/* ------------------------------------------------------------ 拖拽移动行列 */
+
+/* 正在被拖动的行号 / 列号。 */
+.csv-table td.rownum.dragging,
+.csv-table thead th.head-cell.dragging {
+  opacity: 0.5;
+}
+
+body.dragging {
+  cursor: grabbing;
+}
+
+body.dragging,
+body.dragging * {
+  user-select: none;
+}
+
+/* 落点指示线：用 fixed 定位，直接使用视口坐标。 */
+.drop-line {
+  position: fixed;
+  z-index: 40;
+  background: var(--vscode-focusBorder);
+  pointer-events: none;
+}
+
+.drop-line.horizontal {
+  height: 2px;
+}
+
+.drop-line.vertical {
+  width: 2px;
+}
+
+.cell-input {
+  width: 100%;
+  height: calc(var(--row-height) - 2px);
+  padding: 0 5px;
+  border: 1px solid var(--vscode-focusBorder);
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font-family: inherit;
+  font-size: inherit;
+  outline: none;
+}
+
+/* ------------------------------------------------------------------ 空状态 */
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 100%;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* ------------------------------------------------------------------ 状态栏 */
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 3px 8px;
+  border-top: 1px solid var(--grid-border);
+  background: var(--vscode-editorWidget-background, transparent);
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.92em;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.status .value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--vscode-foreground);
+}
+
+.status .spacer {
+  flex: 1 1 auto;
+}
+
+/* ------------------------------------------------------------------ 右键菜单 */
+
+.menu {
+  position: fixed;
+  z-index: 100;
+  min-width: 180px;
+  max-height: 80vh;
+  overflow: auto;
+  padding: 3px;
+  border: 1px solid var(--vscode-menu-border, var(--grid-border));
+  border-radius: 3px;
+  background: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+}
+
+.menu-item {
+  display: block;
+  width: 100%;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 2px;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu-item:hover:not(:disabled) {
+  background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground));
+  color: var(--vscode-menu-selectionForeground, inherit);
+}
+
+.menu-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.menu-separator {
+  height: 1px;
+  margin: 3px 4px;
+  background: var(--vscode-menu-separatorBackground, var(--grid-border));
+}

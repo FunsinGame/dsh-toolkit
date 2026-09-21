@@ -1,0 +1,15 @@
+# 源码与构建工具不随扩展发布。
+src/**
+**/*.ts
+**/*.map
+tsconfig.json
+.vscode/**
+.vscode-test/**
+node_modules/**
+package-lock.json
+*.log
+**/*.vsix
+out/test/**
+
+# 集成测试运行后在样例目录留下的工作区设置。
+samples/.vscode/**

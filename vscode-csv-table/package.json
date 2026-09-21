@@ -1,0 +1,198 @@
+{
+  "name": "dsh-csv-table",
+  "displayName": "CSV 表格视图",
+  "description": "以表格形式查看与编辑 .csv/.tsv 文件，并在页签栏一键切换表格视图与文本模式（类似 Markdown 的预览 / 文本切换）。",
+  "version": "0.1.0",
+  "publisher": "dsh-toolkit",
+  "license": "MIT",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FunsinGame/dsh-toolkit.git",
+    "directory": "dsh-csv-table"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "csv",
+    "tsv",
+    "table",
+    "viewer",
+    "spreadsheet",
+    "editor"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": {
+      "supported": true,
+      "description": "表格视图读取 VS Code 提供的文本文档，因此虚拟工作区中的 CSV 也能显示。"
+    }
+  },
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "dshCsv.table",
+        "displayName": "CSV 表格视图",
+        "selector": [
+          {
+            "filenamePattern": "*.csv"
+          },
+          {
+            "filenamePattern": "*.tsv"
+          },
+          {
+            "filenamePattern": "*.tab"
+          }
+        ],
+        "priority": "option"
+      }
+    ],
+    "commands": [
+      {
+        "command": "dshCsv.showTable",
+        "title": "表格视图",
+        "category": "CSV",
+        "icon": "$(table)"
+      },
+      {
+        "command": "dshCsv.showText",
+        "title": "文本模式",
+        "category": "CSV",
+        "icon": "$(code)"
+      },
+      {
+        "command": "dshCsv.toggleView",
+        "title": "切换表格视图 / 文本模式",
+        "category": "CSV",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "dshCsv.toggleDefaultEditor",
+        "title": "设置或取消：.csv 默认用表格视图打开",
+        "category": "CSV"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "dshCsv.showTable",
+          "when": "dshCsv.canShowTable && !dshCsv.tableActive",
+          "group": "navigation@10"
+        },
+        {
+          "command": "dshCsv.showText",
+          "when": "dshCsv.canShowTable && dshCsv.tableActive",
+          "group": "navigation@10"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "dshCsv.showTable",
+          "when": "dshCsv.canShowTable"
+        },
+        {
+          "command": "dshCsv.showText",
+          "when": "dshCsv.canShowTable"
+        },
+        {
+          "command": "dshCsv.toggleView",
+          "when": "dshCsv.canShowTable"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "dshCsv.showTable",
+          "when": "resourceExtname == .csv || resourceExtname == .tsv || resourceExtname == .tab",
+          "group": "navigation@9"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "dshCsv.toggleView",
+        "key": "ctrl+k v",
+        "mac": "cmd+k v",
+        "when": "dshCsv.canShowTable"
+      }
+    ],
+    "configuration": {
+      "title": "CSV 表格视图",
+      "properties": {
+        "dshCsv.delimiter": {
+          "type": "string",
+          "enum": [
+            "auto",
+            ",",
+            ";",
+            "\t",
+            "|"
+          ],
+          "enumDescriptions": [
+            "按内容自动检测字段分隔符。",
+            "逗号",
+            "分号",
+            "制表符",
+            "竖线"
+          ],
+          "default": "auto",
+          "markdownDescription": "字段分隔符。`auto` 按文件内容自动检测（默认）。分隔符即写回文件时使用的分隔符。"
+        },
+        "dshCsv.header": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "yes",
+            "no"
+          ],
+          "enumDescriptions": [
+            "当首行看起来像标题行时把它固定为表头。",
+            "首行始终是表头。",
+            "首行是数据行。"
+          ],
+          "default": "auto",
+          "markdownDescription": "首行是否为表头。表头行在按列排序时保持在第一行不动；表格顶部的固定条始终只显示列号。"
+        },
+        "dshCsv.maxRows": {
+          "type": "number",
+          "default": 20000,
+          "minimum": 10,
+          "markdownDescription": "表格视图最多渲染的数据行数。超过该行数的文件以只读方式显示前 N 行，避免阻塞编辑器。"
+        },
+        "dshCsv.columnWidth.max": {
+          "type": "number",
+          "default": 480,
+          "minimum": 60,
+          "markdownDescription": "自动列宽的上限（像素）。"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "typecheck": "tsc -p ./ --noEmit",
+    "test": "npm run compile && node --test \"out/test/*.test.js\"",
+    "test:integration": "npm run compile && node out/test/runIntegration.js",
+    "package": "vsce package --no-dependencies",
+    "install:vsix": "npm run compile && npm run package && code --install-extension dsh-csv-table-0.1.0.vsix --force"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^3.2.1",
+    "jsdom": "^25.0.1",
+    "mocha": "^12.0.2",
+    "typescript": "^5.7.2"
+  }
+}
