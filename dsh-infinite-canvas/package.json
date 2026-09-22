@@ -1,0 +1,194 @@
+{
+  "name": "dsh-infinite-canvas",
+  "displayName": "无限画布",
+  "description": "在 VS Code 里打开无限画布（infinite-canvas）：内置本地服务同源托管上游前端并自动代理本地 canvas-agent，画布与 Codex Agent 面板开箱可用。",
+  "version": "0.1.7",
+  "publisher": "dsh-toolkit",
+  "license": "MIT",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FunsinGame/dsh-toolkit.git",
+    "directory": "dsh-infinite-canvas"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "canvas",
+    "infinite-canvas",
+    "ai",
+    "image",
+    "codex",
+    "agent"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:dshInfiniteCanvas.open"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "无限画布需要在扩展目录读取并托管前端产物，虚拟工作区不可用。"
+    }
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "dshInfiniteCanvas",
+          "title": "无限画布",
+          "icon": "media/activity.svg"
+        }
+      ]
+    },
+    "views": {
+      "dshInfiniteCanvas": [
+        {
+          "type": "webview",
+          "id": "dshInfiniteCanvas.sidebar",
+          "name": "无限画布"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "dshInfiniteCanvas.refreshSidebar",
+          "when": "view == dshInfiniteCanvas.sidebar",
+          "group": "navigation"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "dshInfiniteCanvas.open",
+        "title": "打开画布",
+        "category": "无限画布",
+        "icon": "$(symbol-color)"
+      },
+      {
+        "command": "dshInfiniteCanvas.refreshSidebar",
+        "title": "刷新侧边栏状态",
+        "category": "无限画布",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "dshInfiniteCanvas.showDiagnostics",
+        "title": "显示 webview 诊断数据",
+        "category": "无限画布",
+        "icon": "$(output)"
+      },
+      {
+        "command": "dshInfiniteCanvas.restartServer",
+        "title": "重新启动本地服务",
+        "category": "无限画布",
+        "icon": "$(debug-restart)"
+      },
+      {
+        "command": "dshInfiniteCanvas.startAgent",
+        "title": "启动本地 Agent",
+        "category": "无限画布",
+        "icon": "$(play)"
+      },
+      {
+        "command": "dshInfiniteCanvas.stopAgent",
+        "title": "停止本地 Agent",
+        "category": "无限画布",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "dshInfiniteCanvas.showStatus",
+        "title": "显示运行状态",
+        "category": "无限画布",
+        "icon": "$(info)"
+      },
+      {
+        "command": "dshInfiniteCanvas.openExternal",
+        "title": "在外部浏览器打开",
+        "category": "无限画布",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "dshInfiniteCanvas.openSettings",
+        "title": "打开设置",
+        "category": "无限画布",
+        "icon": "$(settings-gear)"
+      }
+    ],
+    "configuration": {
+      "title": "无限画布",
+      "properties": {
+        "dshInfiniteCanvas.agentUrl": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "本地 canvas-agent 的地址。留空则使用 `http://127.0.0.1:17371`。"
+        },
+        "dshInfiniteCanvas.agentPort": {
+          "type": "number",
+          "default": 17371,
+          "minimum": 1,
+          "maximum": 65535,
+          "markdownDescription": "canvas-agent 的默认端口，仅在 `agentUrl` 留空时生效。"
+        },
+        "dshInfiniteCanvas.panelPort": {
+          "type": "number",
+          "default": 17372,
+          "minimum": 1,
+          "maximum": 65535,
+          "markdownDescription": "承载画布前端的本地服务端口。画布数据存在该地址下的浏览器存储里，**改变端口等于换一份数据**，建议不要随意修改；端口被占用时会自动顺延并在面板顶部提示。"
+        },
+        "dshInfiniteCanvas.autoStartAgent": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "打开画布时若 canvas-agent 未运行则自动拉起（通过 `npx -y @basketikun/canvas-agent@latest`，首次拉包约需 1 分钟）。"
+        },
+        "dshInfiniteCanvas.agentCommand": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "自定义 canvas-agent 启动命令。留空使用 `npx -y @basketikun/canvas-agent@latest`。指定后 `agentArgs` 才会生效。"
+        },
+        "dshInfiniteCanvas.agentArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "自定义启动命令的参数。"
+        },
+        "dshInfiniteCanvas.openInBrowser": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "打开画布时同时在外部浏览器打开同一个地址。"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "typecheck": "tsc -p ./ --noEmit",
+    "test": "npm run compile && node --test \"out/test/*.test.js\"",
+    "fetch:web": "node scripts/fetch-web.mjs",
+    "serve:web": "node scripts/serve-web.mjs",
+    "smoke:activate": "node scripts/smoke-activate.cjs .",
+    "verify:agent": "node scripts/verify-agent-lifecycle.cjs",
+    "verify:frame": "node scripts/verify-frame-sizing.cjs",
+    "package": "npx --yes @vscode/vsce package --no-dependencies --out dsh-infinite-canvas-0.1.7.vsix",
+    "pack": "npm run fetch:web && npm run compile && npm test && npm run package",
+    "install:vsix": "npm run compile && npm run package && code --install-extension \"%CD%\\dsh-infinite-canvas-0.1.7.vsix\" --force"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.7.2"
+  }
+}

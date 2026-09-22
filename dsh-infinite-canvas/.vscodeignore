@@ -1,0 +1,15 @@
+# 源码与构建工具不随扩展发布。
+src/**
+scripts/**
+**/*.ts
+**/*.mjs
+**/*.cjs
+**/*.map
+tsconfig.json
+package-lock.json
+.vscode/**
+*.log
+**/*.vsix
+out/test/**
+
+# web/ 是构建产物，必须打进 VSIX，因此不在此忽略。
