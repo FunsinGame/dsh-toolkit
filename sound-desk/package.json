@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "node-web-audio-api": "^2.2.0",
     "typescript": "^5.7.2"
   }
 }

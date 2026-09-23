@@ -1,0 +1,23 @@
+{
+  "name": "@sounddesk/audio-effects",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Preview-only effect chain (EQ / filter / distortion / ADSR / reverb / distance) as pure descriptors plus a real Web Audio graph builder, and an offline WAV renderer for _fx export.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import ../../tools/register.mjs --experimental-strip-types --test \"src/**/*.test.ts\""
+  },
+  "devDependencies": {
+    "node-web-audio-api": "^2.2.0"
+  }
+}
