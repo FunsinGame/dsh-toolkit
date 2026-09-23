@@ -1,0 +1,142 @@
+{
+  "name": "sound-desk-vscode",
+  "displayName": "SoundDesk",
+  "description": "本地优先的 AI 音频资产管理：在 VSCode 里搜索、分类、试听你的音效库。",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "sounddesk",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": ["Other"],
+  "main": "./out/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "soundDesk.open",
+        "title": "SoundDesk: 打开工作台",
+        "category": "SoundDesk"
+      },
+      {
+        "command": "soundDesk.searchSelection",
+        "title": "SoundDesk: 用选中的文字搜索声音",
+        "category": "SoundDesk",
+        "enablement": "editorHasSelection"
+      },
+      {
+        "command": "soundDesk.indexFolder",
+        "title": "SoundDesk: 添加素材库目录…",
+        "category": "SoundDesk"
+      },
+      {
+        "command": "soundDesk.playFile",
+        "title": "SoundDesk: 试听",
+        "category": "SoundDesk"
+      },
+      {
+        "command": "soundDesk.findSimilar",
+        "title": "SoundDesk: 以声搜声（找相似）",
+        "category": "SoundDesk"
+      },
+      {
+        "command": "soundDesk.restartEngine",
+        "title": "SoundDesk: 重启本地引擎",
+        "category": "SoundDesk"
+      },
+      {
+        "command": "soundDesk.showEngineInfo",
+        "title": "SoundDesk: 显示引擎信息",
+        "category": "SoundDesk"
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "soundDesk.audio",
+        "displayName": "SoundDesk 音频",
+        "selector": [
+          { "filenamePattern": "*.wav" },
+          { "filenamePattern": "*.bwf" },
+          { "filenamePattern": "*.wave" },
+          { "filenamePattern": "*.aif" },
+          { "filenamePattern": "*.aiff" },
+          { "filenamePattern": "*.flac" },
+          { "filenamePattern": "*.mp3" },
+          { "filenamePattern": "*.ogg" },
+          { "filenamePattern": "*.m4a" }
+        ],
+        "priority": "option"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "soundDesk.open",
+          "when": "activeCustomEditorId == soundDesk.audio",
+          "group": "navigation"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "soundDesk.playFile",
+          "when": "resourceExtname =~ /\\.(wav|bwf|wave|aif|aiff|flac|mp3|ogg|m4a)$/i",
+          "group": "soundDesk@1"
+        },
+        {
+          "command": "soundDesk.findSimilar",
+          "when": "resourceExtname =~ /\\.(wav|bwf|wave|aif|aiff|flac|mp3|ogg|m4a)$/i",
+          "group": "soundDesk@2"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "SoundDesk",
+      "properties": {
+        "soundDesk.dataDir": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "索引库、模型与波形缓存的位置。留空则用 `~/.sounddesk`。"
+        },
+        "soundDesk.loadModel": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "启动时加载 CLAP 声音指纹模型（首次会下载约 100MB）。关闭时只启用关键词 + UCS 检索。"
+        },
+        "soundDesk.musicFolders": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "（预留）要索引的素材目录；目前请用「添加素材库目录…」命令。"
+        },
+        "soundDesk.autoStartEngine": {
+          "type": "boolean",
+          "default": true,
+          "description": "激活扩展时自动在扩展宿主进程内启动本地引擎。"
+        },
+        "soundDesk.openInBrowser": {
+          "type": "boolean",
+          "default": false,
+          "description": "打开工作台时同时用系统浏览器打开同一地址。"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import ../../tools/register.mjs --experimental-strip-types \"src/**/*.test.ts\"",
+    "test:direct": "node --import ../../tools/register.mjs --experimental-strip-types src/engineBridge.test.ts"
+  },
+  "dependencies": {
+    "@sounddesk/audio-wav": "workspace:*",
+    "@sounddesk/core": "workspace:*",
+    "@sounddesk/engine": "workspace:*"
+  },
+  "devDependencies": {
+    "@sounddesk/ucs": "workspace:*",
+    "@types/vscode": "^1.90.0",
+    "esbuild": "^0.28.0"
+  }
+}

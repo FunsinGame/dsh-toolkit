@@ -1,0 +1,243 @@
+/**
+ * Maps webview requests onto the in-process engine.
+ *
+ * Deliberately pure: it takes an already-running engine and a plain params
+ * object and returns JSON-serialisable data. That makes the whole request
+ * surface unit-testable with a fake engine and no VSCode host, which matters
+ * because the integration test needs a real VSCode download.
+ */
+
+import path from 'node:path';
+import { statSync } from 'node:fs';
+
+import type { App } from '@sounddesk/engine';
+import { rowToAsset, rowToSummary } from '@sounddesk/engine';
+import { hasBackup, isEditableWav, restoreFromBackup, updateWavMetadataFields } from '@sounddesk/audio-wav';
+
+import {
+  asParams,
+  type AddLibraryParams,
+  type AssetIdParams,
+  type CancelJobParams,
+  type ListAssetsParams,
+  type PatchAssetParams,
+  type SearchParams,
+  type UcsLookupParams,
+} from './protocol.ts';
+
+export interface EngineLike {
+  catalog: App['catalog'];
+  ucs: App['ucs'];
+  classifier: App['classifier'];
+  searchService: App['searchService'];
+  indexer: App['indexer'];
+  dataDir: string;
+}
+
+export type Handler = (method: string, params: unknown) => Promise<unknown>;
+
+/**
+ * Build the request handler for one engine instance.
+ * Throws on unknown methods so the UI surfaces a real error instead of hanging.
+ */
+export function createHandler(engine: EngineLike): Handler {
+  const { catalog } = engine;
+
+  const handlers: Record<string, (params: unknown) => Promise<unknown> | unknown> = {
+    search: (params) => engine.searchService.search(asParams<SearchParams>(params)),
+
+    asset: (params) => {
+      const { id } = asParams<AssetIdParams>(params);
+      const row = catalog.getAssetRow(id);
+      if (!row) throw new Error(`asset ${id} not found`);
+      return rowToAsset(row);
+    },
+
+    patchAsset: (params) => {
+      const { id, patch } = asParams<PatchAssetParams>(params);
+      const row = catalog.getAssetRow(id);
+      if (!row) throw new Error(`asset ${id} not found`);
+      if (patch.tags) catalog.setTags(id, patch.tags);
+      if (typeof patch.favorite === 'boolean') catalog.setFavorite(id, patch.favorite);
+      if (typeof patch.rating === 'number') catalog.setRating(id, patch.rating);
+      if (patch.ucsCatId !== undefined) {
+        // A user correction is recorded as `manual` and becomes authoritative.
+        catalog.applyClassification(id, {
+          catId: patch.ucsCatId,
+          confidence: 1,
+          source: 'manual',
+          alternatives: [],
+        });
+        catalog.db
+          .prepare('INSERT INTO feedback(assetId, oldCat, newCat, at) VALUES (?, ?, ?, ?)')
+          .run(id, String(row.ucsCatId ?? ''), String(patch.ucsCatId ?? ''), Date.now());
+      }
+      const updated = catalog.getAssetRow(id);
+      if (!updated) throw new Error(`asset ${id} disappeared`);
+      return rowToAsset(updated);
+    },
+
+    reclassify: async (params) => {
+      const { id } = asParams<AssetIdParams>(params);
+      const row = catalog.getAssetRow(id);
+      if (!row) throw new Error(`asset ${id} not found`);
+      const asset = rowToAsset(row);
+      const result = await engine.classifier.classify({
+        filename: asset.filename,
+        embedded: asset.embedded,
+        dsp: asset.dsp,
+        durationMs: asset.durationMs,
+      });
+      return {
+        catId: result.catId,
+        confidence: result.confidence,
+        source: result.source,
+        evidence: result.evidence,
+        alternatives: result.alternatives,
+      };
+    },
+
+    listAssets: (params) => {
+      const { libraryId, limit = 200, offset = 0 } = asParams<ListAssetsParams>(params);
+      const where = libraryId !== undefined ? 'WHERE libraryId = ?' : '';
+      const bind: unknown[] = libraryId !== undefined ? [libraryId] : [];
+      const items = catalog.db
+        .prepare(`SELECT * FROM assets ${where} ORDER BY filename LIMIT ? OFFSET ?`)
+        .all(...(bind as never[]), Math.min(limit, 1000), offset) as Array<Record<string, unknown>>;
+      const total = libraryId !== undefined ? catalog.countAssets(libraryId) : catalog.countAssets();
+      return { items: items.map(rowToSummary), total, limit, offset };
+    },
+
+    libraries: () => catalog.listLibraries(),
+
+    addLibrary: async (params) => {
+      const { root, name } = asParams<AddLibraryParams>(params);
+      if (!root) throw new Error('root is required');
+      const id = catalog.addLibrary(name?.trim() || root.split(/[\\/]/).filter(Boolean).pop() || 'library', root, 'local');
+      // Index in the background; the UI follows progress over the event channel.
+      void engine.indexer.runFastPass(id, root).catch(() => undefined);
+      return catalog.getLibrary(id);
+    },
+
+    removeLibrary: (params) => {
+      const { id } = asParams<AssetIdParams>(params);
+      catalog.removeLibrary(id);
+      return { ok: true };
+    },
+
+    rescanLibrary: async (params) => {
+      const { id } = asParams<AssetIdParams>(params);
+      const library = catalog.getLibrary(id);
+      if (!library) throw new Error(`library ${id} not found`);
+      const job = await engine.indexer.runFastPass(id, library.root);
+      return job;
+    },
+
+    ucsTree: () => {
+      const counts = new Map<string, number>();
+      const rows = catalog.db
+        .prepare(
+          `SELECT COALESCE(c.category, '(未分类)') AS category, COUNT(*) AS n
+           FROM assets a LEFT JOIN ucs_categories c ON c.catId = a.ucsCatId GROUP BY 1`,
+        )
+        .all() as Array<{ category: string; n: number }>;
+      for (const row of rows) counts.set(row.category, row.n);
+
+      const subRows = catalog.db
+        .prepare('SELECT ucsCatId, COUNT(*) AS n FROM assets WHERE ucsCatId IS NOT NULL GROUP BY 1')
+        .all() as Array<{ ucsCatId: string; n: number }>;
+      const subCounts = new Map(subRows.map((row) => [row.ucsCatId, row.n] as const));
+
+      const tree = engine.ucs.categories().map((category) => ({
+        category,
+        count: counts.get(category) ?? 0,
+        children: engine.ucs.catIdsInCategory(category).map((catId) => ({
+          catId,
+          label: engine.ucs.get(catId)?.subCategory ?? catId,
+          count: subCounts.get(catId) ?? 0,
+        })),
+      }));
+      return { tree, uncategorized: counts.get('(未分类)') ?? 0 };
+    },
+
+    ucsLookup: (params) => {
+      const { term } = asParams<UcsLookupParams>(params);
+      return engine.ucs.lookup(term ?? '');
+    },
+
+    stats: () => ({ ...catalog.stats(), dbBytes: 0, modelsReady: false }),
+
+    jobs: () => engine.indexer.listJobs(),
+
+    cancelJob: (params) => {
+      const { id } = asParams<CancelJobParams>(params);
+      return { ok: engine.indexer.cancel(id) };
+    },
+
+    embeddedInfo: async (params) => {
+      const { id } = asParams<AssetIdParams>(params);
+      const row = catalog.getAssetRow(id);
+      if (!row) throw new Error(`asset ${id} not found`);
+      const assetPath = String(row.path ?? '');
+      const editable = isEditableWav(assetPath);
+      return {
+        editable,
+        reason: editable ? null : '只支持 WAV/BWF 写回',
+        hasBackup: await hasBackup(engine.dataDir, assetPath),
+        embedded: rowToAsset(row).embedded,
+      };
+    },
+
+    updateEmbedded: async (params) => {
+      const { id, fields, confirm } = asParams<{
+        id: number;
+        fields: Record<string, unknown>;
+        confirm: boolean;
+      }>(params);
+      const row = catalog.getAssetRow(id);
+      if (!row) throw new Error(`asset ${id} not found`);
+      const assetPath = String(row.path ?? '');
+      if (!isEditableWav(assetPath)) {
+        throw new Error('只支持写回 WAV/BWF 文件；其他格式写回会改变音频本身，因此被拒绝。');
+      }
+      if (confirm !== true) throw new Error('写回原文件需要显式确认');
+
+      const result = await updateWavMetadataFields(assetPath, fields, {
+        backupDir: path.join(engine.dataDir, 'backups'),
+      });
+      if (result.changed) {
+        // The file changed under us; re-read just this asset.
+        const library = catalog.getLibrary(Number(row.libraryId));
+        await engine.indexer.indexMetadata(
+          id,
+          {
+            path: assetPath,
+            dir: path.dirname(assetPath),
+            filename: String(row.filename ?? path.basename(assetPath)),
+            extension: String(row.extension ?? path.extname(assetPath)),
+            sizeBytes: statSync(assetPath).size,
+            mtimeMs: Math.floor(statSync(assetPath).mtimeMs),
+          },
+          Number(row.libraryId),
+          library?.root ?? path.dirname(assetPath),
+        );
+      }
+      const updated = catalog.getAssetRow(id);
+      if (!updated) throw new Error(`asset ${id} disappeared`);
+      return { ...result, asset: rowToAsset(updated) };
+    },
+
+    restoreEmbedded: async (params) => {
+      const { id } = asParams<AssetIdParams>(params);
+      const row = catalog.getAssetRow(id);
+      if (!row) throw new Error(`asset ${id} not found`);
+      return { restored: await restoreFromBackup(engine.dataDir, String(row.path ?? '')) };
+    },
+  };
+
+  return async (method: string, params: unknown): Promise<unknown> => {
+    const handler = handlers[method];
+    if (!handler) throw new Error(`unsupported engine method "${method}"`);
+    return handler(params);
+  };
+}

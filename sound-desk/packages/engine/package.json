@@ -1,0 +1,37 @@
+{
+  "name": "@sounddesk/engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "sounddesk": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "dev": "node --import ../../tools/register.mjs --experimental-strip-types --watch src/cli.ts",
+    "start": "node --import ../../tools/register.mjs --experimental-strip-types src/cli.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import ../../tools/register.mjs --test --experimental-strip-types \"src/**/*.test.ts\"",
+    "test:direct": "node --import ../../tools/register.mjs --experimental-strip-types src/e2e.test.ts"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.3.0",
+    "@sounddesk/audio-wav": "workspace:*",
+    "@sounddesk/core": "workspace:*",
+    "@sounddesk/ucs": "workspace:*",
+    "chokidar": "^4.0.3",
+    "fastify": "^5.2.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13"
+  }
+}

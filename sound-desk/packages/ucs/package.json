@@ -1,0 +1,40 @@
+{
+  "name": "@sounddesk/ucs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Universal Category System (UCS) data + schema for the sound-desk audio asset manager: curated seed dataset, Chinese query rewriting dictionary, and a zero-dependency TypeScript API for classification prompts, lookup and UCS filename handling.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./data/categories.seed.json": "./data/categories.seed.json",
+    "./data/categories.generated.json": "./data/categories.generated.json",
+    "./data/zh-Hans.json": "./data/zh-Hans.json",
+    "./data/query-dict.zh-en.json": "./data/query-dict.zh-en.json"
+  },
+  "files": [
+    "dist",
+    "data",
+    "scripts",
+    "tsconfig.json",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "node --test --experimental-strip-types src/*.test.ts",
+    "test:direct": "node --experimental-strip-types src/index.test.ts",
+    "build:ucs": "node scripts/build-ucs.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}

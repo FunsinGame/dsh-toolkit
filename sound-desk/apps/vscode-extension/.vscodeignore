@@ -1,0 +1,17 @@
+.vscode/**
+src/**
+scripts/**
+node_modules/**
+out/**/*.map
+*.ts
+*.map
+tsconfig.json
+pnpm-lock.yaml
+.gitignore
+**/*.test.ts
+
+# Keep these
+!out/extension.js
+!media/**
+!data/**
+!README.md

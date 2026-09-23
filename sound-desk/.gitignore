@@ -1,0 +1,21 @@
+node_modules/
+dist/
+out/
+*.tsbuildinfo
+.sounddesk/
+*.peaks
+*.log
+.DS_Store
+coverage/
+
+# Local index / model / backup data (never committed: contains user file paths
+# and can be gigabytes). The default location is ~/.sounddesk, but a checkout
+# may point --data-dir here.
+data/
+models/
+backups/
+
+# archify visual-check evidence (screenshots, contact sheet, receipt).
+# These are produced on demand by `archify visual-check` when auditing the
+# rendered diagram; the diagram source of truth is the .json beside it.
+diagrams/*.visual-check.*

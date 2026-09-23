@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "SoundDesk 本地音频资产工作台架构",
+    "output": "sounddesk-architecture.html",
+    "quality_profile": "showcase",
+    "viewBox": [1160, 580],
+    "views": [
+      { "id": "dual-entry", "label": "双入口：网页与插件", "focus": ["webbrowser", "vscodeext", "engine"], "note": "同一份 Web 包在浏览器与 VSCode Webview 两种宿主中运行，共用同一个本地引擎。" },
+      { "id": "ai-search", "label": "AI 语义搜索与以声搜声", "focus": ["engine", "clapmodel", "vecstore", "metadb"], "note": "文本与音频经同一 CLAP 双塔编码：BM25 全文召回与 KNN 向量召回并行，再融合重排。" },
+      { "id": "ingest", "label": "分级索引与 UCS 分类", "focus": ["filesystem", "audiotool", "metadb", "engine"], "note": "先快速扫元数据让库立刻可用，波形与声音指纹在后台队列中逐步补全并完成 UCS 归类。" }
+    ]
+  },
+  "components": [
+    { "id": "webbrowser", "type": "frontend", "label": "浏览器 Web 工具", "sublabel": "同一份构建产物", "tag": "React + Vite", "pos": [20, 20], "size": [250, 72] },
+    { "id": "vscodeext", "type": "frontend", "label": "VSCode 插件", "sublabel": "WebviewPanel · Custom Editor", "tag": "asWebviewUri", "pos": [20, 160], "size": [250, 72] },
+    { "id": "filesystem", "type": "external", "label": "本地 / NAS 音效库", "sublabel": "WAV · BWF · iXML", "tag": "原始素材，只读", "pos": [20, 400], "size": [250, 72] },
+    { "id": "engine", "type": "backend", "label": "SoundDesk Engine", "sublabel": "本地 HTTP + WebSocket", "tag": "Fastify · 只绑 127.0.0.1", "pos": [380, 20], "size": [280, 72] },
+    { "id": "audiotool", "type": "backend", "label": "音频处理", "sublabel": "ffmpeg · 峰值金字塔", "tag": "worker pool", "pos": [380, 400], "size": [280, 72] },
+    { "id": "metadb", "type": "database", "label": "SQLite 元数据索引", "sublabel": "assets + FTS5 + UCS 分类", "tag": "catalog.db", "pos": [740, 20], "size": [280, 72] },
+    { "id": "clapmodel", "type": "backend", "label": "CLAP 双塔推理", "sublabel": "文本 / 音频各 512 维", "tag": "ONNX int8", "pos": [740, 160], "size": [280, 72] },
+    { "id": "vecstore", "type": "database", "label": "向量索引", "sublabel": "512 维音频指纹", "tag": "sqlite-vec · KNN", "pos": [740, 400], "size": [280, 72] }
+  ],
+  "connections": [
+    { "id": "web-to-engine", "from": "webbrowser", "to": "engine", "variant": "emphasis" },
+    { "id": "vscode-to-engine", "from": "vscodeext", "to": "engine", "variant": "emphasis" },
+    { "id": "engine-to-fs", "from": "engine", "to": "filesystem" },
+    { "id": "engine-to-audiotool", "from": "engine", "to": "audiotool" },
+    { "id": "engine-to-metadb", "from": "engine", "to": "metadb" },
+    { "id": "engine-to-clap", "from": "engine", "to": "clapmodel" },
+    { "id": "clap-to-vecstore", "from": "clapmodel", "to": "vecstore" },
+    { "id": "audiotool-to-vecstore", "from": "audiotool", "to": "vecstore" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "一份 UI，两种宿主", "items": ["浏览器与 VSCode Webview 加载同一份构建产物，仅 platform adapter 层不同", "音频流经 /api/media 以 Range/206 回传，秒开可 seek"] },
+    { "dot": "violet", "title": "AI 智能搜索", "items": ["CLAP 双塔共享向量空间：以词搜声与以声搜声复用同一套索引", "中文 query 先经本地词典改写为英文 caption，可选 LLM 增强", "BM25 + KNN + UCS 先验三路 RRF 融合，按阈值裁剪（不凑条数）"] },
+    { "dot": "emerald", "title": "UCS 自动分类", "items": ["五级裁决：文件名规范名 → bext/iXML → CLAP 零样本 → 声学规则 → 可选 LLM", "结果带 confidence 与证据链，低置信进「待确认」队列", "manual 来源永不被自动管线覆盖"] }
+  ]
+}

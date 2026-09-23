@@ -1,0 +1,12 @@
+packages:
+  - 'packages/*'
+  - 'apps/*'
+
+# Dependencies whose install scripts must run so their native binaries exist.
+# Without this pnpm skips them and ONNX inference fails at runtime with
+# "Cannot find package 'onnxruntime-node'".
+allowBuilds:
+  onnxruntime-node: true
+  protobufjs: true
+  sharp: true
+  esbuild: true
