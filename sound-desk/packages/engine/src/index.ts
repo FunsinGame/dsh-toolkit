@@ -8,7 +8,7 @@
  */
 
 import path from 'node:path';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 
 import {
@@ -205,6 +205,51 @@ export function writeRuntimeFile(dataDir: string, info: { port: number; token: s
     mode: 0o600,
   });
   return file;
+}
+
+/**
+ * Read back the runtime file, or null when there is no live server.
+ *
+ * Used by `--print-url` so a user who lost the address does not have to restart
+ * the engine: the token rotates on every start, so the URL that worked earlier
+ * today may already be stale. Returns null when the file is missing, malformed,
+ * or names a process that is no longer running — a leftover file must not be
+ * reported as a working address.
+ */
+export function readRuntimeFile(
+  dataDir: string,
+): { port: number; token: string; url: string; pid: number; startedAt: string } | null {
+  const file = path.join(dataDir, 'runtime.json');
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+
+  const port = Number(parsed.port);
+  const token = parsed.token;
+  const url = parsed.url;
+  const pid = Number(parsed.pid);
+  if (!Number.isFinite(port) || typeof token !== 'string' || token.length === 0) return null;
+  if (typeof url !== 'string' || url.length === 0) return null;
+
+  // Confirm the recorded process still exists (signal 0 only tests for it).
+  if (Number.isFinite(pid) && pid > 0) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return null;
+    }
+  }
+
+  return {
+    port,
+    token,
+    url,
+    pid: Number.isFinite(pid) ? pid : 0,
+    startedAt: typeof parsed.startedAt === 'string' ? parsed.startedAt : '',
+  };
 }
 
 /**

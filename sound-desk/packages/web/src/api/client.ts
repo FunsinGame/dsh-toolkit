@@ -181,6 +181,15 @@ class HttpEngineClient implements EngineClient {
       headers: { ...this.headers(), ...(init.headers ?? {}) },
     });
     if (!res.ok) {
+      // A 401 here almost always means a stale or missing session token rather
+      // than a bug: the engine mints a new one on every start and the browser
+      // may still hold an old URL. Say what to do instead of showing a bare 401.
+      if (res.status === 401) {
+        throw new Error(
+          '会话令牌无效或已过期。引擎每次启动都会生成新的令牌，请用引擎打印的带 ?token= 的地址重新打开本页面' +
+            '（或查看 <数据目录>/runtime.json 里的 token，附加为 ?token=…）。',
+        );
+      }
       const detail = await res.text().catch(() => '');
       throw new Error(`${res.status} ${res.statusText}${detail ? ` — ${detail.slice(0, 200)}` : ''}`);
     }
@@ -477,6 +486,35 @@ export interface ClientBootInfo {
  *
  * VSCode: the extension injects `window.__SOUNDDESK_BOOTSTRAP__`.
  */
+/**
+ * Where the browser keeps the session token between page loads.
+ *
+ * The token arrives as `?token=` and is then stripped from the address bar so it
+ * does not linger in history. Without this stash that made the app unusable
+ * after a refresh — the URL no longer carried the token, so every request 401'd
+ * even though the engine was running fine. `sessionStorage` (not `localStorage`)
+ * is the right scope: it survives a reload but not a browser restart, which
+ * matches the fact that the engine mints a new token every time it starts.
+ */
+const TOKEN_STORAGE_KEY = 'sounddesk.token';
+
+function readStoredToken(): string | null {
+  try {
+    return window.sessionStorage.getItem(TOKEN_STORAGE_KEY);
+  } catch {
+    // private mode / storage disabled — fall back to the URL only
+    return null;
+  }
+}
+
+function storeToken(token: string): void {
+  try {
+    window.sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
+  } catch {
+    /* not fatal: the URL still works for this load */
+  }
+}
+
 export function resolveBoot(): ClientBootInfo {
   if (VSCODE) {
     const bootstrap = window.__SOUNDDESK_BOOTSTRAP__;
@@ -487,13 +525,18 @@ export function resolveBoot(): ClientBootInfo {
   }
 
   const params = new URLSearchParams(window.location.search);
-  const token = params.get('token');
-  if (token) {
+  const fromUrl = params.get('token');
+  if (fromUrl) {
+    storeToken(fromUrl);
     params.delete('token');
     const query = params.toString();
     window.history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
+    return { host: 'browser', base: window.location.origin, token: fromUrl };
   }
-  return { host: 'browser', base: window.location.origin, token };
+
+  // No token in the URL: reuse the one from earlier in this tab so that a reload
+  // keeps working. It is only replaced when a new token is supplied.
+  return { host: 'browser', base: window.location.origin, token: readStoredToken() };
 }
 
 export function createEngineClient(): EngineClient {
@@ -503,7 +546,8 @@ export function createEngineClient(): EngineClient {
   }
   if (!boot.token) {
     throw new Error(
-      'no session token found. Open the URL the engine printed (it includes ?token=…), or check <data-dir>/runtime.json.',
+      '没有找到会话令牌。请用引擎打印的带 ?token= 的完整地址打开本页面（引擎启动时会输出该地址），' +
+        '或查看 <数据目录>/runtime.json 里的 token。',
     );
   }
   return new HttpEngineClient(boot.base, boot.token);

@@ -575,7 +575,9 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       sendJson(res, 200, {
         ...stats,
         dbBytes: await fileSize(path.join(opts.catalog.dataDir, 'catalog.db')),
-        modelsReady: false,
+        // Answer this from the live embedder rather than a constant: the UI uses
+        // it to decide whether to offer semantic search at all.
+        modelsReady: opts.searchService.embedderReady,
       });
       return;
     }

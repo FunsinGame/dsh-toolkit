@@ -76,7 +76,10 @@ pnpm --filter @sounddesk/web dev
 | `--port <n>` | 固定端口（默认由系统分配） |
 | `--web-root <dir>` | 托管构建好的前端（`packages/web/dist`） |
 | `--scan-only` | 只索引后退出 |
+| `--print-url` | 打印**当前正在运行**实例的完整访问地址（含 token）后退出 |
 | `--open` | 用默认浏览器打开 UI |
+
+> **地址丢了怎么办**：token 每次启动引擎都会重新生成，所以旧的地址会失效，重启也拿不回它。用 `sounddesk --print-url` 问正在跑的那个实例要地址即可。token 存在浏览器 `sessionStorage` 里，因此**刷新页面不会掉登录**，但关掉浏览器后需要用新地址重开。
 
 ---
 

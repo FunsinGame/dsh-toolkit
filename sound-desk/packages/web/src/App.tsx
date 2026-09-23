@@ -49,10 +49,18 @@ export function App({ bootError }: { bootError: string | null }): React.JSX.Elem
   }
 
   if (state.fatalError) {
+    // A stale session token is by far the most common first-run problem, so it
+    // gets its own heading rather than being reported as a generic engine error.
+    const tokenProblem = state.fatalError.includes('会话令牌');
     return (
       <div className="center-msg">
-        <h2>引擎返回了错误</h2>
+        <h2>{tokenProblem ? '需要有效的会话令牌' : '引擎返回了错误'}</h2>
         <div style={{ maxWidth: 520 }}>{state.fatalError}</div>
+        {tokenProblem && (
+          <div style={{ fontSize: 12, maxWidth: 520, color: 'var(--text-faint)' }}>
+            令牌每次启动引擎都会变。重新打开引擎输出的完整地址即可，无需重启引擎。
+          </div>
+        )}
       </div>
     );
   }

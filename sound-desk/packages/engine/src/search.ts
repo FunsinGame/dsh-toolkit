@@ -171,6 +171,23 @@ export class SearchService {
     return { ...DEFAULT_RETRIEVER_WEIGHTS, ...(this.deps.retrieverWeights ?? {}) };
   }
 
+  /**
+   * Whether the semantic retriever can actually run.
+   *
+   * Reported through `/api/stats` so the UI can say "keyword only" instead of
+   * implying semantic search is available. Note this is about the *embedder*
+   * being loaded, not about the library being embedded — coverage is a separate
+   * question answered per search.
+   */
+  get embedderReady(): boolean {
+    return this.deps.embedder?.ready === true;
+  }
+
+  /** How many assets already have embeddings, for progress reporting. */
+  get embeddedCount(): number {
+    return this.deps.vectorIndex.size;
+  }
+
   async search(req: SearchRequest): Promise<SearchResponse> {
     const started = Date.now();
     const limit = Math.max(1, Math.min(req.limit ?? DEFAULT_SEARCH_LIMIT, 500));

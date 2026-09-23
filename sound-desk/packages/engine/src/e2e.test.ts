@@ -22,7 +22,7 @@ import path from 'node:path';
 
 import { backupPathFor } from '@sounddesk/audio-wav';
 
-import { createApp } from './index.js';
+import { createApp, readRuntimeFile, writeRuntimeFile } from './index.js';
 import { startServer, type RunningServer } from './server.js';
 import { createWav, sine, noise } from './test-utils.js';
 import type { Embedder, EmbeddingResult } from '@sounddesk/core';
@@ -563,5 +563,62 @@ test('search history is recorded for non-empty queries', async () => {
     assert.ok(count.n >= 1);
   } finally {
     h.cleanup();
+  }
+});
+
+/**
+ * `--print-url` exists because the token rotates on every start, so a user who
+ * lost the address cannot find it by restarting. These tests pin the boundary
+ * that matters: a leftover runtime.json from a dead process must never be
+ * reported as a reachable server.
+ */
+test('readRuntimeFile returns the live server details', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'sounddesk-runtime-'));
+  try {
+    writeRuntimeFile(dir, { port: 1234, token: 'tok-abc', url: 'http://127.0.0.1:1234' });
+    const info = readRuntimeFile(dir);
+    assert.ok(info, 'expected the live runtime file to be read');
+    assert.equal(info.port, 1234);
+    assert.equal(info.token, 'tok-abc');
+    assert.equal(info.url, 'http://127.0.0.1:1234');
+    // the pid is this test process, which is certainly alive
+    assert.equal(info.pid, process.pid);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('readRuntimeFile returns null when there is no server', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'sounddesk-runtime-'));
+  try {
+    assert.equal(readRuntimeFile(dir), null, 'missing file');
+
+    writeFileSync(path.join(dir, 'runtime.json'), 'not json at all');
+    assert.equal(readRuntimeFile(dir), null, 'malformed file');
+
+    writeFileSync(path.join(dir, 'runtime.json'), JSON.stringify({ port: 1, url: 'http://x' }));
+    assert.equal(readRuntimeFile(dir), null, 'no token');
+
+    writeFileSync(path.join(dir, 'runtime.json'), JSON.stringify({ port: 1, token: 't' }));
+    assert.equal(readRuntimeFile(dir), null, 'no url');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('readRuntimeFile rejects a runtime file left behind by a dead process', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'sounddesk-runtime-'));
+  try {
+    // A pid that cannot be running: the maximum on Windows is well below this,
+    // and process.kill(pid, 0) throws for anything that does not exist.
+    writeRuntimeFile(dir, { port: 1234, token: 'tok-abc', url: 'http://127.0.0.1:1234' });
+    const file = path.join(dir, 'runtime.json');
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+    parsed.pid = 2 ** 30;
+    writeFileSync(file, JSON.stringify(parsed));
+
+    assert.equal(readRuntimeFile(dir), null, 'a stale pid must not be reported as reachable');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

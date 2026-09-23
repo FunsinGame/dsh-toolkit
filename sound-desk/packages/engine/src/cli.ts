@@ -18,7 +18,7 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 
-import { createApp, defaultDataDir, writeRuntimeFile } from './index.js';
+import { createApp, defaultDataDir, readRuntimeFile, writeRuntimeFile } from './index.js';
 import { startServer, type RunningServer } from './server.js';
 import { rowToAsset } from './mappers.js';
 import { errorMessage } from './indexer.js';
@@ -33,6 +33,7 @@ interface Args {
   addName: string | null;
   webRoot: string | null;
   scanOnly: boolean;
+  printUrl: boolean;
   help: boolean;
 }
 
@@ -47,6 +48,7 @@ function parseArgs(argv: string[]): Args {
     addName: null,
     webRoot: null,
     scanOnly: false,
+    printUrl: false,
     help: false,
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -70,6 +72,9 @@ function parseArgs(argv: string[]): Args {
         break;
       case '--scan-only':
         args.scanOnly = true;
+        break;
+      case '--print-url':
+        args.printUrl = true;
         break;
       case '--web-root':
         args.webRoot = argv[++i] ?? null;
@@ -103,6 +108,7 @@ function printHelp(): void {
       '  --no-model           skip the CLAP model download (keyword search only)',
       '  --web-root <dir>     serve a built web UI from this directory',
       '  --scan-only          index the library then exit (no server)',
+      '  --print-url          print the running server\'s session URL and exit',
       '  --open               open the UI in the default browser',
       '  -h, --help           show this help',
       '',
@@ -115,6 +121,22 @@ const args = parseArgs(argv);
 
 if (args.help) {
   printHelp();
+  process.exit(0);
+}
+
+// Answer "what was my URL again?" without starting a second server. The token
+// rotates on every start, so an address from an earlier session is stale and a
+// fresh start would not help the user reach the *running* instance.
+if (args.printUrl) {
+  const info = readRuntimeFile(args.dataDir);
+  if (!info) {
+    process.stderr.write(
+      `[sounddesk] no running server found for ${args.dataDir}\n` +
+        '  start one with: sounddesk --open\n',
+    );
+    process.exit(1);
+  }
+  process.stdout.write(`${info.url}/?token=${info.token}\n`);
   process.exit(0);
 }
 
