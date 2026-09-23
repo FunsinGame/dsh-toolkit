@@ -15,6 +15,7 @@ import type {
   SearchHit,
   SearchMode,
   SearchResponse,
+  ScoreBreakdown,
   StatsResponse,
 } from '@sounddesk/core';
 
@@ -43,6 +44,12 @@ export interface AppState {
 
   selectedId: number | null;
   selected: Asset | null;
+  /**
+   * The score breakdown for the selected row. Kept alongside the asset because
+   * the asset itself carries no ranking information, and the details pane needs
+   * it to explain why this file is where it is.
+   */
+  selectedScore: ScoreBreakdown | null;
   loadingAsset: boolean;
 
   ucsTree: UcsTree | null;
@@ -73,6 +80,7 @@ const initialState: AppState = {
   searchError: null,
   selectedId: null,
   selected: null,
+  selectedScore: null,
   loadingAsset: false,
   ucsTree: null,
   libraries: [],
@@ -233,10 +241,10 @@ class Store {
 
   async select(hit: SearchHit | null): Promise<void> {
     if (!hit) {
-      this.set({ selectedId: null, selected: null });
+      this.set({ selectedId: null, selected: null, selectedScore: null });
       return;
     }
-    this.set({ selectedId: hit.asset.id, loadingAsset: true });
+    this.set({ selectedId: hit.asset.id, selectedScore: hit.score, loadingAsset: true });
     try {
       const asset = await this.getClient().asset(hit.asset.id);
       this.set({ selected: asset, loadingAsset: false });

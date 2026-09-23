@@ -210,10 +210,23 @@ export interface ScoreBreakdown {
   struct: number | null;
   /** each retriever's rank, 1-based, null when that retriever did not return the item */
   ranks: Partial<Record<Retriever, number>>;
-  /** final fused score */
+  /** final score, after reranking when it ran */
   final: number;
   /** 0..1 confidence derived from the retriever agreement */
   confidence: number;
+  /**
+   * Per-signal detail from the reranking stage (plan §3.1(E)). Present only when
+   * reranking ran, so the UI can explain the order instead of showing a bare
+   * number.
+   */
+  rerank?: {
+    lexical: number;
+    category: number;
+    dsp: number;
+    fused: number;
+    /** caption terms the asset's own words matched */
+    matchedTerms: string[];
+  };
 }
 
 export interface SearchHit {
@@ -237,6 +250,12 @@ export interface SearchRequest {
   probe?: { offsetMs?: number; durationMs?: number };
   /** include per-retriever diagnostics (dev / explain mode) */
   explain?: boolean;
+  /**
+   * Rerank the fused results (plan §3.1(E)). Defaults to true; set false to see
+   * the raw retriever ordering, which is what makes the reranker's effect
+   * measurable.
+   */
+  rerank?: boolean;
 }
 
 export interface SearchResponse {

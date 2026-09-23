@@ -26,6 +26,7 @@ import {
   semanticTextOf,
   toFtsMatch,
   type AssetSummary,
+  type DspFeatures,
   type Embedder,
   type ParsedQuery,
   type Retriever,
@@ -38,6 +39,7 @@ import {
 
 import type { Catalog } from './db.js';
 import { rowToSummary } from './mappers.js';
+import { contentWords, rerankScore, DEFAULT_RERANK_WEIGHTS, type RerankAssetInput, type RerankWeights } from './rerank.js';
 import type { RankedList } from '@sounddesk/core';
 
 export interface VectorIndexOptions {
@@ -151,6 +153,10 @@ export interface SearchDeps {
   llmRewrite?: ((text: string) => Promise<string[]>) | null;
   /** override the coverage floor; mainly for tests */
   minVectorCoverage?: number;
+  /** override rerank weights; mainly for the benchmark */
+  rerankWeights?: RerankWeights;
+  /** override the RRF weights; mainly for the benchmark */
+  retrieverWeights?: Partial<Record<Retriever, number>>;
 }
 
 export class SearchService {
@@ -158,6 +164,11 @@ export class SearchService {
 
   constructor(deps: SearchDeps) {
     this.deps = deps;
+  }
+
+  /** Effective RRF weights: defaults, overridden by deps for benchmarking. */
+  private weights(): Record<Retriever, number> {
+    return { ...DEFAULT_RETRIEVER_WEIGHTS, ...(this.deps.retrieverWeights ?? {}) };
   }
 
   async search(req: SearchRequest): Promise<SearchResponse> {
@@ -219,7 +230,7 @@ export class SearchService {
             retriever: 'vector',
             ids,
             scores: ids.map((id) => vectorScores.get(id) ?? 0),
-            weight: DEFAULT_RETRIEVER_WEIGHTS.vector,
+            weight: this.weights().vector,
           });
         }
       }
@@ -230,7 +241,7 @@ export class SearchService {
       const t0 = Date.now();
       const ids = this.runSimilar(req.similarToAssetId, limit * 3, allowed, req.vectorField ?? 'mean');
       diagnostics.perRetriever.push({ retriever: 'probe', candidates: ids.length, tookMs: Date.now() - t0 });
-      if (ids.length > 0) lists.push({ retriever: 'probe', ids, weight: DEFAULT_RETRIEVER_WEIGHTS.probe });
+      if (ids.length > 0) lists.push({ retriever: 'probe', ids, weight: this.weights().probe });
     }
 
     // --- retriever 4: UCS prior ---------------------------------------
@@ -251,7 +262,7 @@ export class SearchService {
       const t0 = Date.now();
       const structIds = this.runStruct(allowed, limit * 3);
       diagnostics.perRetriever.push({ retriever: 'struct', candidates: structIds.length, tookMs: Date.now() - t0 });
-      if (structIds.length > 0) lists.push({ retriever: 'struct', ids: structIds, weight: DEFAULT_RETRIEVER_WEIGHTS.struct });
+      if (structIds.length > 0) lists.push({ retriever: 'struct', ids: structIds, weight: this.weights().struct });
     }
 
     if (lists.length === 0) {
@@ -328,6 +339,47 @@ export class SearchService {
       candidates.sort((a, b) => b.hit.score.final - a.hit.score.final);
     }
 
+    // --- rerank (plan §3.1(E)) ----------------------------------------
+    // The fused order is only roughly right: on a real library the top caption
+    // similarities cluster tightly, so the vector retriever cannot separate
+    // them. Refine using signals that cost nothing extra — lexical overlap with
+    // the library's own vocabulary, UCS agreement, and acoustic plausibility.
+    // Skipped for `similar` mode, where the vector order *is* the answer.
+    const rerankEnabled = req.rerank ?? true;
+    if (rerankEnabled && mode !== 'similar' && candidates.length > 0) {
+      const rerankInputs = this.loadRerankInputs(candidates.map((c) => c.hit.asset.id));
+      const hintCatIds = collectHintCatIds(this.deps.classifierLookup, parsed, rawQuery);
+      const weights = this.deps.rerankWeights ?? DEFAULT_RERANK_WEIGHTS;
+
+      for (const candidate of candidates) {
+        const asset = rerankInputs.get(candidate.hit.asset.id);
+        if (!asset) continue;
+        const breakdown = rerankScore(
+          {
+            fused: candidate.hit.score.final,
+            vector: candidate.vectorScore,
+            captions: captionsUsed,
+            rawQuery,
+            queryTerms: [...parsed.required, ...parsed.optionalGroups.flat()],
+            dsp: asset.dsp ?? null,
+            durationMs: candidate.hit.asset.durationMs,
+            hintCatIds,
+          },
+          asset,
+          weights,
+        );
+        candidate.hit.score.rerank = breakdown;
+        candidate.hit.score.final = breakdown.score;
+        if (breakdown.matchedTerms.length > 0) {
+          candidate.hit.highlights = [
+            ...candidate.hit.highlights,
+            `匹配 ${breakdown.matchedTerms.slice(0, 4).join(', ')}`,
+          ];
+        }
+      }
+      candidates.sort((a, b) => b.hit.score.final - a.hit.score.final);
+    }
+
     const offset = Math.max(0, req.offset ?? 0);
     const page = candidates.slice(offset, offset + limit).map((c) => c.hit);
 
@@ -351,20 +403,20 @@ export class SearchService {
 
   private runFts(parsed: ParsedQuery, limit: number, allowed: Set<number> | null): RankedList {
     const match = toFtsMatch(parsed, ['searchText']);
-    if (!match) return { retriever: 'fts', ids: [], scores: [], weight: DEFAULT_RETRIEVER_WEIGHTS.fts };
+    if (!match) return { retriever: 'fts', ids: [], scores: [], weight: this.weights().fts };
     let rows: Array<{ id: number; score: number }>;
     try {
       rows = this.deps.catalog.ftsSearch(match, limit, allowed ?? undefined);
     } catch {
       // A malformed MATCH expression must not take down search.
-      return { retriever: 'fts', ids: [], scores: [], weight: DEFAULT_RETRIEVER_WEIGHTS.fts };
+      return { retriever: 'fts', ids: [], scores: [], weight: this.weights().fts };
     }
     // bm25() returns lower-is-better (negative) scores; negate so higher is better.
     return {
       retriever: 'fts',
       ids: rows.map((r) => r.id),
       scores: rows.map((r) => -r.score),
-      weight: DEFAULT_RETRIEVER_WEIGHTS.fts,
+      weight: this.weights().fts,
     };
   }
 
@@ -445,7 +497,7 @@ export class SearchService {
       if (clean.length < 2) continue;
       for (const hit of this.deps.classifierLookup(clean)) catIds.add(hit);
     }
-    if (catIds.size === 0) return { retriever: 'ucs', ids: [], scores: [], weight: DEFAULT_RETRIEVER_WEIGHTS.ucs };
+    if (catIds.size === 0) return { retriever: 'ucs', ids: [], scores: [], weight: this.weights().ucs };
 
     const placeholders = [...catIds].map(() => '?').join(',');
     const rows = this.deps.catalog.db
@@ -472,7 +524,7 @@ export class SearchService {
       retriever: 'ucs',
       ids: filtered.map((r) => r.id),
       scores: filtered.map((r) => r.ucsConfidence ?? 0),
-      weight: DEFAULT_RETRIEVER_WEIGHTS.ucs,
+      weight: this.weights().ucs,
     };
   }
 
@@ -562,6 +614,45 @@ export class SearchService {
       .map(([id]) => id);
   }
 
+  /**
+   * Materialise the extra fields the reranker needs alongside the lite summary.
+   *
+   * `AssetSummary` deliberately omits the metadata blobs and the DSP columns, so
+   * this is a separate narrow query rather than widening the summary type used by
+   * the whole UI.
+   */
+  private loadRerankInputs(ids: number[]): Map<number, RerankAssetInput> {
+    const out = new Map<number, RerankAssetInput>();
+    if (ids.length === 0) return out;
+    const chunkSize = 400;
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const chunk = ids.slice(i, i + chunkSize);
+      const rows = this.deps.catalog.db
+        .prepare(
+          `SELECT a.id, a.filename, a.emDescription, a.emKeywords, a.ucsCatId,
+                  a.dspPeakDb, a.dspRmsDb, a.dspDecayMs, a.dspCentroidHz,
+                  a.dspHfRatio, a.dspStereoCorr, a.dspHasVoice, a.dspTonality,
+                  c.category AS ucsCategory, c.subCategory AS ucsSubCategory
+           FROM assets a
+           LEFT JOIN ucs_categories c ON c.catId = a.ucsCatId
+           WHERE a.id IN (${chunk.map(() => '?').join(',')})`,
+        )
+        .all(...chunk) as Array<Record<string, unknown>>;
+      for (const row of rows) {
+        out.set(Number(row.id), {
+          filename: String(row.filename ?? ''),
+          ucsCatId: typeof row.ucsCatId === 'string' ? row.ucsCatId : null,
+          ucsCategory: typeof row.ucsCategory === 'string' ? row.ucsCategory : null,
+          ucsSubCategory: typeof row.ucsSubCategory === 'string' ? row.ucsSubCategory : null,
+          description: typeof row.emDescription === 'string' ? row.emDescription : null,
+          keywords: parseStringArray(row.emKeywords),
+          dsp: rowToDsp(row),
+        });
+      }
+    }
+    return out;
+  }
+
   private loadSummaries(ids: number[]): Map<number, AssetSummary> {
     const out = new Map<number, AssetSummary>();
     if (ids.length === 0) return out;
@@ -588,6 +679,74 @@ export class SearchService {
   classifierLookup(term: string): string[] {
     return this.deps.classifierLookup(term);
   }
+}
+
+/** Parse a JSON string array column, tolerating null and malformed values. */
+function parseStringArray(value: unknown): string[] | null {
+  if (typeof value !== 'string' || value.length === 0) return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return null;
+    return parsed.filter((x): x is string => typeof x === 'string');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Rebuild the DSP feature object from its stored columns.
+ *
+ * `peak` is derived back from the stored dB because the linear value is not
+ * persisted; the relationship is exact, so nothing is lost for this purpose.
+ */
+function rowToDsp(row: Record<string, unknown>): DspFeatures | null {
+  if (typeof row.dspDecayMs !== 'number') return null;
+  const peakDb = typeof row.dspPeakDb === 'number' ? row.dspPeakDb : -144;
+  const rmsDb = typeof row.dspRmsDb === 'number' ? row.dspRmsDb : -144;
+  return {
+    peak: Math.pow(10, peakDb / 20),
+    rms: Math.pow(10, rmsDb / 20),
+    peakDb,
+    rmsDb,
+    decayMs: Number(row.dspDecayMs ?? 0),
+    spectralCentroidHz: Number(row.dspCentroidHz ?? 0),
+    highFrequencyRatio: Number(row.dspHfRatio ?? 0),
+    stereoCorrelation: Number(row.dspStereoCorr ?? 1),
+    hasVoiceLikeActivity: row.dspHasVoice === 1,
+    tonality: Number(row.dspTonality ?? 0),
+  };
+}
+
+/**
+ * Which UCS categories does this query appear to be asking about?
+ *
+ * Used only to *confirm*, never to retrieve: a hit whose category agrees is
+ * nudged up, a hit whose category disagrees is only nudged halfway down (since
+ * the query's category reading may simply be wrong).
+ */
+export function collectHintCatIds(
+  lookup: (term: string) => string[],
+  parsed: ParsedQuery,
+  rawQuery: string,
+): string[] {
+  const terms = [...parsed.required, ...parsed.optionalGroups.flat()];
+  if (terms.length === 0 && rawQuery.trim().length > 0) terms.push(rawQuery.trim());
+
+  const out = new Set<string>();
+  for (const term of terms) {
+    const clean = term.replace(/\*+$/, '').trim();
+    // Single characters match far too much to be a useful hint.
+    if (clean.length < 2) continue;
+    for (const catId of lookup(clean)) out.add(catId);
+    // Long natural-language phrases will not be a CatID alias; try their words.
+    if (clean.length > 4 && /[a-z]/i.test(clean)) {
+      for (const word of contentWords(clean)) {
+        if (word.length < 4) continue;
+        for (const catId of lookup(word)) out.add(catId);
+      }
+    }
+  }
+  return [...out];
 }
 
 function buildHighlights(parsed: ParsedQuery, asset: AssetSummary, vectorScore: number | null): string[] {

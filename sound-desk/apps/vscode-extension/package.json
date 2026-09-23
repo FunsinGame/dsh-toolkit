@@ -126,7 +126,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import ../../tools/register.mjs --experimental-strip-types \"src/**/*.test.ts\"",
+    "test": "node --import ../../tools/register.mjs --experimental-strip-types --test \"src/**/*.test.ts\"",
     "test:direct": "node --import ../../tools/register.mjs --experimental-strip-types src/engineBridge.test.ts"
   },
   "dependencies": {

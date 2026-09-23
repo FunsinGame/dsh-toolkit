@@ -1,5 +1,7 @@
 /** Small formatting helpers shared by the panes. */
 
+import type { ScoreBreakdown } from '@sounddesk/core';
+
 export function formatDuration(ms: number | null | undefined): string {
   if (ms === null || ms === undefined || !Number.isFinite(ms)) return '—';
   if (ms < 1000) return `${Math.round(ms)}ms`;
@@ -61,4 +63,30 @@ export function sourceLabel(source: string | null): string {
     default:
       return '';
   }
+}
+
+/**
+ * Human-readable reasons for a hit's position (plan §3.1(E)).
+ *
+ * The reranker blends several weak signals into one number, which is only
+ * trustworthy if the user can see what drove it. Returns one short phrase per
+ * signal that actually carried information, in the order of the weights — so the
+ * strongest reason reads first. An empty array means the order came from the
+ * retriever alone and there is nothing extra to explain.
+ */
+export function rerankReasons(score: ScoreBreakdown | null | undefined): string[] {
+  const rerank = score?.rerank;
+  if (!rerank) return [];
+
+  const reasons: string[] = [];
+  if (rerank.matchedTerms.length > 0) {
+    reasons.push(`文件名/元数据命中「${rerank.matchedTerms.join('、')}」`);
+  }
+  if (rerank.fused > 0) reasons.push(`融合分数 ${rerank.fused.toFixed(2)}`);
+  // Only mention category/DSP when they express an opinion: the engine reports a
+  // neutral 1 for "no hint" / "no features", and claiming agreement there would
+  // be inventing evidence.
+  if (rerank.category < 1) reasons.push(`UCS 分类与查询不符（${rerank.category.toFixed(2)}）`);
+  if (rerank.dsp < 1) reasons.push(`声学形态与查询矛盾（${rerank.dsp.toFixed(2)}）`);
+  return reasons;
 }

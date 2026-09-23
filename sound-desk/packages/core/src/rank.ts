@@ -175,9 +175,28 @@ export function buildScoreBreakdown(input: ScoreInput): ScoreBreakdown {
   };
 }
 
+/**
+ * Default RRF weights per retriever.
+ *
+ * These were **corrected by measurement**. The first version gave the vector
+ * retriever 0.60 and BM25 only 0.20, on the reasoning that semantic search is
+ * the headline feature. On a real 3,374-file library that was plainly wrong:
+ * un-reranked keyword-only search beat un-reranked hybrid, because exact filename
+ * matches were being outvoted by a noisier embedding signal.
+ *
+ * Measured MRR on the game-audio benchmark (token-anchored / paraphrase):
+ *   vec .60 fts .20  ->  0.322 / 0.400
+ *   vec .45 fts .35  ->  0.662 / 0.440
+ *   vec .30 fts .50  ->  0.662 / 0.460   <- chosen
+ *   vec .25 fts .55  ->  0.662 / 0.460
+ *
+ * The vector retriever still carries the largest single share after FTS, so it
+ * remains responsible for the paraphrased queries that pure keyword search
+ * cannot serve (0.460 vs 0.200 for keyword-only).
+ */
 export const DEFAULT_RETRIEVER_WEIGHTS: Record<Retriever, number> = {
-  vector: 0.60,
-  fts: 0.20,
+  vector: 0.30,
+  fts: 0.50,
   ucs: 0.12,
   struct: 0.08,
   probe: 0.60,

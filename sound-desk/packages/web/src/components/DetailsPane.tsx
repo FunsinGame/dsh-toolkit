@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react';
 
 import { store } from '../state/store.ts';
 import { useAppState } from '../state/useAppState.ts';
-import { confidenceClass, formatBytes, formatDuration, formatRate, sourceLabel } from '../util/format.ts';
+import { confidenceClass, formatBytes, formatDuration, formatRate, rerankReasons, sourceLabel } from '../util/format.ts';
 import type { ReclassifyResult } from '../api/client.ts';
 import { MetadataEditor } from './MetadataEditor.tsx';
 
@@ -41,6 +41,7 @@ export function DetailsPane({ onPlay, onSimilar }: { onPlay(id: number): void; o
 
   const em = asset.embedded;
   const dsp = asset.dsp;
+  const reasons = rerankReasons(state.selectedScore);
 
   async function suggest(): Promise<void> {
     if (!asset) return;
@@ -73,6 +74,20 @@ export function DetailsPane({ onPlay, onSimilar }: { onPlay(id: number): void; o
           </button>
         </div>
       </div>
+
+      {reasons.length > 0 && (
+        <div className="section">
+          <h3>排序依据</h3>
+          <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, lineHeight: 1.7 }}>
+            {reasons.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+          <div className="kv" style={{ marginTop: 4 }}>
+            重排把多条弱信号合成分数，这里列出各条的作用；没有列出的信号说明它对该结果没有倾向。
+          </div>
+        </div>
+      )}
 
       <div className="section">
         <h3>技术信息</h3>

@@ -12,7 +12,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { store } from '../state/store.ts';
 import { useAppState } from '../state/useAppState.ts';
-import { confidenceClass, formatDuration, formatRate, sourceLabel } from '../util/format.ts';
+import { confidenceClass, formatDuration, formatRate, rerankReasons, sourceLabel } from '../util/format.ts';
 import { waveformColorFor } from '../audio/peaks.ts';
 
 /** Row height used for windowing; must match the CSS. */
@@ -128,9 +128,16 @@ export function ResultsPane({ playingId, onPlay }: { playingId: number | null; o
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span
                       style={{ width: 3, height: 26, borderRadius: 2, background: waveformColorFor(asset.id) }}
-                      title={`匹配度 ${(hit.score.confidence * 100).toFixed(0)}%`}
+                      title={[
+                        `匹配度 ${(hit.score.confidence * 100).toFixed(0)}%`,
+                        ...rerankReasons(hit.score),
+                      ].join('\n')}
                     />
-                    <span className="count" title={JSON.stringify(hit.score.ranks)}>
+                    <span
+                      className="count"
+                      title={JSON.stringify(hit.score.ranks)}
+                      style={hit.score.rerank && hit.score.rerank.matchedTerms.length > 0 ? { color: '#7ee0a0' } : undefined}
+                    >
                       {sourceLabel(asset.ucsSource)}
                     </span>
                   </div>
