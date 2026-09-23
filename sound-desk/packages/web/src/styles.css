@@ -1,5 +1,119 @@
 /* SoundDesk workbench — dark-first, no CSS framework. */
 
+/* Right-hand column: the effect panel stacks above the details pane when open.
+   The details pane keeps the scroll so its long content is unaffected. */
+.pane.stack {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: none;
+}
+
+.pane.stack > .details {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.pane.effects {
+  flex: 0 0 auto;
+  max-height: 58%;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.fx-toolbar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.fx-row {
+  display: grid;
+  grid-template-columns: 62px 1fr;
+  align-items: center;
+  gap: 6px;
+  margin: 3px 0;
+}
+
+.fx-row > label {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.fx-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.fx-control input[type='range'] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.fx-value {
+  width: 62px;
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  flex: 0 0 auto;
+}
+
+.fx-slot {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  margin-bottom: 6px;
+  background: var(--bg-inset);
+}
+
+.fx-slot.on {
+  border-color: var(--border-strong);
+}
+
+.fx-slot-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.fx-slot-body {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px dashed var(--border);
+}
+
+.fx-hint {
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.fx-error {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--rose) 14%, transparent);
+  border: 1px solid var(--rose);
+  font-size: 12px;
+}
+
+.fx-ok {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+  border: 1px solid var(--green);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 :root {
   color-scheme: dark;
   --bg: #0d1117;

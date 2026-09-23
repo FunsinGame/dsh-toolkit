@@ -35,6 +35,7 @@ import type { SearchService, VectorIndex } from './search.js';
 import { rowToAsset, rowToSummary } from './mappers.js';
 import { streamPeaksFor } from './peaks.js';
 import { errorMessage } from './indexer.js';
+import { ExportError, exportRootsFor, saveExport } from './export.js';
 
 export interface ServerOptions {
   catalog: Catalog;
@@ -70,6 +71,13 @@ export interface RunningServer {
 }
 
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Exports are rendered audio, so they need a much larger ceiling than a JSON
+ * request. 512 MB is roughly 30 minutes of 48 kHz 24-bit stereo — far beyond any
+ * single sound effect, and `saveExport` enforces the same figure.
+ */
+const MAX_EXPORT_BYTES = 512 * 1024 * 1024;
 
 export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const log = opts.log ?? (() => {});
@@ -582,6 +590,52 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       return;
     }
 
+    // -- export: save a client-rendered effect-chain result -----------------
+    //
+    // The browser renders through OfflineAudioContext and posts the finished WAV.
+    // Rendering server-side would mean reimplementing Web Audio in Node; the
+    // client already has a spec-compliant implementation and the decoded audio.
+    if (pathname === '/api/export/save' && method === 'POST') {
+      const assetId = Number(url.searchParams.get('assetId'));
+      const row = Number.isFinite(assetId) ? opts.catalog.getAssetRow(assetId) : undefined;
+      if (!row) {
+        sendJson(res, 404, { error: 'asset not found' });
+        return;
+      }
+
+      // `getAssetRow` deliberately does not join the library, so look it up.
+      const libraryId = row.libraryId !== null && row.libraryId !== undefined ? Number(row.libraryId) : null;
+      const libraryRoot = libraryId !== null ? opts.catalog.getLibrary(libraryId)?.root ?? null : null;
+      const roots = exportRootsFor(libraryRoot, opts.catalog.dataDir);
+      const requestedDir = url.searchParams.get('directory');
+      const requestedName = url.searchParams.get('filename');
+
+      const bytes = await readBinary(req, MAX_EXPORT_BYTES);
+      try {
+        const result = saveExport({
+          allowedRoots: roots,
+          directory: requestedDir,
+          // Always derived from the asset, never trusted from the client.
+          filename: requestedName && requestedName.length > 0 ? requestedName : String(row.filename ?? 'export.wav'),
+          bytes,
+        });
+        sendJson(res, 201, {
+          ok: true,
+          filePath: result.filePath,
+          bytes: result.bytes,
+          renamed: result.renamed,
+          directory: path.dirname(result.filePath),
+        });
+      } catch (err) {
+        if (err instanceof ExportError) {
+          sendJson(res, err.status, { error: err.message });
+          return;
+        }
+        throw err;
+      }
+      return;
+    }
+
     // -- static web assets ---------------------------------------------
     if (opts.webRoot) {
       const served = await serveStatic(res, opts.webRoot, pathname);
@@ -730,6 +784,19 @@ async function readJson<T>(req: IncomingMessage): Promise<T> {
   }
   if (chunks.length === 0) return {} as T;
   return JSON.parse(Buffer.concat(chunks).toString('utf8')) as T;
+}
+
+/** Read a raw request body, for endpoints that receive binary rather than JSON. */
+async function readBinary(req: IncomingMessage, limit: number): Promise<Uint8Array> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    const buf = chunk as Buffer;
+    size += buf.length;
+    if (size > limit) throw new Error(`request body too large (limit ${Math.round(limit / 1024 / 1024)}MB)`);
+    chunks.push(buf);
+  }
+  return Buffer.concat(chunks);
 }
 
 function safeEqual(a: string, b: string): boolean {

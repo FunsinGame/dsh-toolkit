@@ -14,7 +14,19 @@
  *    keep working in that mode; the two modes just have different sources.
  *  - The AudioContext is created lazily on the first user gesture, because
  *    browsers refuse to start audio otherwise.
+ *  - The effect chain is inserted between the source and the volume gain, so it
+ *    shapes preview only. `renderWav` runs the same graph offline for export;
+ *    nothing here ever writes to the file.
  */
+
+import {
+  buildChain,
+  DEFAULT_EFFECT_CHAIN,
+  isNeutral,
+  normalizeChain,
+  type ChainGraph,
+  type EffectChain,
+} from '@sounddesk/audio-effects';
 
 export interface PlayerState {
   assetId: number | null;
@@ -30,6 +42,10 @@ export interface PlayerState {
   reverse: boolean;
   /** selection in seconds; when set, playback is confined to it */
   selection: { start: number; end: number } | null;
+  /** preview effects; never written to the file (plan §8) */
+  chain: EffectChain;
+  /** true when the chain currently leaves the signal untouched */
+  chainNeutral: boolean;
   ready: boolean;
   error: string | null;
 }
@@ -41,6 +57,8 @@ export class Player {
   private ctx: AudioContext | null = null;
   private source: MediaElementAudioSourceNode | null = null;
   private gain: GainNode | null = null;
+  private chainGraph: ChainGraph | null = null;
+  private chain: EffectChain = structuredClone(DEFAULT_EFFECT_CHAIN);
   private bufferSource: AudioBufferSourceNode | null = null;
   private buffer: AudioBuffer | null = null;
   private rafHandle: number | null = null;
@@ -56,6 +74,8 @@ export class Player {
     loop: false,
     reverse: false,
     selection: null,
+    chain: structuredClone(DEFAULT_EFFECT_CHAIN),
+    chainNeutral: true,
     ready: false,
     error: null,
   };
@@ -121,12 +141,44 @@ export class Player {
     // A media element can only ever be attached to one source node, so create
     // it exactly once and reuse it for every track.
     const source = ctx.createMediaElementSource(this.audio);
-    source.connect(gain);
+
+    // The effect chain sits between the source and the volume gain, so it can
+    // never affect the file and muting stays independent of the effects.
+    const chainGraph = buildChain(
+      ctx as unknown as Parameters<typeof buildChain>[0],
+      this.chain,
+    );
+    source.connect(chainGraph.input as unknown as AudioNode);
+    chainGraph.output.connect(gain);
 
     this.ctx = ctx;
     this.gain = gain;
     this.source = source;
+    this.chainGraph = chainGraph;
     return ctx;
+  }
+
+  /** Current preview effects. */
+  getChain(): EffectChain {
+    return structuredClone(this.chain);
+  }
+
+  /**
+   * Replace the preview effects.
+   *
+   * Deliberately does *not* need a running context: a chain set before the first
+   * play is applied when the graph is built, so the user can dial in effects
+   * before pressing play.
+   */
+  setChain(next: EffectChain): void {
+    this.chain = normalizeChain(next);
+    this.chainGraph?.update(this.chain, this.ctx?.currentTime ?? 0);
+    this.patch({ chain: structuredClone(this.chain), chainNeutral: isNeutral(this.chain) });
+  }
+
+  /** Reset to a transparent chain. */
+  resetChain(): void {
+    this.setChain(structuredClone(DEFAULT_EFFECT_CHAIN));
   }
 
   async load(assetId: number, url: string): Promise<void> {
@@ -171,6 +223,11 @@ export class Player {
       if (this.state.selection) {
         const { start, end } = this.state.selection;
         if (this.audio.currentTime < start || this.audio.currentTime >= end) this.audio.currentTime = start;
+      }
+      // The envelope runs on the audio clock, so it is scheduled from the
+      // context's current time rather than from a DOM timer.
+      if (this.chainGraph && this.state.duration > 0) {
+        this.chainGraph.scheduleEnvelope(this.ctx?.currentTime ?? 0, this.state.duration);
       }
       await this.audio.play();
     } catch (err) {
@@ -305,7 +362,7 @@ export class Player {
     const source = ctx.createBufferSource();
     source.buffer = buffer;
     source.playbackRate.value = this.state.rate;
-    source.connect(this.gain ?? ctx.destination);
+    source.connect(this.chainGraph ? (this.chainGraph.input as unknown as AudioNode) : (this.gain ?? ctx.destination));
 
     const start = fromSeconds ?? this.state.selection?.end ?? this.state.position ?? buffer.duration;
     const end = this.state.selection?.start ?? 0;

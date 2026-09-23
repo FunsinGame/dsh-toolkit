@@ -18,7 +18,13 @@ import { Waveform } from './Waveform.tsx';
 
 const player = getPlayer();
 
-export function Transport(): React.JSX.Element {
+export function Transport({
+  showEffects,
+  onToggleEffects,
+}: {
+  showEffects: boolean;
+  onToggleEffects: (next: boolean) => void;
+}): React.JSX.Element {
   const state = useAppState();
   const [playback, setPlayback] = useState<PlayerState>(() => player.getState());
 
@@ -148,6 +154,14 @@ export function Transport(): React.JSX.Element {
               </button>
             </span>
           )}
+          <button
+            className={showEffects ? 'active' : ''}
+            onClick={() => onToggleEffects(!showEffects)}
+            title="效果链：EQ / 失真 / 混响 / 距离 / 包络，仅影响试听"
+          >
+            效果
+            {!playback.chainNeutral ? ' •' : ''}
+          </button>
         </div>
       </div>
 

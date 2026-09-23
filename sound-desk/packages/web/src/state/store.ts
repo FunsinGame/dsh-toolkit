@@ -20,6 +20,9 @@ import type {
 } from '@sounddesk/core';
 
 import type { EngineClient, UcsTree } from '../api/client.ts';
+import { createOfflineAudioContext } from '../audio/offline.ts';
+import { getPlayer } from '../audio/player.ts';
+import { renderWav } from '@sounddesk/audio-effects';
 
 export interface AppState {
   ready: boolean;
@@ -52,6 +55,13 @@ export interface AppState {
   selectedScore: ScoreBreakdown | null;
   loadingAsset: boolean;
 
+  /** true while an effect-chain export is being rendered */
+  exporting: boolean;
+  /** 0..1 render progress */
+  exportProgress: number;
+  exportError: string | null;
+  exportResult: { filePath: string; bytes: number; renamed: boolean; durationSeconds: number } | null;
+
   ucsTree: UcsTree | null;
   libraries: Library[];
   stats: (StatsResponse & { dbBytes: number; modelsReady: boolean }) | null;
@@ -82,6 +92,10 @@ const initialState: AppState = {
   selected: null,
   selectedScore: null,
   loadingAsset: false,
+  exporting: false,
+  exportProgress: 0,
+  exportError: null,
+  exportResult: null,
   ucsTree: null,
   libraries: [],
   stats: null,
@@ -316,6 +330,50 @@ class Store {
   async addLibrary(root: string, name?: string): Promise<void> {
     await this.getClient().addLibrary(root, name);
     await this.refreshLibraryData();
+  }
+
+  /**
+   * Render the current preview effects into a new file.
+   *
+   * Runs entirely in the browser: the samples are decoded by the Web Audio
+   * implementation that is already playing them, and the engine only writes the
+   * finished bytes. Doing it server-side would mean a second DSP implementation
+   * that could disagree with what the user auditioned.
+   *
+   * The source file is never touched — the engine allocates a new name and will
+   * not overwrite anything.
+   */
+  async exportEffect(assetId: number, filename: string): Promise<void> {
+    if (this.state.exporting) return;
+    this.set({ exporting: true, exportError: null, exportResult: null });
+    try {
+      const client = this.getClient();
+      const source = await client.fetchWaveBytes(assetId);
+      const result = await renderWav(source, getPlayer().getChain(), createOfflineAudioContext, {
+        onProgress: (fraction) => this.set({ exportProgress: fraction }),
+      });
+      const saved = await client.saveExport({ assetId, filename, bytes: result.bytes });
+      this.set({
+        exporting: false,
+        exportProgress: 1,
+        exportResult: {
+          filePath: saved.filePath,
+          bytes: saved.bytes,
+          renamed: saved.renamed,
+          durationSeconds: result.durationSeconds,
+        },
+      });
+    } catch (err) {
+      this.set({
+        exporting: false,
+        exportProgress: 0,
+        exportError: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  clearExportStatus(): void {
+    this.set({ exportResult: null, exportError: null, exportProgress: 0 });
   }
 
   async rescan(libraryId: number): Promise<void> {

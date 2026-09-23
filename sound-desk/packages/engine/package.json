@@ -32,6 +32,7 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@sounddesk/audio-effects": "workspace:*",
     "@types/ws": "^8.5.13"
   }
 }

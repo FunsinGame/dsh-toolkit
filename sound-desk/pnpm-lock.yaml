@@ -74,6 +74,9 @@ importers:
         specifier: ^8.18.0
         version: 8.21.3
     devDependencies:
+      '@sounddesk/audio-effects':
+        specifier: workspace:*
+        version: link:../audio-effects
       '@types/ws':
         specifier: ^8.5.13
         version: 8.18.1
@@ -86,6 +89,9 @@ importers:
 
   packages/web:
     dependencies:
+      '@sounddesk/audio-effects':
+        specifier: workspace:*
+        version: link:../audio-effects
       '@sounddesk/core':
         specifier: workspace:*
         version: link:../core

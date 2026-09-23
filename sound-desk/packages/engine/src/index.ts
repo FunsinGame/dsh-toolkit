@@ -300,3 +300,14 @@ export type { RunningServer, ServerOptions } from './server.js';
 export { discoverFiles, hashFile, AUDIO_EXTENSIONS } from './scanner.js';
 /** Row → DTO mapping, so hosts (the VSCode extension) can reuse it verbatim. */
 export { rowToAsset, rowToSummary } from './mappers.js';
+
+export {
+  EXPORT_SUFFIX,
+  ExportError,
+  exportRootsFor,
+  isInside,
+  safeStem,
+  saveExport,
+  uniqueName,
+  type ExportResult,
+} from './export.js';

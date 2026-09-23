@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getPlayer, type PlayerState } from './audio/player.ts';
 import { requestPlay } from './audio/playback.ts';
 import { DetailsPane } from './components/DetailsPane.tsx';
+import { EffectsPane } from './components/EffectsPane.tsx';
 import { ResultsPane } from './components/ResultsPane.tsx';
 import { SearchBar } from './components/SearchBar.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
@@ -13,6 +14,24 @@ import { useAppState } from './state/useAppState.ts';
 export function App({ bootError }: { bootError: string | null }): React.JSX.Element {
   const state = useAppState();
   const [playback, setPlayback] = useState<PlayerState>(() => getPlayer().getState());
+  // Remembered across reloads: a user who is shaping a sound does not want to
+  // reopen the panel every time, but a user who never uses it should never see it.
+  const [showEffects, setShowEffects] = useState(() => {
+    try {
+      return window.localStorage.getItem('sounddesk.effectsOpen') === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleEffects = (next: boolean): void => {
+    setShowEffects(next);
+    try {
+      window.localStorage.setItem('sounddesk.effectsOpen', next ? '1' : '0');
+    } catch {
+      /* storage disabled — the panel still works for this session */
+    }
+  };
 
   useEffect(() => getPlayer().subscribe(setPlayback), []);
 
@@ -73,9 +92,12 @@ export function App({ bootError }: { bootError: string | null }): React.JSX.Elem
         <div className="pane" style={{ display: 'flex', flexDirection: 'column', padding: 0 }}>
           <ResultsPane playingId={playback.assetId} onPlay={(id) => requestPlay(id)} />
         </div>
-        <DetailsPane onPlay={(id) => requestPlay(id)} onSimilar={(id) => void store.findSimilar(id)} />
+        <div className="pane stack">
+          {showEffects && <EffectsPane />}
+          <DetailsPane onPlay={(id) => requestPlay(id)} onSimilar={(id) => void store.findSimilar(id)} />
+        </div>
       </div>
-      <Transport />
+      <Transport showEffects={showEffects} onToggleEffects={toggleEffects} />
     </div>
   );
 }

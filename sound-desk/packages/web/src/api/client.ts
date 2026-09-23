@@ -46,6 +46,13 @@ export interface EngineClient {
   /** URL that can be handed to <audio> / <img> */
   mediaUrl(id: number): string;
   peaksUrl(id: number): string;
+  /**
+   * Fetch a WAV's bytes for offline processing. Uses the authenticated media
+   * route, which is the only way to get the decoded samples.
+   */
+  fetchWaveBytes(id: number): Promise<Uint8Array>;
+  /** write rendered audio to disk; the engine picks a non-colliding name */
+  saveExport(params: { assetId: number; filename: string; bytes: Uint8Array }): Promise<ExportResult>;
   /** live job progress; returns an unsubscribe function */
   subscribe(onEvent: (event: EngineEvent) => void): () => void;
 }
@@ -121,6 +128,14 @@ export interface EmbeddedInfo {
   reason: string | null;
   hasBackup: boolean;
   embedded: Asset['embedded'];
+}
+
+export interface ExportResult {
+  filePath: string;
+  bytes: number;
+  /** true when the requested name was taken, so a numeric suffix was added */
+  renamed: boolean;
+  directory: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -284,6 +299,30 @@ class HttpEngineClient implements EngineClient {
 
   peaksUrl(id: number): string {
     return `${this.base}/api/media/${id}/peaks?token=${encodeURIComponent(this.token)}`;
+  }
+
+  async fetchWaveBytes(id: number): Promise<Uint8Array> {
+    const res = await fetch(this.mediaUrl(id), { headers: this.headers() });
+    if (!res.ok) {
+      // Same 401 explanation as `request`, since this bypasses it.
+      if (res.status === 401) {
+        throw new Error('会话令牌无效或已过期，请用引擎打印的带 ?token= 的地址重新打开本页面');
+      }
+      throw new Error(`无法读取音频数据（${res.status}）`);
+    }
+    return new Uint8Array(await res.arrayBuffer());
+  }
+
+  saveExport(params: { assetId: number; filename: string; bytes: Uint8Array }): Promise<ExportResult> {
+    const qs = new URLSearchParams({
+      assetId: String(params.assetId),
+      filename: params.filename,
+    });
+    return this.request<ExportResult>(`/api/export/save?${qs.toString()}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/octet-stream' },
+      body: params.bytes as unknown as BodyInit,
+    });
   }
 
   subscribe(onEvent: (event: EngineEvent) => void): () => void {
@@ -459,6 +498,19 @@ class VscodeEngineClient implements EngineClient {
 
   peaksUrl(id: number): string {
     return `${this.base}/api/media/${id}/peaks?token=${encodeURIComponent(this.token)}`;
+  }
+
+  async fetchWaveBytes(id: number): Promise<Uint8Array> {
+    // The extension host proxies everything else, but media is already served by
+    // the in-process engine over HTTP, so reuse that rather than shipping
+    // megabytes of audio through postMessage.
+    const res = await fetch(this.mediaUrl(id));
+    if (!res.ok) throw new Error(`无法读取音频数据（${res.status}）`);
+    return new Uint8Array(await res.arrayBuffer());
+  }
+
+  saveExport(params: { assetId: number; filename: string; bytes: Uint8Array }): Promise<ExportResult> {
+    return this.call<ExportResult>('saveExport', params);
   }
 
   subscribe(onEvent: (event: EngineEvent) => void): () => void {

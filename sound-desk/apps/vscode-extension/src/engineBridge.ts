@@ -11,7 +11,7 @@ import path from 'node:path';
 import { statSync } from 'node:fs';
 
 import type { App } from '@sounddesk/engine';
-import { rowToAsset, rowToSummary } from '@sounddesk/engine';
+import { exportRootsFor, rowToAsset, rowToSummary, saveExport } from '@sounddesk/engine';
 import { hasBackup, isEditableWav, restoreFromBackup, updateWavMetadataFields } from '@sounddesk/audio-wav';
 
 import {
@@ -232,6 +232,30 @@ export function createHandler(engine: EngineLike): Handler {
       const row = catalog.getAssetRow(id);
       if (!row) throw new Error(`asset ${id} not found`);
       return { restored: await restoreFromBackup(engine.dataDir, String(row.path ?? '')) };
+    },
+
+    /**
+     * Save an effect-chain export the webview rendered offline.
+     *
+     * The webview does the rendering because it owns the Web Audio
+     * implementation that previewed the sound; the extension host only writes the
+     * bytes. Same safety rules as the HTTP route: a new file, never an overwrite,
+     * and only inside the library or the export folder.
+     */
+    saveExport: async (params) => {
+      const { assetId, filename, bytes } = asParams<{
+        assetId: number;
+        filename: string;
+        bytes: Uint8Array;
+      }>(params);
+      const row = catalog.getAssetRow(assetId);
+      if (!row) throw new Error(`asset ${assetId} not found`);
+      const library = row.libraryId !== null ? catalog.getLibrary(Number(row.libraryId)) : null;
+      return saveExport({
+        allowedRoots: exportRootsFor(library?.root ?? null, engine.dataDir),
+        filename: filename && filename.length > 0 ? filename : String(row.filename ?? 'export.wav'),
+        bytes: bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes),
+      });
     },
   };
 

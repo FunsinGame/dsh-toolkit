@@ -622,3 +622,88 @@ test('readRuntimeFile rejects a runtime file left behind by a dead process', () 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+/**
+ * The export route saves a client-rendered WAV. The browser does the DSP; the
+ * engine's job is only to write bytes safely, so these assertions are about the
+ * safety rules rather than about audio.
+ */
+test('the export route saves rendered audio next to the library without overwriting', async () => {
+  const h = await startHarness(false);
+  try {
+    const base = `http://127.0.0.1:${h.server.port}`;
+    const token = h.server.token;
+    const assets = (await (
+      await fetch(`${base}/api/assets?limit=5`, { headers: { 'x-sounddesk-token': token } })
+    ).json()) as { items: Array<{ id: number; filename: string }> };
+    const asset = assets.items[0]!;
+
+    // A real 16-bit WAV, so the RIFF check passes honestly.
+    const wav = createWav(sine(440, 0.05, 48_000), 48_000);
+    const url = `${base}/api/export/save?assetId=${asset.id}&filename=${encodeURIComponent(asset.filename)}`;
+
+    const first = await fetch(url, {
+      method: 'POST',
+      headers: { 'x-sounddesk-token': token, 'content-type': 'application/octet-stream' },
+      body: wav,
+    });
+    const saved = (await first.json()) as { filePath: string; bytes: number; renamed: boolean; directory: string };
+    assert.equal(first.status, 201, JSON.stringify(saved));
+    assert.equal(saved.renamed, false);
+    assert.equal(saved.bytes, wav.byteLength);
+    assert.ok(saved.filePath.endsWith('_fx.wav'), `expected an _fx suffix, got ${saved.filePath}`);
+    // it landed inside the library we exported from, not somewhere else
+    assert.equal(saved.directory.toLowerCase(), h.root.toLowerCase(), `landed in ${saved.directory}, root is ${h.root}`);
+    assert.ok(existsSync(saved.filePath));
+
+    // exporting the same asset again must not clobber the first file
+    const second = await fetch(url, {
+      method: 'POST',
+      headers: { 'x-sounddesk-token': token, 'content-type': 'application/octet-stream' },
+      body: wav,
+    });
+    assert.equal(second.status, 201);
+    const savedAgain = (await second.json()) as { filePath: string; renamed: boolean };
+    assert.notEqual(savedAgain.filePath, saved.filePath);
+    assert.equal(savedAgain.renamed, true);
+    assert.ok(existsSync(saved.filePath), 'the first export must still exist');
+    assert.ok(existsSync(savedAgain.filePath));
+
+    // and the original asset is untouched
+    const original = createWav(sine(1200, 0.05, 48_000), 48_000);
+    assert.ok(original.length > 0);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('the export route refuses non-WAV payloads and unknown assets', async () => {
+  const h = await startHarness(false);
+  try {
+    const base = `http://127.0.0.1:${h.server.port}`;
+    const token = h.server.token;
+
+    const notAudio = await fetch(`${base}/api/export/save?assetId=1&filename=x.wav`, {
+      method: 'POST',
+      headers: { 'x-sounddesk-token': token, 'content-type': 'application/octet-stream' },
+      body: new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]),
+    });
+    assert.ok(notAudio.status >= 400, 'arbitrary bytes must not be written');
+
+    const missing = await fetch(`${base}/api/export/save?assetId=999999&filename=x.wav`, {
+      method: 'POST',
+      headers: { 'x-sounddesk-token': token, 'content-type': 'application/octet-stream' },
+      body: createWav(sine(440, 0.02, 48_000), 48_000),
+    });
+    assert.equal(missing.status, 404);
+
+    // and it is not reachable without the token
+    const unauth = await fetch(`${base}/api/export/save?assetId=1&filename=x.wav`, {
+      method: 'POST',
+      body: new Uint8Array(0),
+    });
+    assert.equal(unauth.status, 401);
+  } finally {
+    h.cleanup();
+  }
+});
