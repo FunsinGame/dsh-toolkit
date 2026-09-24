@@ -228,7 +228,11 @@
     "build": "node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import ../../tools/register.mjs --experimental-strip-types --test \"src/**/*.test.ts\"",
-    "test:direct": "node --import ../../tools/register.mjs --experimental-strip-types src/engineBridge.test.ts"
+    "test:direct": "node --import ../../tools/register.mjs --experimental-strip-types src/engineBridge.test.ts",
+    "stage:vsix": "node scripts/stage-vsix.mjs",
+    "check:vsix": "node scripts/verify-stage.mjs",
+    "pack:vsix": "npm run build && npm run stage:vsix && npm run check:vsix && node scripts/pack-vsix.mjs",
+    "verify:vsix": "node scripts/verify-vsix.mjs"
   },
   "dependencies": {
     "@sounddesk/audio-wav": "workspace:*",

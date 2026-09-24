@@ -5,3 +5,5 @@ media/
 data/
 *.tsbuildinfo
 .vscode-test/
+# Staging directory for `npm run pack:vsix` (built from an allowlist; ~236 MB).
+.vsix-stage/

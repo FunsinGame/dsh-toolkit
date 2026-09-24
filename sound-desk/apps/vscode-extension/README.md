@@ -59,6 +59,33 @@ npm run build                                   # esbuild 打包 + 复制 UI 与
 
 `scripts/build.mjs` 做三件事，缺一不可：打包 `src/**` 为 `out/extension.js`；把 Web UI 复制到 `media/`；**把 `packages/ucs/data` 复制到 `data/`**（UCS 数据是随包内置的，CommonJS 打包后 `import.meta.url` 为空，加载器只能靠 `__dirname` 找到它）。
 
+## 打包成 .vsix
+
+```bash
+cd apps/vscode-extension
+npm run pack:vsix        # → dist/sound-desk-vscode.vsix（约 145 MB）
+code --install-extension dist/sound-desk-vscode.vsix --force
+```
+
+**为什么需要专门的打包脚本**：esbuild 会把 `@sounddesk/*` 和 `vscode` 之外的实现全部打进 `out/extension.js`，但**故意留了 externals** —— `@huggingface/transformers`、`onnxruntime-node`、原生 `.node` 二进制。理由是它们靠自身所在目录定位预编译二进制，打进 bundle 就找不到自己了。
+
+开发时这些包是 pnpm 通过隐藏 hoist 解析到的；而 `.vsix` 是个 zip，没有符号链接，**照默认方式打出来的包能装上、但一 `require` 就死**。所以流程是：
+
+| 步骤 | 命令 | 做什么 |
+| --- | --- | --- |
+| 1 | `npm run stage:vsix` | 收集 `out/`、`media/`、UCS 数据与运行时依赖到 `.vsix-stage/` |
+| 2 | `npm run check:vsix` | 断言这些依赖**只**从 stage 内部解析得到，并真的能加载 ONNX 运行时 |
+| 3 | `npm run pack:vsix` | 1+2 之后调用 `vsce package --no-dependencies` |
+| 4 | `npm run verify:vsix` | 解压产出的 VSIX，在里面 require 一次 bundle |
+
+三个容易踩的坑，都已固化在脚本里：
+
+1. **运行时依赖放在 `out/node_modules/`**，不是顶层。`vsce` 会无条件剔除任何顶层 `node_modules`（`.vscodeignore` 的取反也压不住），而 `out/` 不在剔除范围；这同时也正好是 Node 从 `out/extension.js` 出发查找模块的第一站。
+2. **打包时 manifest 的 `type` 改成 `commonjs`**。源码是 `"type": "module"`（给 Node 类型剥离用），但 esbuild 产出的是 CommonJS，声明与产物矛盾会让按路径加载 bundle 的宿主报 `module is not defined in ES module scope`。
+3. **UCS 数据放在 `out/data/`**，且 `categories.seed.json` 不能删。加载器靠 `__dirname` 找同级 `data/`，而它是**探测这个目录是否存在的那个文件**——删掉它会在启动时抛 `UCS dataset not found`。
+
+**体积**：约 145 MB。其中 CLAP 模型（`.cache/Xenova/clap-htsat-unfused`）153 MB、`onnxruntime-node` 64 MB（只保留 `win32/x64`，全平台是 287 MB）。也就是说**模型是随包内置的，装完即可离线做语义搜索**，不用再下载。想换平台重打：`npm run stage:vsix -- --all-platforms`。
+
 ## 已知限制
 
 - Web UI 只认两个深链接参数 `q`（查询词）与 `play`（素材 id），所以**「设为参考音频」和「打开播放列表」还没有链接可用**：前者会打开工作台并提示把文件拖到「参考音频」区域，后者会打开工作台并提示在左侧查看。这里宁可说实话，也不编一个看着有效、实际什么都不做的参数
