@@ -58,5 +58,15 @@ export declare function sha256(text: string): string;
 /** `ucs_v8.2.1.csv` -> `8.2.1`. */
 export declare function inferVersion(sourcePath: string): string;
 
+/**
+ * Compare a freshly-built dataset description against what is on disk.
+ * Returns the list of mismatches; empty means the file is up to date.
+ */
+export declare function compareGenerated(
+  current: unknown,
+  entries: UcsBuildEntry[],
+  expected: { version: string; sourceSha256: string; complete: boolean },
+): string[];
+
 /** CLI entry point; returns a process exit code and never throws. */
 export declare function main(argv?: string[]): Promise<number>;

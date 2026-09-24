@@ -454,6 +454,50 @@ export function applyOverlay(entries, overlay) {
   return { zhLabels, zhSynonyms, unknown };
 }
 
+/**
+ * Compare a freshly-built dataset description against what is on disk.
+ *
+ * Pure so it can be unit-tested without touching the committed dataset: returns
+ * the list of mismatches, empty when the file is up to date.
+ */
+export function compareGenerated(current, entries, expected) {
+  const problems = [];
+  if (!current || typeof current !== 'object') return ['generated file is not a JSON object'];
+  if (current.version !== expected.version) problems.push(`version ${current.version} != ${expected.version}`);
+  if (current.sourceSha256 !== expected.sourceSha256) {
+    problems.push(`sourceSha256 ${current.sourceSha256 ?? '(none)'} != ${expected.sourceSha256}`);
+  }
+  if (current.complete !== expected.complete) {
+    problems.push(`complete ${current.complete} != ${expected.complete}`);
+  }
+  const currentList = Array.isArray(current.categories) ? current.categories : [];
+  if (currentList.length !== entries.length) {
+    problems.push(`category count ${currentList.length} != ${entries.length}`);
+  }
+  const currentById = new Map(currentList.map((c) => [c.catId, c]));
+  const missing = entries.filter((e) => !currentById.has(e.catId));
+  if (missing.length > 0) problems.push(`${missing.length} official CatIDs missing (e.g. ${missing[0].catId})`);
+
+  const ref = (v) => (Array.isArray(v) ? v.join('\u0001') : '');
+  const drifted = entries.filter((e) => {
+    const onDisk = currentById.get(e.catId);
+    if (!onDisk) return false;
+    return (
+      ref(onDisk.synonymsZh) !== ref(e.synonymsZh) ||
+      ref(onDisk.synonymsEn) !== ref(e.synonymsEn) ||
+      onDisk.subCategory !== e.subCategory ||
+      onDisk.code !== e.code
+    );
+  });
+  if (drifted.length > 0) {
+    problems.push(
+      `${drifted.length} entries differ from a fresh build (e.g. ${drifted[0].catId}) — ` +
+        'curated-zh.json or the CSV changed without regenerating',
+    );
+  }
+  return problems;
+}
+
 /* ----------------------------------------------------------------- merge --- */
 
 async function loadSeed() {
@@ -594,18 +638,17 @@ export async function main(argv = process.argv.slice(2)) {
       console.error(`[build-ucs] ${path.relative(PKG_ROOT, DEFAULT_OUT)} does not exist — run without --check first.`);
       return 1;
     }
+    // Apply the overlay here too, so a curated-zh.json edit that was never
+    // rebuilt is caught rather than silently shipping stale Chinese content.
+    const checkOverlay = await loadOverlay();
+    applyOverlay(entries, checkOverlay);
+
     const current = JSON.parse(await readFile(DEFAULT_OUT, 'utf8'));
-    const problems = [];
-    if (current.version !== version) problems.push(`version ${current.version} != ${version}`);
-    if (current.sourceSha256 !== digest) {
-      problems.push(`sourceSha256 ${current.sourceSha256 ?? '(none)'} != ${digest}`);
-    }
-    if (!Array.isArray(current.categories) || current.categories.length !== entries.length) {
-      problems.push(`category count ${current.categories?.length ?? 0} != ${entries.length}`);
-    }
-    const currentIds = new Set((current.categories ?? []).map((c) => c.catId));
-    const missing = entries.filter((e) => !currentIds.has(e.catId));
-    if (missing.length > 0) problems.push(`${missing.length} official CatIDs missing (e.g. ${missing[0].catId})`);
+    const problems = compareGenerated(current, entries, {
+      version,
+      sourceSha256: digest,
+      complete,
+    });
     if (problems.length > 0) {
       console.error('[build-ucs] CHECK FAILED — generated dataset is out of date:');
       for (const p of problems) console.error(`[build-ucs]   - ${p}`);

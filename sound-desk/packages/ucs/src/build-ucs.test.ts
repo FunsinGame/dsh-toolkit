@@ -23,6 +23,7 @@ import {
   formatUcsLabel,
   rankSynonyms,
   applyOverlay,
+  compareGenerated,
   sha256,
   inferVersion,
   main,
@@ -212,6 +213,41 @@ test('--check verifies the committed dataset and writes nothing', async () => {
   assert.equal(code, 0, 'the committed dataset must match its source');
   const after = await readFile(GENERATED_URL, 'utf8');
   assert.equal(after, before, '--check must not modify the dataset');
+});
+
+test('compareGenerated accepts the committed dataset and rejects drift', () => {
+  const entries = rowsToEntries(parseDelimited(csvText, detectDelimiter(csvText))).entries;
+  applyOverlay(entries, curated);
+  const expected = {
+    version: '8.2.1',
+    sourceSha256: sha256(csvText),
+    complete: true,
+  };
+  assert.deepEqual(compareGenerated(generated, entries, expected), [], 'the committed file must be up to date');
+
+  // A stale version, hash, completeness flag or row count must all be reported.
+  assert.equal(compareGenerated({ ...generated, version: '8.2.0' }, entries, expected).length, 1);
+  assert.equal(compareGenerated({ ...generated, sourceSha256: 'deadbeef' }, entries, expected).length, 1);
+  assert.equal(compareGenerated({ ...generated, complete: false }, entries, expected).length, 1);
+  assert.ok(
+    compareGenerated({ ...generated, categories: generated.categories.slice(1) }, entries, expected).length >= 1,
+    'a missing row must be reported',
+  );
+
+  // A curated Chinese synonym edited without rebuilding must be caught.
+  const tampered = {
+    ...generated,
+    categories: generated.categories.map((c, i) =>
+      i === 0 ? { ...c, synonymsZh: ['被改坏了'] } : c,
+    ),
+  };
+  const problems = compareGenerated(tampered, entries, expected);
+  assert.ok(
+    problems.some((p) => p.includes('differ from a fresh build')),
+    `expected a drift report, got ${JSON.stringify(problems)}`,
+  );
+
+  assert.deepEqual(compareGenerated(null, entries, expected), ['generated file is not a JSON object']);
 });
 
 test('--help exits 0 and prints usage', async () => {
