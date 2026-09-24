@@ -15,7 +15,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -1045,6 +1045,154 @@ test('importing a foreign or malformed file is refused with a reason', async () 
  * that matters: a leftover runtime.json from a dead process must never be
  * reported as a reachable server.
  */
+/**
+ * Query by example — probe upload and slice search (plan §3.4).
+ *
+ * The stub embedder derives its vector from signal statistics, so "similar" here
+ * means "statistically similar samples". That is exactly the property under test:
+ * that the reference audio actually reaches the audio tower, that the mechanism
+ * reports itself, and that a slice excludes its own source file.
+ */
+test('an uploaded probe clip is embedded and searched without touching the library', async () => {
+  const h = await startHarness(true);
+  try {
+    const base = `http://127.0.0.1:${h.server.port}`;
+    const token = h.server.token;
+    const before = h.app.catalog.countAssets();
+
+    const reference = createWav(noise(0.25, 48_000), 48_000);
+    const res = await fetch(`${base}/api/search/probe?token=${encodeURIComponent(token)}&filename=reference.wav`, {
+      method: 'POST',
+      headers: { 'x-sounddesk-token': token, 'content-type': 'application/octet-stream' },
+      body: reference,
+    });
+    const probeBody = await res.text();
+    assert.equal(res.status, 200, probeBody);
+    const body = JSON.parse(probeBody) as {
+      hits: Array<{ asset: { id: number; filename: string }; score: number; via: string }>;
+      preview: { durationSeconds: number; channels: number; peak: number; warnings: string[] };
+      source: string;
+      warnings: string[];
+    };
+
+    assert.equal(body.source, 'probe');
+    assert.ok(body.hits.length > 0, 'a probe must return neighbours');
+    assert.equal(body.hits[0]!.via, 'probe');
+    assert.ok(Math.abs(body.preview.durationSeconds - 0.25) < 0.03, `duration ${body.preview.durationSeconds}`);
+    assert.equal(body.preview.channels, 1);
+    assert.ok(body.preview.peak > 0);
+
+    for (let i = 1; i < body.hits.length; i += 1) {
+      assert.ok(body.hits[i - 1]!.score >= body.hits[i]!.score, 'hits must be ordered by similarity');
+    }
+
+    // A probe is not library content, and its scratch file must not survive.
+    assert.equal(h.app.catalog.countAssets(), before, 'a probe must not add assets');
+    const scratch = path.join(h.dataDir, 'probe');
+    assert.equal(existsSync(scratch) ? readdirSync(scratch).length : 0, 0, 'the scratch file must be deleted');
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('an empty or non-audio probe is refused with a reason', async () => {
+  const h = await startHarness(true);
+  try {
+    const base = `http://127.0.0.1:${h.server.port}`;
+    const token = h.server.token;
+
+    const empty = await fetch(`${base}/api/search/probe?token=${encodeURIComponent(token)}&filename=x.wav`, {
+      method: 'POST',
+      headers: { 'x-sounddesk-token': token, 'content-type': 'application/octet-stream' },
+      body: new Uint8Array(0),
+    });
+    assert.equal(empty.status, 400);
+
+    const junk = await fetch(`${base}/api/search/probe?token=${encodeURIComponent(token)}&filename=x.wav`, {
+      method: 'POST',
+      headers: { 'x-sounddesk-token': token, 'content-type': 'application/octet-stream' },
+      body: new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]),
+    });
+    assert.ok(junk.status >= 400, 'junk must not be reported as "no results"');
+    assert.ok(((await junk.json()) as { error: string }).error.length > 0);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('slice search uses a window of an indexed file and excludes that file itself', async () => {
+  const h = await startHarness(true);
+  try {
+    const base = `http://127.0.0.1:${h.server.port}`;
+    const token = h.server.token;
+
+    const page = (await (
+      await fetch(`${base}/api/assets?limit=10`, { headers: { 'x-sounddesk-token': token } })
+    ).json()) as { items: Array<{ id: number; filename: string; durationMs: number }> };
+    const source = page.items.find((item) => (item.durationMs ?? 0) >= 500) ?? page.items[0]!;
+
+    const res = await fetch(`${base}/api/search/slice`, {
+      method: 'POST',
+      headers: { 'x-sounddesk-token': token, 'content-type': 'application/json' },
+      body: JSON.stringify({ assetId: source.id, offsetMs: 100, durationMs: 200, limit: 50 }),
+    });
+    const sliceBody = await res.text();
+    assert.equal(res.status, 200, sliceBody);
+    const body = JSON.parse(sliceBody) as {
+      hits: Array<{ asset: { id: number }; score: number; via: string }>;
+      preview: { durationSeconds: number };
+      source: string;
+    };
+
+    assert.equal(body.source, 'slice');
+    // The preview must describe the *selection*, not the whole file.
+    assert.ok(
+      Math.abs(body.preview.durationSeconds - 0.2) < 0.06,
+      `preview should describe the selection, got ${body.preview.durationSeconds}s`,
+    );
+    assert.equal(
+      body.hits.some((hit) => hit.asset.id === source.id),
+      false,
+      'the source file must not be its own best match',
+    );
+    for (const hit of body.hits) assert.equal(hit.via, 'slice');
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('slice search rejects an out-of-range window and a missing asset', async () => {
+  const h = await startHarness(true);
+  try {
+    const base = `http://127.0.0.1:${h.server.port}`;
+    const token = h.server.token;
+    const headers = { 'x-sounddesk-token': token, 'content-type': 'application/json' };
+
+    const missing = await fetch(`${base}/api/search/slice`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ assetId: 999999 }),
+    });
+    assert.equal(missing.status, 404);
+
+    const noId = await fetch(`${base}/api/search/slice`, { method: 'POST', headers, body: JSON.stringify({}) });
+    assert.equal(noId.status, 400);
+
+    const items = (await (
+      await fetch(`${base}/api/assets?limit=1`, { headers: { 'x-sounddesk-token': token } })
+    ).json()) as { items: Array<{ id: number }> };
+    const past = await fetch(`${base}/api/search/slice`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ assetId: items.items[0]!.id, offsetMs: 10 * 60 * 1000, durationMs: 100 }),
+    });
+    assert.equal(past.status, 400, 'a window past the end must be refused, not silently empty');
+    assert.match(((await past.json()) as { error: string }).error, /选区/);
+  } finally {
+    h.cleanup();
+  }
+});
+
 test('readRuntimeFile returns the live server details', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'sounddesk-runtime-'));
   try {

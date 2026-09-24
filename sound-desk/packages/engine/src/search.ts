@@ -185,6 +185,17 @@ export class SearchService {
     return this.deps.embedder?.ready === true;
   }
 
+  /**
+   * The embedder itself, for callers that need to encode something the text path
+   * cannot express — a reference clip or a selection, i.e. query-by-example.
+   *
+   * Exposed rather than reached into, so there is one place that knows how the
+   * embedder is obtained.
+   */
+  get audioEmbedder(): Embedder | null {
+    return this.deps.embedder;
+  }
+
   /** How many assets already have embeddings, for progress reporting. */
   get embeddedCount(): number {
     return this.deps.vectorIndex.size;

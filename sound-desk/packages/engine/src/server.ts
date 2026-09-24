@@ -38,6 +38,7 @@ import { streamPeaksFor } from './peaks.js';
 import { errorMessage } from './indexer.js';
 import { ExportError, deleteExports, exportRootsFor, isInside, listExports, saveExport } from './export.js';
 import { ffmpegStatus, findFfmpeg, isRiffPath, transcodeToWav } from './decode.js';
+import { ProbeError, ProbeService, type ProbeMatches } from './probe.js';
 import {
   PlaylistError,
   Playlists,
@@ -95,6 +96,12 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const log = opts.log ?? (() => {});
   const token = randomBytes(32).toString('base64url');
   const playlists = new Playlists(opts.catalog);
+  const probeService = new ProbeService({
+    catalog: opts.catalog,
+    vectorIndex: opts.vectorIndex,
+    embedder: opts.searchService.audioEmbedder,
+    dataDir: opts.catalog.dataDir,
+  });
   const host = opts.host ?? '127.0.0.1';
   const allowedOrigins = new Set(opts.allowedOrigins ?? []);
   const sockets = new Set<WebSocket>();
@@ -1062,6 +1069,71 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       return;
     }
 
+    // -- query by example: probe upload and slice search (plan §3.4) -------
+    //
+    // The reference clip is uploaded as a **raw body**, not multipart: the route
+    // needs exactly one field, so parsing a multipart envelope would be a
+    // dependency and a parser for no benefit. The original file name travels as a
+    // query parameter and is sanitised before it becomes a scratch file name.
+    if (pathname === '/api/search/probe' && method === 'POST') {
+      const filename = url.searchParams.get('filename') ?? undefined;
+      const limit = Math.min(Number(url.searchParams.get('limit') ?? 200), 500);
+      const bytes = await readBinary(req, 64 * 1024 * 1024);
+      if (bytes.byteLength === 0) {
+        sendJson(res, 400, { error: '没有收到参考音频数据' });
+        return;
+      }
+      try {
+        const result = await probeService.searchWithProbe({ bytes, ...(filename ? { filename } : {}) }, limit);
+        sendJson(res, 200, toProbeResponse(opts, result));
+      } catch (err) {
+        if (err instanceof ProbeError) {
+          sendJson(res, err.status, { error: err.message });
+          return;
+        }
+        throw err;
+      }
+      return;
+    }
+
+    /**
+     * Slice search: use a window of an *indexed* asset as the query.
+     *
+     * Re-embeds that one file's window on demand, so no sub-vector table is needed
+     * and nothing has to be re-indexed when this feature changes.
+     */
+    if (pathname === '/api/search/slice' && method === 'POST') {
+      const body = await readJson<{
+        assetId?: number;
+        offsetMs?: number;
+        durationMs?: number;
+        limit?: number;
+      }>(req);
+      if (typeof body.assetId !== 'number') {
+        sendJson(res, 400, { error: '需要 assetId' });
+        return;
+      }
+      const limit = Math.min(Number(body.limit ?? 200), 500);
+      try {
+        const result = await probeService.searchWithSlice(
+          body.assetId,
+          {
+            ...(typeof body.offsetMs === 'number' ? { offsetMs: body.offsetMs } : {}),
+            ...(typeof body.durationMs === 'number' ? { durationMs: body.durationMs } : {}),
+          },
+          limit,
+        );
+        sendJson(res, 200, toProbeResponse(opts, result, body.assetId));
+      } catch (err) {
+        if (err instanceof ProbeError) {
+          sendJson(res, err.status, { error: err.message });
+          return;
+        }
+        throw err;
+      }
+      return;
+    }
+
     // -- static web assets ---------------------------------------------
     if (opts.webRoot) {
       const served = await serveStatic(res, opts.webRoot, pathname);
@@ -1197,6 +1269,59 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
     'cache-control': 'no-store',
   });
   res.end(payload);
+}
+
+/**
+ * Shape a probe result for the client.
+ *
+ * The matches are asset ids and scores, which the UI cannot render — so they are
+ * resolved to summaries here, in one query, exactly like a normal search result.
+ * `excludeAssetId` drops the slice's own source file: searching a window of a file
+ * and being told that file is the best match is true and useless.
+ */
+function toProbeResponse(
+  opts: ServerOptions,
+  result: ProbeMatches,
+  excludeAssetId?: number,
+): {
+  hits: Array<{ asset: ReturnType<typeof rowToSummary>; score: number; via: 'probe' | 'slice' }>;
+  preview: ProbeMatches['preview'];
+  warnings: string[];
+  source: 'probe' | 'slice';
+  total: number;
+} {
+  const wanted = result.matches
+    .map((match) => match.assetId)
+    .filter((id) => id !== excludeAssetId)
+    .slice(0, 500);
+
+  const rows = wanted.length > 0
+    ? (opts.catalog.db
+        .prepare(
+          `SELECT a.*, l.root AS libraryRoot FROM assets a
+           LEFT JOIN libraries l ON l.id = a.libraryId
+           WHERE a.id IN (${wanted.map(() => '?').join(',')})`,
+        )
+        .all(...wanted) as Array<Record<string, unknown>>)
+    : [];
+  const byId = new Map(rows.map((row) => [Number(row.id), rowToSummary(row)]));
+
+  const hits = result.matches
+    .filter((match) => match.assetId !== excludeAssetId)
+    .map((match) => ({ summary: byId.get(match.assetId), match }))
+    .filter((entry): entry is { summary: NonNullable<typeof entry.summary>; match: typeof entry.match } =>
+      entry.summary !== undefined,
+    )
+    .slice(0, 500)
+    .map((entry) => ({ asset: entry.summary, score: entry.match.score, via: entry.match.via }));
+
+  return {
+    hits,
+    preview: result.preview,
+    warnings: result.warnings,
+    source: result.source,
+    total: hits.length,
+  };
 }
 
 /**

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SearchMode } from '@sounddesk/core';
 import { describePersonalization } from '@sounddesk/core';
+import { ProbeBar } from './ProbeBar.tsx';
 
 import { store } from '../state/store.ts';
 import { useAppState } from '../state/useAppState.ts';
@@ -97,6 +98,7 @@ export function SearchBar(): React.JSX.Element {
           </button>
         )}
       </div>
+      <ProbeBar />
       <div className="meta">
         {running
           ? `索引进度 ${running.done}/${running.total}${running.failed > 0 ? `（${running.failed} 失败）` : ''}`

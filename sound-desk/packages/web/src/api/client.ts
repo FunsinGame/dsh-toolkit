@@ -17,6 +17,7 @@ import type {
   AssetSummary,
   JobProgress,
   Library,
+  SearchHit,
   SearchRequest,
   SearchResponse,
   StatsResponse,
@@ -92,6 +93,14 @@ export interface EngineClient {
   reorderPlaylist(id: number, assetId: number, toIndex: number): Promise<void>;
   /** URL for a playlist as M3U8, for handing the list to a DAW or a player */
   playlistM3uUrl(id: number): string;
+  /** query by example: search using a reference clip from outside the library */
+  searchWithProbe(bytes: Uint8Array, filename: string, limit?: number): Promise<ProbeResponse>;
+  /** query by example: search using a window of an already-indexed asset */
+  searchWithSlice(
+    assetId: number,
+    window: { offsetMs?: number; durationMs?: number },
+    limit?: number,
+  ): Promise<ProbeResponse>;
   /** URL for a sidecar backup download; the engine sets the filename */
   backupUrl(libraryId?: number, includeHistory?: boolean): string;
   /** what an import would do, without doing it */
@@ -121,6 +130,28 @@ export interface SessionInfo {
   ffmpeg:
     | { available: true; version: string | null; source: 'env' | 'path' | 'bundled' }
     | { available: false };
+}
+
+/**
+ * A query-by-example result.
+ *
+ * `preview` describes the *reference* — its length, channels and peak — so the UI can
+ * show what was actually used. A silent or very short clip explains a poor result
+ * far better than an empty list does.
+ */
+export interface ProbeResponse {
+  hits: SearchHit[];
+  preview: {
+    durationSeconds: number;
+    sampleRate: number;
+    channels: number;
+    peak: number;
+    warnings: string[];
+  };
+  warnings: string[];
+  /** whether a reference clip or a selection answered */
+  source: 'probe' | 'slice';
+  total: number;
 }
 
 export interface PatchableAsset {
@@ -565,6 +596,29 @@ class HttpEngineClient implements EngineClient {
     return `${this.base}/api/playlists/${id}/m3u8?token=${encodeURIComponent(this.token)}`;
   }
 
+  searchWithProbe(bytes: Uint8Array, filename: string, limit = 200): Promise<ProbeResponse> {
+    // Raw body rather than multipart: the route takes exactly one field, so a
+    // multipart envelope would be a parser for no benefit. The name travels as a
+    // query parameter and is sanitised on the engine side.
+    const qs = new URLSearchParams({ filename, limit: String(limit) });
+    return this.request<ProbeResponse>(`/api/search/probe?${qs.toString()}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/octet-stream' },
+      body: bytes as unknown as BodyInit,
+    });
+  }
+
+  searchWithSlice(
+    assetId: number,
+    window: { offsetMs?: number; durationMs?: number },
+    limit = 200,
+  ): Promise<ProbeResponse> {
+    return this.request<ProbeResponse>('/api/search/slice', {
+      method: 'POST',
+      body: JSON.stringify({ assetId, ...window, limit }),
+    });
+  }
+
   // -- sidecar backup / import -------------------------------------------
 
   backupUrl(libraryId?: number, includeHistory = true): string {
@@ -878,6 +932,41 @@ class VscodeEngineClient implements EngineClient {
   playlistM3uUrl(id: number): string {
     // The extension host runs the same HTTP engine, so a real download URL works.
     return `${this.base}/api/playlists/${id}/m3u8?token=${encodeURIComponent(this.token)}`;
+  }
+
+  async searchWithProbe(bytes: Uint8Array, filename: string, limit = 200): Promise<ProbeResponse> {
+    // The engine is a real HTTP server even inside the extension host, so the raw
+    // body goes over HTTP rather than through the message bridge: shipping megabytes
+    // of audio through postMessage would be wasteful.
+    const qs = new URLSearchParams({ filename, limit: String(limit), token: this.token });
+    const res = await fetch(`${this.base}/api/search/probe?${qs.toString()}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/octet-stream', 'x-sounddesk-token': this.token },
+      body: bytes as unknown as BodyInit,
+    });
+    if (!res.ok) {
+      const detail = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(detail.error ?? `参考音频搜索失败（${res.status}）`);
+    }
+    return (await res.json()) as ProbeResponse;
+  }
+
+  async searchWithSlice(
+    assetId: number,
+    window: { offsetMs?: number; durationMs?: number },
+    limit = 200,
+  ): Promise<ProbeResponse> {
+    const qs = new URLSearchParams({ token: this.token });
+    const res = await fetch(`${this.base}/api/search/slice?${qs.toString()}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-sounddesk-token': this.token },
+      body: JSON.stringify({ assetId, ...window, limit }),
+    });
+    if (!res.ok) {
+      const detail = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(detail.error ?? `选区搜索失败（${res.status}）`);
+    }
+    return (await res.json()) as ProbeResponse;
   }
 
   // -- sidecar backup / import -------------------------------------------

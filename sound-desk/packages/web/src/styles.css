@@ -424,6 +424,52 @@
   line-height: 1.6;
 }
 
+/* -- query by example ----------------------------------------------------- */
+
+.probe-drop,
+.probe-active {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.probe-drop {
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  padding: 3px 8px;
+  color: var(--text-dim);
+}
+
+.probe-drop.over {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.probe-pick {
+  cursor: pointer;
+}
+
+.probe-pick:hover {
+  color: var(--accent);
+}
+
+.probe-tag {
+  background: var(--accent-dim);
+  color: #fff;
+  border-radius: var(--radius);
+  padding: 1px 6px;
+  font-size: 10px;
+}
+
+.probe-active > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+
 
 .fx-files code {
   display: block;
@@ -550,6 +596,9 @@ select:focus {
 .topbar {
   display: flex;
   align-items: center;
+  /* the probe controls are a third child; wrapping stops them squeezing the search
+     box on a narrow window rather than overflowing it */
+  flex-wrap: wrap;
   gap: 10px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);

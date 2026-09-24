@@ -26,6 +26,7 @@ import type {
   PersonalizationState,
   Playlist,
   PlaylistDetail,
+  ProbeResponse,
   SessionInfo,
   UcsTree,
 } from '../api/client.ts';
@@ -92,6 +93,14 @@ export interface AppState {
   hostActionError: string | null;
   /** engine capabilities, notably whether non-RIFF formats can be decoded */
   session: SessionInfo | null;
+
+  /** query by example: what the current probe was, and what it found */
+  probe: {
+    kind: 'probe' | 'slice';
+    /** the reference's own description, so a bad result is explicable */
+    label: string;
+    preview: ProbeResponse['preview'] | null;
+  } | null;
   /** personalised ranking (plan P2-3) */
   personalization: PersonalizationState | null;
 
@@ -154,6 +163,7 @@ const initialState: AppState = {
   exportFiles: [],
   hostActionError: null,
   session: null,
+  probe: null,
   personalization: null,
   compare: false,
   columns: [],
@@ -945,6 +955,91 @@ class Store {
 
   clearImportOutcome(): void {
     this.set({ importOutcome: null });
+  }
+
+  // -- query by example (plan §3.4) --------------------------------------
+
+  /**
+   * Search using a reference clip the user supplied.
+   *
+   * Results replace the main list, because that is what the user is looking at: they
+   * handed the tool a sound and want the library's answer, not a side panel.
+   */
+  async searchWithProbeFile(file: File): Promise<void> {
+    await this.runProbe(`参考音频「${file.name}」`, async () => {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      return this.getClient().searchWithProbe(bytes, file.name);
+    });
+  }
+
+  /**
+   * Search using the current waveform selection of the loaded asset.
+   *
+   * The reference product marks this as not yet available; it is implemented here by
+   * re-embedding just that window on demand.
+   */
+  async searchWithSelection(): Promise<void> {
+    const playback = getPlayer().getState();
+    const assetId = playback.assetId;
+    const selection = playback.selection;
+    if (assetId === null) {
+      this.set({ searchError: '先在波形上选中一段（双击结果行加载素材）' });
+      return;
+    }
+    if (!selection) {
+      this.set({ searchError: '先在波形上拖出一段选区，再点「搜选区」' });
+      return;
+    }
+    const durationMs = Math.max(1, (selection.end - selection.start) * 1000);
+    await this.runProbe(
+      `选区 ${selection.start.toFixed(2)}s–${selection.end.toFixed(2)}s`,
+      () =>
+        this.getClient().searchWithSlice(assetId, {
+          offsetMs: Math.round(selection.start * 1000),
+          durationMs: Math.round(durationMs),
+        }),
+    );
+  }
+
+  /**
+   * Shared plumbing for both query-by-example paths.
+   *
+   * A probe failure is a *different* message from a search failure — "the model is
+   * not loaded" and "your clip is silent" are both actionable and neither looks like
+   * the other — so the reason is passed through verbatim rather than swallowed.
+   */
+  private async runProbe(label: string, run: () => Promise<ProbeResponse>): Promise<void> {
+    const seq = ++this.searchSeq;
+    this.set({ searching: true, searchError: null, probe: { kind: 'probe', label, preview: null } });
+    try {
+      const response = await run();
+      if (seq !== this.searchSeq) return;
+      this.set({
+        hits: response.hits,
+        total: response.total,
+        tookMs: 0,
+        mode: 'similar',
+        captionsUsed: [],
+        unmatchedTerms: response.warnings,
+        belowThreshold: false,
+        semanticIncomplete: false,
+        searching: false,
+        probe: { kind: response.source, label, preview: response.preview },
+      });
+    } catch (err) {
+      if (seq !== this.searchSeq) return;
+      this.set({
+        searching: false,
+        probe: null,
+        searchError: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /** Leave query-by-example and go back to the text query. */
+  clearProbe(): void {
+    this.set({ probe: null, searchError: null });
+    void this.runSearch();
   }
 
   /**
