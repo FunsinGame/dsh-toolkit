@@ -23,6 +23,7 @@ import path from 'node:path';
 import { backupPathFor } from '@sounddesk/audio-wav';
 
 import { createApp, readRuntimeFile, writeRuntimeFile } from './index.js';
+import { applyImport, buildBackup, planImport } from './sidecar.js';
 import { startServer, type RunningServer } from './server.js';
 import { createWav, sine, noise } from './test-utils.js';
 import type { Embedder, EmbeddingResult } from '@sounddesk/core';
@@ -716,6 +717,323 @@ test('usage events are scoped to the query they were made for', async () => {
       weightIn(sameQuery) >= weightIn(otherQuery),
       `same-query weight ${weightIn(sameQuery)} should be at least the cross-query one ${weightIn(otherQuery)}`,
     );
+  } finally {
+    h.cleanup();
+  }
+});
+
+/**
+ * Playlists and the sidecar backup (plan P1-3).
+ *
+ * The round-trip is the point: a backup is only useful if importing it onto a
+ * library whose asset ids are completely different actually restores the user's
+ * annotations. So these tests export from one catalogue, import into another whose
+ * ids share nothing, and check the data landed on the right sounds.
+ */
+test('playlists hold ordered references that survive asset removal', async () => {
+  const h = await startHarness(false);
+  try {
+    const base = `http://127.0.0.1:${h.server.port}`;
+    const token = h.server.token;
+    const headers = { 'x-sounddesk-token': token, 'content-type': 'application/json' };
+
+    const created = await fetch(`${base}/api/playlists`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ name: '我的首选' }),
+    });
+    assert.equal(created.status, 201);
+    const playlist = (await created.json()) as { id: number; name: string; itemCount: number };
+    assert.equal(playlist.name, '我的首选');
+    assert.equal(playlist.itemCount, 0);
+
+    const ids = (await h.app.catalog.listAssetsForSidecar()).map((asset) => asset.id);
+    assert.ok(ids.length >= 3, 'need a few assets');
+
+    // add, then add again: a duplicate must not appear twice
+    await fetch(`${base}/api/playlists/${playlist.id}/items`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ assetIds: [ids[0]!, ids[1]!] }),
+    });
+    const again = await fetch(`${base}/api/playlists/${playlist.id}/items`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ assetIds: [ids[1]!, ids[2]!] }),
+    });
+    assert.equal(((await again.json()) as { count: number }).count, 3);
+
+    const detail = (await (await fetch(`${base}/api/playlists/${playlist.id}`, { headers })).json()) as {
+      items: Array<{ assetId: number; filename: string; present: boolean }>;
+    };
+    assert.deepEqual(detail.items.map((item) => item.assetId), [ids[0], ids[1], ids[2]], 'order preserved');
+    assert.ok(detail.items.every((item) => item.present));
+
+    // reorder: move the last one to the front
+    await fetch(`${base}/api/playlists/${playlist.id}/items`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ assetId: ids[2], toIndex: 0 }),
+    });
+    const reordered = (await (await fetch(`${base}/api/playlists/${playlist.id}`, { headers })).json()) as {
+      items: Array<{ assetId: number }>;
+    };
+    assert.deepEqual(reordered.items.map((item) => item.assetId), [ids[2], ids[0], ids[1]]);
+
+    // removing from the playlist leaves the asset itself alone
+    await fetch(`${base}/api/playlists/${playlist.id}/items`, {
+      method: 'DELETE',
+      headers,
+      body: JSON.stringify({ assetIds: [ids[0]!] }),
+    });
+    const trimmed = (await (await fetch(`${base}/api/playlists/${playlist.id}`, { headers })).json()) as {
+      items: Array<{ assetId: number }>;
+    };
+    assert.deepEqual(trimmed.items.map((item) => item.assetId), [ids[2], ids[1]]);
+    assert.equal(h.app.catalog.countAssets(), 4, 'the asset itself must still exist');
+
+    // deleting the asset drops it from the playlist via the schema cascade
+    h.app.catalog.db.prepare('DELETE FROM assets WHERE id = ?').run(ids[1]!);
+    const afterDelete = (await (await fetch(`${base}/api/playlists/${playlist.id}`, { headers })).json()) as {
+      items: Array<{ assetId: number }>;
+    };
+    assert.deepEqual(afterDelete.items.map((item) => item.assetId), [ids[2]], 'cascade must clean the reference');
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('playlist names are unique and validated', async () => {
+  const h = await startHarness(false);
+  try {
+    const base = `http://127.0.0.1:${h.server.port}`;
+    const headers = { 'x-sounddesk-token': h.server.token, 'content-type': 'application/json' };
+
+    assert.equal((await fetch(`${base}/api/playlists`, { method: 'POST', headers, body: JSON.stringify({ name: 'A' }) })).status, 201);
+    // case-insensitive clash
+    assert.equal((await fetch(`${base}/api/playlists`, { method: 'POST', headers, body: JSON.stringify({ name: 'a' }) })).status, 409);
+    assert.equal((await fetch(`${base}/api/playlists`, { method: 'POST', headers, body: JSON.stringify({ name: '   ' }) })).status, 400);
+    assert.equal(
+      (await fetch(`${base}/api/playlists`, { method: 'POST', headers, body: JSON.stringify({ name: 'x'.repeat(500) }) })).status,
+      400,
+    );
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('a sidecar backup round-trips onto a catalogue with entirely different ids', async () => {
+  const source = await startHarness(false);
+  const target = await startHarness(false);
+  try {
+    const sourceBase = `http://127.0.0.1:${source.server.port}`;
+    const token = source.server.token;
+
+    // Annotate the source library: tags, favourite, rating and a manual category.
+    const assets = source.app.catalog.listAssetsForSidecar();
+    assert.ok(assets.length >= 2);
+    const first = assets[0]!;
+    const second = assets[1]!;
+    source.app.catalog.setTags(first.id, ['金属', '门']);
+    source.app.catalog.setFavorite(first.id, true);
+    source.app.catalog.setRating(first.id, 5);
+    source.app.catalog.applyClassification(first.id, {
+      catId: 'DOORWood',
+      confidence: 1,
+      source: 'manual',
+      alternatives: [],
+    });
+    source.app.catalog.setTags(second.id, ['脚步']);
+
+    const playlistId = source.app.catalog.createPlaylist('备份测试');
+    source.app.catalog.setPlaylistItems(playlistId, [second.id, first.id]);
+
+    // Export.
+    const exported = await fetch(`${sourceBase}/api/backup`, { headers: { 'x-sounddesk-token': token } });
+    assert.equal(exported.status, 200);
+    assert.match(exported.headers.get('content-disposition') ?? '', /sounddesk-backup-.*\.json/);
+    const backup = (await exported.json()) as Record<string, unknown>;
+    assert.equal(backup.format, 'sounddesk-sidecar-backup');
+    assert.equal((backup.counts as { annotations: number }).annotations, 2, 'only annotated assets are recorded');
+    assert.equal((backup.playlists as unknown[]).length, 1);
+
+    // The two catalogues must genuinely disagree about ids, or this proves nothing.
+    const targetBase = `http://127.0.0.1:${target.server.port}`;
+    const targetToken = target.server.token;
+    const targetHeaders = { 'x-sounddesk-token': targetToken, 'content-type': 'application/json' };
+    // Both harnesses build the *same* fixture files, so the two libraries hold
+    // identical audio. That is exactly what makes this a real test of identity
+    // resolution: the ids differ (fresh catalogues both number from 1, so comparing
+    // them would prove nothing), the paths are identical, and only the content hash
+    // can be trusted — which is why the assertions below check that the match was
+    // made by hash and that the annotations landed on the file with that hash.
+    const targetAssets = target.app.catalog.listAssetsForSidecar();
+
+    // Inspect first: a dry run must not change anything.
+    const inspect = await fetch(`${targetBase}/api/backup/inspect`, {
+      method: 'POST',
+      headers: targetHeaders,
+      body: JSON.stringify({ backup }),
+    });
+    assert.equal(inspect.status, 200);
+    const dry = (await inspect.json()) as { plan: { matched: number; unmatched: number; ambiguous: number; byMethod: Record<string, number> } };
+    assert.equal(dry.plan.matched, 2, 'both annotations should match by content hash');
+    assert.equal(dry.plan.byMethod.hash, 2, 'content hash is the strongest identifier and should be used');
+    assert.equal(dry.plan.unmatched, 0);
+    assert.equal(dry.plan.ambiguous, 0, 'a tie must produce a skip, and there must be no tie here');
+    // The dry run wrote nothing.
+    const untouched = target.app.catalog.listAssetsForSidecar();
+    assert.ok(untouched.every((asset) => asset.tags.length === 0 && !asset.favorite && asset.rating === 0));
+
+    // Importing without confirmation is refused.
+    const unconfirmed = await fetch(`${targetBase}/api/backup/import`, {
+      method: 'POST',
+      headers: targetHeaders,
+      body: JSON.stringify({ backup }),
+    });
+    assert.equal(unconfirmed.status, 428, 'import must require explicit confirmation');
+
+    // Now really import.
+    const imported = await fetch(`${targetBase}/api/backup/import`, {
+      method: 'POST',
+      headers: targetHeaders,
+      body: JSON.stringify({ backup, confirm: true }),
+    });
+    assert.equal(imported.status, 200);
+    const outcome = (await imported.json()) as {
+      result: { applied: number; playlistsCreated: number; playlistItems: number; searchesAdded: number };
+    };
+    assert.equal(outcome.result.applied, 2);
+    assert.ok(outcome.result.playlistsCreated >= 1);
+
+    // The annotations must be on the *right* sounds — matched by content, not by id.
+    const byId = new Map(target.app.catalog.listAssetsForSidecar().map((asset) => [asset.id, asset]));
+    const restored = targetAssets.find((asset) => asset.contentHash === first.contentHash);
+    assert.ok(restored, 'the target should hold a file with the same content');
+    const row = byId.get(restored!.id)!;
+    assert.deepEqual(row.tags.sort(), ['门', '金属'].sort(), 'tags restored onto the matching file');
+    assert.equal(row.favorite, true);
+    assert.equal(row.rating, 5);
+    assert.equal(row.ucsSource, 'manual', 'a manual classification is authoritative and comes back');
+    assert.equal(row.ucsCatId, 'DOORWood');
+
+    // The other asset got its own tags and nothing else.
+    const other = byId.get(targetAssets.find((asset) => asset.contentHash === second.contentHash)!.id)!;
+    assert.deepEqual(other.tags, ['脚步']);
+    assert.equal(other.favorite, false);
+
+    // The playlist came across, in its original order.
+    const playlists = (await (await fetch(`${targetBase}/api/playlists`, { headers: targetHeaders })).json()) as {
+      playlists: Array<{ id: number; name: string; itemCount: number }>;
+    };
+    const restoredPlaylist = playlists.playlists.find((entry) => entry.name === '备份测试');
+    assert.ok(restoredPlaylist, 'the playlist must be recreated');
+    assert.equal(restoredPlaylist!.itemCount, 2);
+    const detail = (await (
+      await fetch(`${targetBase}/api/playlists/${restoredPlaylist!.id}`, { headers: targetHeaders })
+    ).json()) as { items: Array<{ assetId: number }> };
+    const expectedOrder = [second, first].map((asset) => targetAssets.find((t) => t.contentHash === asset.contentHash)!.id);
+    assert.deepEqual(detail.items.map((item) => item.assetId), expectedOrder, 'playlist order preserved');
+  } finally {
+    source.cleanup();
+    target.cleanup();
+  }
+});
+
+test('import merges rather than discarding newer annotations, and can be told to overwrite', async () => {
+  const source = await startHarness(false);
+  const target = await startHarness(false);
+  try {
+    const assets = source.app.catalog.listAssetsForSidecar();
+    const asset = assets[0]!;
+    source.app.catalog.setTags(asset.id, ['旧的']);
+    source.app.catalog.setRating(asset.id, 5);
+
+    const backup = buildBackup(source.app.catalog);
+
+    // The target has since gained its own annotation on the same file.
+    const targetAsset = target.app.catalog
+      .listAssetsForSidecar()
+      .find((entry) => entry.contentHash === asset.contentHash)!;
+    target.app.catalog.setTags(targetAsset.id, ['新的']);
+    target.app.catalog.setRating(targetAsset.id, 2);
+
+    const plan = planImport(backup, target.app.catalog.sidecarCandidates());
+    const merged = applyImport(target.app.catalog, backup, plan);
+    assert.equal(merged.applied, 1);
+
+    let row = target.app.catalog.listAssetsForSidecar().find((entry) => entry.id === targetAsset.id)!;
+    assert.deepEqual(row.tags.sort(), ['新的', '旧的'].sort(), 'merge keeps both sets of tags');
+    assert.equal(row.rating, 5, 'the higher rating wins, so a restore cannot lower it');
+
+    // With overwrite the backup is treated as the truth.
+    target.app.catalog.setTags(targetAsset.id, ['又一次']);
+    const plan2 = planImport(backup, target.app.catalog.sidecarCandidates());
+    applyImport(target.app.catalog, backup, plan2, { overwrite: true });
+    row = target.app.catalog.listAssetsForSidecar().find((entry) => entry.id === targetAsset.id)!;
+    assert.deepEqual(row.tags, ['旧的'], 'overwrite replaces the tags outright');
+  } finally {
+    source.cleanup();
+    target.cleanup();
+  }
+});
+
+test('an import never overwrites a manual classification the user made later', async () => {
+  const source = await startHarness(false);
+  const target = await startHarness(false);
+  try {
+    const asset = source.app.catalog.listAssetsForSidecar()[0]!;
+    source.app.catalog.applyClassification(asset.id, {
+      catId: 'DOORWood',
+      confidence: 1,
+      source: 'manual',
+      alternatives: [],
+    });
+    const backup = buildBackup(source.app.catalog);
+
+    const targetAsset = target.app.catalog
+      .listAssetsForSidecar()
+      .find((entry) => entry.contentHash === asset.contentHash)!;
+    // The user corrected it by hand after the backup was taken.
+    target.app.catalog.applyClassification(targetAsset.id, {
+      catId: 'FOOTSteps',
+      confidence: 1,
+      source: 'manual',
+      alternatives: [],
+    });
+
+    const plan = planImport(backup, target.app.catalog.sidecarCandidates());
+    applyImport(target.app.catalog, backup, plan);
+
+    const row = target.app.catalog.listAssetsForSidecar().find((entry) => entry.id === targetAsset.id)!;
+    assert.equal(row.ucsCatId, 'FOOTSteps', 'the newer manual correction must win');
+    assert.equal(row.ucsSource, 'manual');
+  } finally {
+    source.cleanup();
+    target.cleanup();
+  }
+});
+
+test('importing a foreign or malformed file is refused with a reason', async () => {
+  const h = await startHarness(false);
+  try {
+    const base = `http://127.0.0.1:${h.server.port}`;
+    const headers = { 'x-sounddesk-token': h.server.token, 'content-type': 'application/json' };
+
+    for (const [payload, pattern] of [
+      [{ nothing: true }, /不是 SoundDesk 的备份/],
+      [{ format: 'something-else', version: 1 }, /不是 SoundDesk 的备份/],
+      [{ format: 'sounddesk-sidecar-backup', version: 99 }, /更新/],
+    ] as const) {
+      const res = await fetch(`${base}/api/backup/inspect`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ backup: payload }),
+      });
+      assert.equal(res.status, 400, 'a bad file must be rejected, not half-applied');
+      const body = (await res.json()) as { error: string };
+      assert.match(body.error, pattern);
+    }
   } finally {
     h.cleanup();
   }

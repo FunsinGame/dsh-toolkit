@@ -222,7 +222,10 @@ CREATE INDEX IF NOT EXISTS idx_usage_at ON usage_events(at);
 CREATE TABLE IF NOT EXISTS playlists (
   id   INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
-  createdAt INTEGER NOT NULL
+  createdAt INTEGER NOT NULL,
+  -- added after the first release, so existing databases need the migration in
+  -- Catalog.migrate(); CREATE TABLE IF NOT EXISTS will not alter a live table
+  updatedAt INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS playlist_items (
   playlistId INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
@@ -252,6 +255,7 @@ export class Catalog {
     const db = new DatabaseSync(file);
     db.exec(INIT_SQL);
     const catalog = new Catalog(db, opts.dataDir);
+    catalog.migrate();
     catalog.setMeta('schemaVersion', String(SCHEMA_VERSION));
     return catalog;
   }
@@ -259,7 +263,28 @@ export class Catalog {
   static openMemory(): Catalog {
     const db = new DatabaseSync(':memory:');
     db.exec(INIT_SQL);
-    return new Catalog(db, ':memory:');
+    const catalog = new Catalog(db, ':memory:');
+    catalog.migrate();
+    return catalog;
+  }
+
+  /**
+   * Bring an existing database up to the current shape.
+   *
+   * `INIT_SQL` is all `CREATE TABLE IF NOT EXISTS`, so it silently does nothing to
+   * a table that already exists — adding a column to the schema above is not
+   * enough for anyone who already has a catalogue. Every step here must therefore
+   * be idempotent and safe to run on every open.
+   */
+  private migrate(): void {
+    // playlists.updatedAt (P1-3). ALTER TABLE ADD COLUMN throws if the column is
+    // already there, so check first.
+    const columns = this.db.prepare('PRAGMA table_info(playlists)').all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === 'updatedAt')) {
+      this.db.exec('ALTER TABLE playlists ADD COLUMN updatedAt INTEGER NOT NULL DEFAULT 0');
+      // Backfill from createdAt so an old playlist does not claim to be from 1970.
+      this.db.exec('UPDATE playlists SET updatedAt = createdAt WHERE updatedAt = 0');
+    }
   }
 
   close(): void {
@@ -707,6 +732,159 @@ export class Catalog {
   setPersonalizationEnabled(enabled: boolean): void {
     this.setMeta('personalization', enabled ? 'on' : 'off');
   }
+
+  // -- sidecar backup / import (plan P1-3) ---------------------------------
+
+  /** Recent search history for a backup. */
+  recentSearches(limit = 5000): Array<{ query: string; mode: string; hits: number; at: number }> {
+    return this.db
+      .prepare('SELECT query, mode, hits, at FROM search_history ORDER BY at DESC LIMIT ?')
+      .all(limit) as Array<{ query: string; mode: string; hits: number; at: number }>;
+  }
+
+  /**
+   * The asset fields a backup needs, in one query.
+   *
+   * Deliberately a narrow projection rather than `SELECT *`: a backup touches
+   * seven columns, and the wide asset row carries metadata blobs and DSP features
+   * that would be read into memory for no reason.
+   */
+  listAssetsForSidecar(libraryId?: number): Array<{
+    id: number;
+    libraryId: number;
+    path: string;
+    filename: string;
+    sizeBytes: number;
+    contentHash: string | null;
+    tags: string[];
+    favorite: boolean;
+    rating: number;
+    ucsCatId: string | null;
+    ucsSource: string | null;
+  }> {
+    const sql =
+      `SELECT id, libraryId, path, filename, sizeBytes, contentHash, tags, favorite, rating, ucsCatId, ucsSource
+       FROM assets` + (libraryId !== undefined ? ' WHERE libraryId = ?' : '');
+    const rows = (libraryId !== undefined
+      ? this.db.prepare(sql).all(libraryId)
+      : this.db.prepare(sql).all()) as Array<Record<string, unknown>>;
+
+    return rows.map((row) => ({
+      id: Number(row.id),
+      libraryId: Number(row.libraryId),
+      path: String(row.path ?? ''),
+      filename: String(row.filename ?? ''),
+      sizeBytes: Number(row.sizeBytes) || 0,
+      contentHash: typeof row.contentHash === 'string' ? row.contentHash : null,
+      tags: parseJsonArray(row.tags),
+      favorite: row.favorite === 1,
+      rating: Number(row.rating) || 0,
+      ucsCatId: typeof row.ucsCatId === 'string' ? row.ucsCatId : null,
+      ucsSource: typeof row.ucsSource === 'string' ? row.ucsSource : null,
+    }));
+  }
+
+  /**
+   * Read playlists with their items resolved to the identifiers a backup stores.
+   *
+   * Exists as a catalogue method so the backup module does not have to know about
+   * SQL — reachable playlists are the catalogue's business.
+   */
+  listPlaylistsWithItems(): Array<{ name: string; assetIds: number[] }> {
+    const rows = this.db
+      .prepare(
+        `SELECT p.name AS name, p.id AS playlistId, i.assetId AS assetId
+         FROM playlists p
+         LEFT JOIN playlist_items i ON i.playlistId = p.id
+         ORDER BY p.name COLLATE NOCASE, i.position, i.assetId`,
+      )
+      .all() as Array<{ name: string; playlistId: number; assetId: number | null }>;
+
+    const grouped = new Map<number, { name: string; assetIds: number[] }>();
+    for (const row of rows) {
+      let entry = grouped.get(row.playlistId);
+      if (!entry) {
+        entry = { name: row.name, assetIds: [] };
+        grouped.set(row.playlistId, entry);
+      }
+      if (row.assetId !== null) entry.assetIds.push(row.assetId);
+    }
+    return [...grouped.values()];
+  }
+
+  /** Id of a playlist with this name, or null. Names are compared case-insensitively. */
+  findPlaylistByName(name: string): number | null {
+    const row = this.db
+      .prepare('SELECT id FROM playlists WHERE name = ? COLLATE NOCASE')
+      .get(name) as { id: number } | undefined;
+    return row ? row.id : null;
+  }
+
+  /** Create a playlist and return its id. */
+  createPlaylist(name: string): number {
+    const now = Date.now();
+    const info = this.db
+      .prepare('INSERT INTO playlists(name, createdAt, updatedAt) VALUES (?, ?, ?)')
+      .run(name, now, now);
+    return Number(info.lastInsertRowid);
+  }
+
+  /**
+   * Every asset expressed as the identifiers a backup uses.
+   *
+   * Lives here rather than in the backup module because the path convention is the
+   * catalogue's business: the export, the dry-run plan and the usage-event
+   * resolution must all agree on what identifies an asset, and the way to guarantee
+   * that is to compute it in exactly one place.
+   */
+  sidecarCandidates(libraryId?: number, separator = path.sep): Array<{
+    assetId: number;
+    relativePath: string;
+    contentHash: string | null;
+    filename: string;
+    sizeBytes: number;
+  }> {
+    const roots = new Map(this.listLibraries().map((library) => [library.id, library.root]));
+    return this.listAssetsForSidecar(libraryId).map((asset) => {
+      const root = roots.get(asset.libraryId) ?? '';
+      const relative = asset.path.startsWith(root) ? asset.path.slice(root.length) : asset.path;
+      // stored with forward slashes so a backup survives moving between platforms
+      const portable = relative.replace(/^[\\/]+/, '').split(/[\\/]/).join('/');
+      void separator;
+      return {
+        assetId: asset.id,
+        relativePath: portable,
+        contentHash: asset.contentHash,
+        filename: asset.filename,
+        sizeBytes: asset.sizeBytes,
+      };
+    });
+  }
+
+  /** Ordered asset ids in a playlist. */
+  playlistItemIds(playlistId: number): number[] {
+    const rows = this.db
+      .prepare('SELECT assetId FROM playlist_items WHERE playlistId = ? ORDER BY position, assetId')
+      .all(playlistId) as Array<{ assetId: number }>;
+    return rows.map((row) => row.assetId);
+  }
+
+  /** Replace a playlist's contents. Keeps only ids that still exist. */
+  setPlaylistItems(playlistId: number, assetIds: number[]): void {
+    const valid = assetIds.filter((assetId) => this.getAssetRow(assetId) !== null);
+    const remove = this.db.prepare('DELETE FROM playlist_items WHERE playlistId = ?');
+    const insert = this.db.prepare('INSERT INTO playlist_items(playlistId, assetId, position) VALUES (?, ?, ?)');
+    this.db.exec('BEGIN');
+    try {
+      remove.run(playlistId);
+      valid.forEach((assetId, index) => insert.run(playlistId, assetId, index));
+      this.db.prepare('UPDATE playlists SET updatedAt = ? WHERE id = ?').run(Date.now(), playlistId);
+      this.db.exec('COMMIT');
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
+  }
 }
 
 export function toBlob(v: Float32Array): Uint8Array {
@@ -763,6 +941,23 @@ export interface DspUpdate {
   stereoCorr: number;
   hasVoice: boolean;
   tonality: number;
+}
+
+/**
+ * Read a JSON array column, tolerating null and malformed values.
+ *
+ * A backup must not fail because one row's tag list was written by an older build;
+ * a bad value becomes an empty list and the rest of the library is still backed up.
+ */
+function parseJsonArray(value: unknown): string[] {
+  if (typeof value !== 'string' || value.length === 0) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((entry): entry is string => typeof entry === 'string');
+  } catch {
+    return [];
+  }
 }
 
 export interface ClassificationUpdate {

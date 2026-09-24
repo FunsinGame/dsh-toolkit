@@ -315,3 +315,39 @@ export {
   type DeleteExportsResult,
   type ExportResult,
 } from './export.js';
+
+export {
+  PlaylistError,
+  Playlists,
+  addToPlaylist,
+  insertIntoOrder,
+  moveWithinOrder,
+  normalizePlaylistName,
+  removeFromPlaylist,
+  type Playlist,
+  type PlaylistItem,
+  type PlaylistStore,
+} from './playlists.js';
+
+export {
+  BACKUP_FORMAT_VERSION,
+  BackupError,
+  applyImport,
+  buildBackup,
+  buildMatchIndex,
+  fromPortableRelative,
+  matchRecord,
+  nameSizeKey,
+  parseBackup,
+  planImport,
+  toPortableRelative,
+  type ApplyOptions,
+  type ApplyResult,
+  type BackupAnnotation,
+  type ExportOptions,
+  type ImportPlan,
+  type LibraryBackup,
+  type MatchCandidate,
+  type MatchMethod,
+  type SidecarCatalog,
+} from './sidecar.js';

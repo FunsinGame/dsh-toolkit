@@ -23,6 +23,7 @@ import { hasBackup, isEditableWav, restoreFromBackup, updateWavMetadataFields } 
 import {
   DEFAULT_SEARCH_LIMIT,
   EMBEDDING_DIM,
+  SERVER_VERSION,
   SIMILARITY_THRESHOLD,
   type JobProgress,
   type ServerEvent,
@@ -36,6 +37,14 @@ import { rowToAsset, rowToSummary } from './mappers.js';
 import { streamPeaksFor } from './peaks.js';
 import { errorMessage } from './indexer.js';
 import { ExportError, deleteExports, exportRootsFor, isInside, listExports, saveExport } from './export.js';
+import {
+  PlaylistError,
+  Playlists,
+  addToPlaylist,
+  moveWithinOrder,
+  removeFromPlaylist,
+} from './playlists.js';
+import { BackupError, applyImport, buildBackup, parseBackup, planImport, type ImportPlan } from './sidecar.js';
 
 export interface ServerOptions {
   catalog: Catalog;
@@ -82,6 +91,7 @@ const MAX_EXPORT_BYTES = 512 * 1024 * 1024;
 export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   const log = opts.log ?? (() => {});
   const token = randomBytes(32).toString('base64url');
+  const playlists = new Playlists(opts.catalog);
   const host = opts.host ?? '127.0.0.1';
   const allowedOrigins = new Set(opts.allowedOrigins ?? []);
   const sockets = new Set<WebSocket>();
@@ -789,6 +799,173 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       return;
     }
 
+    // -- playlists (plan P1-3) -------------------------------------------
+    if (pathname === '/api/playlists' && method === 'GET') {
+      sendJson(res, 200, { playlists: playlists.list() });
+      return;
+    }
+
+    if (pathname === '/api/playlists' && method === 'POST') {
+      const body = await readJson<{ name?: string }>(req);
+      try {
+        sendJson(res, 201, playlists.create(body.name ?? ''));
+      } catch (err) {
+        if (err instanceof PlaylistError) {
+          sendJson(res, err.status, { error: err.message });
+          return;
+        }
+        throw err;
+      }
+      return;
+    }
+
+    const playlistMatch = /^\/api\/playlists\/(\d+)$/.exec(pathname);
+    if (playlistMatch) {
+      const id = Number(playlistMatch[1]);
+      if (method === 'GET') {
+        const playlist = playlists.get(id);
+        if (!playlist) {
+          sendJson(res, 404, { error: '播放列表不存在' });
+          return;
+        }
+        // Items are joined with the asset row so the client can render a list
+        // without a second round trip per entry.
+        sendJson(res, 200, { ...playlist, items: playlists.items(id) });
+        return;
+      }
+      if (method === 'PATCH') {
+        const body = await readJson<{ name?: string }>(req);
+        try {
+          sendJson(res, 200, playlists.rename(id, body.name ?? ''));
+        } catch (err) {
+          if (err instanceof PlaylistError) {
+            sendJson(res, err.status, { error: err.message });
+            return;
+          }
+          throw err;
+        }
+        return;
+      }
+      if (method === 'DELETE') {
+        sendJson(res, playlists.remove(id) ? 200 : 404, { ok: true });
+        return;
+      }
+    }
+
+    const playlistItemsMatch = /^\/api\/playlists\/(\d+)\/items$/.exec(pathname);
+    if (playlistItemsMatch) {
+      const id = Number(playlistItemsMatch[1]);
+      if (!playlists.get(id)) {
+        sendJson(res, 404, { error: '播放列表不存在' });
+        return;
+      }
+      if (method === 'POST') {
+        const body = await readJson<{ assetIds?: number[]; position?: number }>(req);
+        const ids = Array.isArray(body.assetIds) ? body.assetIds.filter((n) => Number.isFinite(n)) : [];
+        const order = addToPlaylist(playlists, id, ids);
+        sendJson(res, 200, { ok: true, count: order.length });
+        return;
+      }
+      if (method === 'DELETE') {
+        const body = await readJson<{ assetIds?: number[] }>(req);
+        const ids = Array.isArray(body.assetIds) ? body.assetIds.filter((n) => Number.isFinite(n)) : [];
+        // An empty list would mean "remove everything", which is never what an
+        // omitted body should do.
+        if (ids.length === 0) {
+          sendJson(res, 400, { error: '没有要移除的素材' });
+          return;
+        }
+        const order = removeFromPlaylist(playlists, id, ids);
+        sendJson(res, 200, { ok: true, count: order.length });
+        return;
+      }
+      if (method === 'PUT') {
+        // Reorder: one asset to a new index.
+        const body = await readJson<{ assetId?: number; toIndex?: number }>(req);
+        if (typeof body.assetId !== 'number' || typeof body.toIndex !== 'number') {
+          sendJson(res, 400, { error: '需要 assetId 与 toIndex' });
+          return;
+        }
+        const order = moveWithinOrder(playlists.itemIds(id), body.assetId, body.toIndex);
+        playlists.setItemIds(id, order);
+        sendJson(res, 200, { ok: true, order });
+        return;
+      }
+    }
+
+    // -- sidecar backup / import (plan P1-3) ------------------------------
+    if (pathname === '/api/backup' && method === 'GET') {
+      // `Number(null)` is 0, not NaN, so a *missing* libraryId would silently
+      // become "library 0" and back up nothing. Read the raw string first.
+      const rawLibraryId = url.searchParams.get('libraryId');
+      const libraryId = rawLibraryId !== null ? Number(rawLibraryId) : Number.NaN;
+      const includeHistory = url.searchParams.get('history') !== '0';
+      const payload = buildBackup(opts.catalog, {
+        ...(Number.isFinite(libraryId) ? { libraryId } : {}),
+        includeHistory,
+        app: SERVER_VERSION,
+      });
+      // Sent as a download so the browser names the file; the JSON is also the
+      // response body, which makes the endpoint usable from a script.
+      res.writeHead(200, {
+        'content-type': 'application/json; charset=utf-8',
+        'content-disposition': `attachment; filename="sounddesk-backup-${new Date().toISOString().slice(0, 10)}.json"`,
+        'cache-control': 'no-store',
+      });
+      res.end(JSON.stringify(payload, null, 2));
+      return;
+    }
+
+    if (pathname === '/api/backup/inspect' && method === 'POST') {
+      // Dry run: what *would* this backup do to this library? Importing is the
+      // riskiest operation in the app, so the user sees the match report first.
+      const body = await readJson<{ backup?: unknown }>(req);
+      try {
+        const parsed = parseBackup(body.backup);
+        const plan = planImport(parsed, opts.catalog.sidecarCandidates());
+        sendJson(res, 200, { backup: parsed.counts, plan: summarizePlan(plan) });
+      } catch (err) {
+        if (err instanceof BackupError) {
+          sendJson(res, 400, { error: err.message });
+          return;
+        }
+        throw err;
+      }
+      return;
+    }
+
+    if (pathname === '/api/backup/import' && method === 'POST') {
+      const body = await readJson<{
+        backup?: unknown;
+        /** must be literally true: the UI shows the dry run first */
+        confirm?: boolean;
+        overwrite?: boolean;
+        includeHistory?: boolean;
+        includePlaylists?: boolean;
+      }>(req);
+      if (body.confirm !== true) {
+        sendJson(res, 428, { error: '导入需要显式确认（confirm: true）' });
+        return;
+      }
+      try {
+        const parsed = parseBackup(body.backup);
+        const plan = planImport(parsed, opts.catalog.sidecarCandidates());
+        const result = applyImport(opts.catalog, parsed, plan, {
+          overwrite: body.overwrite === true,
+          includeHistory: body.includeHistory !== false,
+          includePlaylists: body.includePlaylists !== false,
+        });
+        sendJson(res, 200, { plan: summarizePlan(plan), result });
+      } catch (err) {
+        if (err instanceof BackupError) {
+          sendJson(res, 400, { error: err.message });
+          return;
+        }
+        throw err;
+      }
+      return;
+    }
+
     // -- static web assets ---------------------------------------------
     if (opts.webRoot) {
       const served = await serveStatic(res, opts.webRoot, pathname);
@@ -924,6 +1101,34 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
     'cache-control': 'no-store',
   });
   res.end(payload);
+}
+
+/**
+ * A plan reduced to what a user needs to decide whether to go ahead.
+ *
+ * The full plan holds every annotation, which is far too much to show and not what
+ * the decision needs. What it needs is: how many matched, by which method, and what
+ * could not be matched.
+ */
+function summarizePlan(plan: ImportPlan): {
+  matched: number;
+  byMethod: Record<string, number>;
+  unmatched: number;
+  ambiguous: number;
+  /** a few examples, so the user can spot a systematically wrong match */
+  unmatchedExamples: string[];
+  ambiguousExamples: string[];
+} {
+  return {
+    matched: plan.annotations.length,
+    byMethod: { ...plan.byMethod },
+    unmatched: plan.unmatched.length,
+    ambiguous: plan.ambiguous.length,
+    unmatchedExamples: plan.unmatched.slice(0, 10).map((entry) => entry.relativePath || entry.filename),
+    ambiguousExamples: plan.ambiguous
+      .slice(0, 10)
+      .map((entry) => entry.annotation.relativePath || entry.annotation.filename),
+  };
 }
 
 async function readJson<T>(req: IncomingMessage): Promise<T> {
