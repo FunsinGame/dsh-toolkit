@@ -1,5 +1,5 @@
 {
-  "name": "dsh-infinite-canvas",
+  "name": "vscode-infinite-canvas",
   "displayName": "无限画布",
   "description": "在 VS Code 里打开无限画布（infinite-canvas）：内置本地服务同源托管上游前端并自动代理本地 canvas-agent，画布与 Codex Agent 面板开箱可用。",
   "version": "0.1.7",
@@ -9,7 +9,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/FunsinGame/dsh-toolkit.git",
-    "directory": "dsh-infinite-canvas"
+    "directory": "vscode-infinite-canvas"
   },
   "engines": {
     "vscode": "^1.90.0"
@@ -182,9 +182,9 @@
     "smoke:activate": "node scripts/smoke-activate.cjs .",
     "verify:agent": "node scripts/verify-agent-lifecycle.cjs",
     "verify:frame": "node scripts/verify-frame-sizing.cjs",
-    "package": "npx --yes @vscode/vsce package --no-dependencies --out dsh-infinite-canvas-0.1.7.vsix",
+    "package": "npx --yes @vscode/vsce package --no-dependencies --out vscode-infinite-canvas-0.1.7.vsix",
     "pack": "npm run fetch:web && npm run compile && npm test && npm run package",
-    "install:vsix": "npm run compile && npm run package && code --install-extension \"%CD%\\dsh-infinite-canvas-0.1.7.vsix\" --force"
+    "install:vsix": "npm run compile && npm run package && code --install-extension \"%CD%\\vscode-infinite-canvas-0.1.7.vsix\" --force"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

@@ -11,7 +11,7 @@
  * `--source` 可以指向仓库根目录（自动用其下的 web/），也可以直接指向前端目录（含 package.json）。
  *
  * 构建需要 git 与 bun（上游 web/ 使用 bun）。
- * 产物写入 web/，并生成 web/dsh-infinite-canvas.json 记录版本与 commit。
+ * 产物写入 web/，并生成 web/vscode-infinite-canvas.json 记录版本与 commit。
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -33,7 +33,7 @@ const hasFlag = (name) => args.includes(name);
 
 const repo = readFlag("--repo", upstreamRepo);
 const ref = readFlag("--ref", "");
-const workDir = readFlag("--workdir", path.join(os.tmpdir(), "dsh-infinite-canvas-upstream"));
+const workDir = readFlag("--workdir", path.join(os.tmpdir(), "vscode-infinite-canvas-upstream"));
 const localSource = readFlag("--source", "");
 const skipBuild = hasFlag("--skip-build");
 
@@ -136,12 +136,14 @@ try {
     const commit = local ? readCommit(local.repoRoot) : syncUpstream();
     buildWeb(local ? local.webSource : path.join(workDir, "web"));
     const manifest = {
-        repository: local ? path.resolve(localSource) : repo,
+        // 只记录上游仓库地址，不写本地路径：manifest 会随产物一起分发，避免泄漏本机目录结构。
+        repository: local ? upstreamRepo : repo,
+        source: local ? "local-clone" : "remote-clone",
         commit: commit ? commit.slice(0, 12) : undefined,
         upstreamVersion: readUpstreamVersion(repoRoot),
         builtAt: new Date().toISOString(),
     };
-    writeFileSync(path.join(webOutput, "dsh-infinite-canvas.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+    writeFileSync(path.join(webOutput, "vscode-infinite-canvas.json"), `${JSON.stringify(manifest, null, 2)}\n`);
     console.log(`[fetch:web] 完成：${JSON.stringify(manifest)}`);
     console.log("[fetch:web] 提示：上游 README 声明数据格式可能随时变化，升级后请先导出画布备份。");
 } catch (error) {

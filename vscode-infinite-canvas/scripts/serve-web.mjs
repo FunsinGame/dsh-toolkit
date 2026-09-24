@@ -35,7 +35,7 @@ const token = readAgentToken();
 
 const versionInfo = (() => {
     try {
-        return JSON.parse(readFileSync(path.join(webRoot, "dsh-infinite-canvas.json"), "utf8"));
+        return JSON.parse(readFileSync(path.join(webRoot, "vscode-infinite-canvas.json"), "utf8"));
     } catch {
         return undefined;
     }

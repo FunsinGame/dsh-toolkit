@@ -301,7 +301,7 @@ export function mimeType(filePath: string): string {
 /** 读取上游构建产物里的 manifest 生成信息。 */
 export async function readVersionInfo(webRoot: string): Promise<import("./types").VersionInfo | undefined> {
     try {
-        const raw = await readFile(path.join(webRoot, "dsh-infinite-canvas.json"), "utf8");
+        const raw = await readFile(path.join(webRoot, "vscode-infinite-canvas.json"), "utf8");
         return JSON.parse(raw) as import("./types").VersionInfo;
     } catch {
         return undefined;

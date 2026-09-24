@@ -40,7 +40,6 @@ type Runtime = {
     agentStarting: boolean;
     /** 用户显式点过"停止 Agent"后，不再自动拉起。 */
     agentStopRequested: boolean;
-    statusItem: vscode.StatusBarItem;
     output: vscode.OutputChannel;
     /** 侧边栏上下文，用于主动刷新视图。 */
     sidebarContext?: SidebarContext;
@@ -48,19 +47,12 @@ type Runtime = {
 
 let runtime: Runtime | undefined;
 
-/** 状态栏在探测结果回来之前先显示的文案。 */
-const STATUS_PLACEHOLDER = "$(symbol-color) 无限画布";
-
 /** 扩展激活。 */
 export function activate(context: vscode.ExtensionContext): void {
     const output = vscode.window.createOutputChannel("无限画布");
-    const statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 90);
-    statusItem.command = "dshInfiniteCanvas.open";
-    statusItem.text = STATUS_PLACEHOLDER;
-    statusItem.tooltip = "打开无限画布";
-    statusItem.show();
 
-    runtime = { agentStopRequested: false, agentStarting: false, statusItem, output };
+    // 刻意不注册状态栏入口：唯一入口是左侧活动栏的图标。
+    runtime = { agentStopRequested: false, agentStarting: false, output };
 
     const sidebarContext: SidebarContext = {
         getState: () => collectSidebarState(context),
@@ -79,7 +71,6 @@ export function activate(context: vscode.ExtensionContext): void {
 
     context.subscriptions.push(
         output,
-        statusItem,
         vscode.window.registerWebviewViewProvider(SIDEBAR_VIEW_TYPE, viewProvider, {
             // 切换侧边栏时保留视图，避免每次展开都重新探测。
             webviewOptions: { retainContextWhenHidden: true },
@@ -100,12 +91,12 @@ export function activate(context: vscode.ExtensionContext): void {
         ),
         vscode.workspace.onDidChangeConfiguration((event) => {
             if (event.affectsConfiguration("dshInfiniteCanvas")) {
-                void refreshStatus();
+                void refreshSidebarViews();
             }
         }),
     );
 
-    void refreshStatus();
+    // 没有状态栏可更新，侧边栏视图在自己可见时会取数，这里不需要预热。
 }
 
 /** 扩展停用：关掉本地服务与自动拉起的 Agent。 */
@@ -182,7 +173,7 @@ async function openCanvasInner(
     if (settings.openInBrowser) {
         await vscode.env.openExternal(vscode.Uri.parse(`${server.origin}/`));
     }
-    await refreshStatus();
+    await refreshSidebarViews();
 }
 
 /** 确保本地画布服务在运行，并且指向最新的 Agent 地址。 */
@@ -373,25 +364,14 @@ async function showStatus(): Promise<void> {
     state.output.appendLine(lines.join("\n"));
     state.output.show(true);
     await vscode.window.showInformationMessage(lines.join("　|　"));
-    await refreshStatus();
+    await refreshSidebarViews();
 }
 
-/** 刷新状态栏与活动栏侧边栏。 */
-async function refreshStatus(): Promise<void> {
-    const state = runtime;
-    if (!state) return;
-    const settings = readSettings();
-    const probe = await probeAgent(normalizeAgentBaseUrl(settings.agentUrl));
-    const parts: string[] = [];
-    parts.push(state.server ? "画布已就绪" : "画布未启动");
-    parts.push(probe.reachable ? "Agent 已连接" : "Agent 未运行");
-    state.statusItem.text = `$(symbol-color) 无限画布 · ${parts.join(" / ")}`;
-    state.statusItem.tooltip = [
-        `本地服务：${state.server ? state.server.origin : "未运行"}`,
-        `canvas-agent：${normalizeAgentBaseUrl(settings.agentUrl)}`,
-        "点击打开无限画布",
-    ].join("\n");
-    await refreshSidebarViews();
+/** 刷新活动栏侧边栏视图。 */
+async function refreshSidebarViews(): Promise<void> {
+    const context = runtime?.sidebarContext;
+    if (!context) return;
+    await Promise.all(sidebarViews.map((view) => CanvasSidebarView.refresh(view, context)));
 }
 
 /** 收集活动栏侧边栏要展示的状态。 */
@@ -412,13 +392,6 @@ async function collectSidebarState(context: vscode.ExtensionContext): Promise<Si
         paired: Boolean(readAgentToken()),
         notice: server?.portWarning,
     };
-}
-
-/** 让所有已打开的侧边栏视图重新取数。 */
-async function refreshSidebarViews(): Promise<void> {
-    const context = runtime?.sidebarContext;
-    if (!context) return;
-    await Promise.all(sidebarViews.map((view) => CanvasSidebarView.refresh(view, context)));
 }
 
 /** 供测试与调试读取图标路径。 */

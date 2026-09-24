@@ -22,7 +22,7 @@ function makeWebRoot(): string {
     writeFileSync(path.join(root, "config.js"), "window.__RUNTIME_CONFIG__={};");
     mkdirSync(path.join(root, "assets"));
     writeFileSync(path.join(root, "assets", "app-abc12345.js"), "console.log('app')");
-    writeFileSync(path.join(root, "dsh-infinite-canvas.json"), JSON.stringify({ commit: "deadbeef", upstreamVersion: "0.1.0" }));
+    writeFileSync(path.join(root, "vscode-infinite-canvas.json"), JSON.stringify({ commit: "deadbeef", upstreamVersion: "0.1.0" }));
     return root;
 }
 
@@ -124,7 +124,7 @@ describe("本地画布服务", () => {
         const res = await fetch(`${canvas.origin}/assets/%2e%2e%2f%2e%2e%2fpackage.json`);
         // 穿越被拦下后回退到 index.html，不应读到扩展目录里的文件。
         assert.equal(res.status, 200);
-        assert.doesNotMatch(await res.text(), /dsh-infinite-canvas/);
+        assert.doesNotMatch(await res.text(), /vscode-infinite-canvas/);
     });
 
     it("从 web/ 的 manifest 读出版本信息", async () => {

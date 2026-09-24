@@ -26,14 +26,16 @@ VS Code webview（扩展自有的极薄外壳，无业务逻辑）
 
 ## 安装与构建
 
+扩展 ID 为 `dsh-toolkit.vscode-infinite-canvas`，显示名「无限画布」。
+
 ```bash
-cd dsh-infinite-canvas
+cd vscode-infinite-canvas
 npm install
 
 # 一条命令：拉取上游前端并构建产物到 web/、编译、跑测试、打包
 npm run pack
 
-code --install-extension dsh-infinite-canvas-0.1.1.vsix --force
+code --install-extension vscode-infinite-canvas-0.1.7.vsix --force
 ```
 
 分步执行也可以：
@@ -41,7 +43,7 @@ code --install-extension dsh-infinite-canvas-0.1.1.vsix --force
 ```bash
 npm run fetch:web     # 拉取上游前端并构建到 web/（需要 git 与 bun）
 npm run compile
-npm test              # 39 项测试（服务层 + 面板 HTML + 进程管理）
+npm test              # 42 项测试（服务层 + 面板 HTML + 进程管理）
 npm run package
 ```
 
@@ -54,15 +56,16 @@ npm run fetch:web -- --source <本地克隆目录>       # 直接用已克隆的
 npm run fetch:web -- --skip-build                  # 只同步产物不重新构建
 ```
 
-产物目录里会写入 `web/dsh-infinite-canvas.json`，记录上游地址、commit、上游 VERSION 与构建时间，便于排查"到底是哪个版本的前端"。
+产物目录里会写入 `web/vscode-infinite-canvas.json`，记录上游地址、commit、上游 VERSION 与构建时间，便于排查"到底是哪个版本的前端"。
 
 ## 使用入口
 
+**唯一入口是左侧活动栏的图标**（刻意不注册状态栏入口，避免底部状态栏被占用）。
+
 | 入口 | 位置 | 说明 |
 | --- | --- | --- |
-| **活动栏图标** | 最左侧活动栏的调色板图标 | 点开是侧边栏状态面板，点其中的 **打开无限画布** 在编辑器标签页打开画布 |
-| 状态栏 | 右下角 `无限画布 · …` | 点击直接打开画布 |
-| 命令面板 | `Ctrl+Shift+P` 搜 `无限画布` | 8 条命令 |
+| **活动栏图标** | 最左侧活动栏的调色板图标 | 点开侧边栏状态面板，再点其中的 **打开无限画布** 即可在编辑器标签页打开画布 |
+| 命令面板 | `Ctrl+Shift+P` 搜 `无限画布` | 9 条命令（备选入口） |
 
 侧边栏面板会显示四项状态（前端产物 / 本地画布服务 / canvas-agent / token 配对）以及刷新、启动 Agent、浏览器打开、诊断日志、设置等快捷操作；产物没构建时主按钮会置灰并提示执行 `npm run fetch:web`。
 
@@ -76,13 +79,11 @@ npm run fetch:web -- --skip-build                  # 只同步产物不重新构
 | `无限画布: 刷新侧边栏状态` | 重新取侧边栏状态（开发时改完代码可直接点它，无需重装） |
 | `无限画布: 重新启动本地服务` | 端口或产物变化后重启服务 |
 | `无限画布: 启动本地 Agent` | 强制拉起 canvas-agent |
-| `无限画布: 停止本地 Agent` | 停止由扩展拉起的 canvas-agent（按 pid 记录结束整棵进程树） |
+| `无限画布: 停止本地 Agent` | 停止由扩展拉起的 canvas-agent（按监听端口反查进程后结束整棵树） |
 | `无限画布: 显示运行状态` | 把服务地址、Agent 与 token 配对情况打进输出面板 |
 | `无限画布: 显示 webview 诊断数据` | 打开 webview 回传的尺寸诊断（jsonl），用于排查"画布只占一小块"这类宿主层问题 |
 | `无限画布: 在外部浏览器打开` | 用系统浏览器打开同一个地址 |
 | `无限画布: 打开设置` | 打开本扩展的设置页 |
-
-状态栏右侧会显示 `无限画布 · 画布已就绪 / Agent 已连接`，点击即打开画布。
 
 ## 设置
 
