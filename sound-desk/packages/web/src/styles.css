@@ -290,6 +290,140 @@
   background: var(--accent-dim);
 }
 
+/* -- playlists (sidebar) -------------------------------------------------- */
+
+.pl-section {
+  padding: 4px 8px 8px;
+}
+
+.pl-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0;
+}
+
+.pl-toolbar input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.pl-list,
+.pl-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 12px;
+}
+
+.pl-row,
+.pl-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--radius);
+  padding: 1px 2px;
+}
+
+.pl-row:hover,
+.pl-item:hover {
+  background: var(--row-hover);
+}
+
+.pl-row.open {
+  background: var(--row-active);
+}
+
+.pl-item.selected {
+  background: var(--row-active);
+}
+
+/* The name is the click target, so it takes the space and truncates. */
+.pl-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  padding: 2px 2px;
+  cursor: pointer;
+}
+
+.pl-index {
+  color: var(--text-faint);
+  margin-right: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.pl-mini {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.pl-mini:disabled {
+  opacity: 0.3;
+}
+
+.pl-rename {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.pl-detail {
+  margin-top: 6px;
+  border-top: 1px dashed var(--border);
+  padding-top: 4px;
+}
+
+.pl-backup h3 {
+  margin: 10px 0 4px;
+}
+
+.pl-check {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+
+/* Styled as a button but it is a link: a download must be a real navigation. */
+.pl-import,
+.pl-toolbar a {
+  display: inline-block;
+  padding: 3px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.pl-import:hover,
+.pl-toolbar a:hover {
+  border-color: var(--accent);
+}
+
+.pl-report {
+  margin: 4px 0;
+  padding-left: 16px;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
 
 .fx-files code {
   display: block;

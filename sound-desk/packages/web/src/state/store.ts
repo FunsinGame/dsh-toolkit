@@ -19,7 +19,15 @@ import type {
   StatsResponse,
 } from '@sounddesk/core';
 
-import type { EngineClient, PersonalizationState, UcsTree } from '../api/client.ts';
+import type {
+  BackupImportOutcome,
+  BackupInspection,
+  EngineClient,
+  PersonalizationState,
+  Playlist,
+  PlaylistDetail,
+  UcsTree,
+} from '../api/client.ts';
 import { parseBatchQueries, type CompareSort, type CompareColumn } from '../util/compare.ts';
 import { createOfflineAudioContext } from '../audio/offline.ts';
 import { getMixer } from '../audio/mixer.ts';
@@ -97,6 +105,15 @@ export interface AppState {
   /** true once `runCompare` has completed at least once */
   compareRan: boolean;
 
+  /** playlists (plan P1-3) */
+  playlists: Playlist[];
+  /** the open playlist, with its items */
+  openPlaylist: PlaylistDetail | null;
+  playlistError: string | null;
+  /** the dry run of a backup the user picked, awaiting confirmation */
+  pendingImport: { backup: unknown; inspection: BackupInspection; fileName: string } | null;
+  importOutcome: BackupImportOutcome | null;
+
   ucsTree: UcsTree | null;
   libraries: Library[];
   stats: (StatsResponse & { dbBytes: number; modelsReady: boolean }) | null;
@@ -138,6 +155,11 @@ const initialState: AppState = {
   columns: [],
   compareInput: '',
   compareRan: false,
+  playlists: [],
+  openPlaylist: null,
+  playlistError: null,
+  pendingImport: null,
+  importOutcome: null,
   ucsTree: null,
   libraries: [],
   stats: null,
@@ -726,6 +748,174 @@ class Store {
     if (!column) return;
     this.set({ compare: false, query: column.query });
     void this.runSearch();
+  }
+
+  // -- playlists (plan P1-3) ---------------------------------------------
+
+  async refreshPlaylists(): Promise<void> {
+    try {
+      this.set({ playlists: await this.getClient().playlists(), playlistError: null });
+    } catch (err) {
+      this.set({ playlistError: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  async openPlaylist(id: number): Promise<void> {
+    try {
+      this.set({ openPlaylist: await this.getClient().playlist(id), playlistError: null });
+    } catch (err) {
+      this.set({ playlistError: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  /**
+   * Select an asset that is not currently in the result list.
+   *
+   * Playlist items and compare columns can point at sounds the current query does
+   * not return, so this loads the detail directly instead of requiring a `SearchHit`
+   * — which would mean inventing a fake score for a row that has none.
+   */
+  async selectRow(assetId: number): Promise<void> {
+    this.set({ selectedId: assetId, selectedScore: null, loadingAsset: true });
+    this.recordUsage(assetId, 'select');
+    try {
+      const asset = await this.getClient().asset(assetId);
+      if (this.state.selectedId !== assetId) return; // a newer selection won
+      this.set({ selected: asset, loadingAsset: false });
+    } catch (err) {
+      this.set({ loadingAsset: false, playlistError: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  closePlaylist(): void {
+    this.set({ openPlaylist: null });
+  }
+
+  async createPlaylist(name: string): Promise<void> {
+    try {
+      const created = await this.getClient().createPlaylist(name);
+      await this.refreshPlaylists();
+      await this.openPlaylist(created.id);
+    } catch (err) {
+      this.set({ playlistError: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  async renamePlaylist(id: number, name: string): Promise<void> {
+    try {
+      await this.getClient().renamePlaylist(id, name);
+      await this.refreshPlaylists();
+      if (this.state.openPlaylist?.id === id) await this.openPlaylist(id);
+    } catch (err) {
+      this.set({ playlistError: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  async removePlaylist(id: number): Promise<void> {
+    try {
+      await this.getClient().removePlaylist(id);
+      if (this.state.openPlaylist?.id === id) this.set({ openPlaylist: null });
+      await this.refreshPlaylists();
+    } catch (err) {
+      this.set({ playlistError: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  /**
+   * Add assets to a playlist.
+   *
+   * Defaults to the open playlist, and to the selection when no ids are given —
+   * which is the whole interaction: pick a sound, press add.
+   */
+  async addToOpenPlaylist(assetIds?: number[]): Promise<void> {
+    const playlist = this.state.openPlaylist;
+    const ids = assetIds ?? (this.state.selectedId !== null ? [this.state.selectedId] : []);
+    if (!playlist || ids.length === 0) return;
+    try {
+      await this.getClient().addToPlaylist(playlist.id, ids);
+      await this.openPlaylist(playlist.id);
+      await this.refreshPlaylists();
+    } catch (err) {
+      this.set({ playlistError: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  async removeFromOpenPlaylist(assetId: number): Promise<void> {
+    const playlist = this.state.openPlaylist;
+    if (!playlist) return;
+    try {
+      await this.getClient().removeFromPlaylist(playlist.id, [assetId]);
+      await this.openPlaylist(playlist.id);
+      await this.refreshPlaylists();
+    } catch (err) {
+      this.set({ playlistError: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  async moveInOpenPlaylist(assetId: number, toIndex: number): Promise<void> {
+    const playlist = this.state.openPlaylist;
+    if (!playlist) return;
+    try {
+      await this.getClient().reorderPlaylist(playlist.id, assetId, toIndex);
+      await this.openPlaylist(playlist.id);
+    } catch (err) {
+      this.set({ playlistError: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  // -- sidecar backup / import (plan P1-3) -------------------------------
+
+  /** The URL a download link should point at for a sidecar backup. */
+  backupUrl(includeHistory = true): string {
+    return this.getClient().backupUrl(undefined, includeHistory);
+  }
+
+  /**
+   * Read a backup file and work out what importing it would do — without doing it.
+   *
+   * Deliberately two steps. Import rewrites annotations across a library, so the
+   * user sees the match report (how many matched, by which method, what tied) before
+   * anything is written.
+   */
+  async inspectBackupFile(file: File): Promise<void> {
+    try {
+      const text = await file.text();
+      const backup: unknown = JSON.parse(text);
+      const inspection = await this.getClient().inspectBackup(backup);
+      this.set({ pendingImport: { backup, inspection, fileName: file.name }, importOutcome: null, playlistError: null });
+    } catch (err) {
+      this.set({
+        pendingImport: null,
+        playlistError:
+          err instanceof SyntaxError
+            ? '这个文件不是有效的 JSON'
+            : err instanceof Error
+              ? err.message
+              : String(err),
+      });
+    }
+  }
+
+  cancelImport(): void {
+    this.set({ pendingImport: null });
+  }
+
+  async confirmImport(options: { overwrite?: boolean; includeHistory?: boolean; includePlaylists?: boolean } = {}): Promise<void> {
+    const pending = this.state.pendingImport;
+    if (!pending) return;
+    try {
+      const outcome = await this.getClient().importBackup(pending.backup, options);
+      this.set({ importOutcome: outcome, pendingImport: null });
+      // The library's annotations just changed, so anything showing them is stale.
+      await this.refreshPlaylists();
+      await this.runSearch();
+    } catch (err) {
+      this.set({ playlistError: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  clearImportOutcome(): void {
+    this.set({ importOutcome: null });
   }
 
   /**

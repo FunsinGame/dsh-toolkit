@@ -11,7 +11,23 @@ import path from 'node:path';
 import { statSync } from 'node:fs';
 
 import type { App } from '@sounddesk/engine';
-import { deleteExports, exportRootsFor, isInside, listExports, rowToAsset, rowToSummary, saveExport } from '@sounddesk/engine';
+import {
+  Playlists,
+  addToPlaylist,
+  applyImport,
+  deleteExports,
+  exportRootsFor,
+  isInside,
+  listExports,
+  moveWithinOrder,
+  parseBackup,
+  planImport,
+  removeFromPlaylist,
+  rowToAsset,
+  rowToSummary,
+  saveExport,
+  type ImportPlan,
+} from '@sounddesk/engine';
 import { hasBackup, isEditableWav, restoreFromBackup, updateWavMetadataFields } from '@sounddesk/audio-wav';
 
 import {
@@ -37,11 +53,38 @@ export interface EngineLike {
 export type Handler = (method: string, params: unknown) => Promise<unknown>;
 
 /**
+ * A plan reduced to what the webview needs to render the confirmation.
+ *
+ * Mirrors the engine's own summary so the same UI works in both hosts.
+ */
+function summarizePlan(plan: ImportPlan): {
+  matched: number;
+  byMethod: Record<string, number>;
+  unmatched: number;
+  ambiguous: number;
+  unmatchedExamples: string[];
+  ambiguousExamples: string[];
+} {
+  return {
+    matched: plan.annotations.length,
+    byMethod: { ...plan.byMethod },
+    unmatched: plan.unmatched.length,
+    ambiguous: plan.ambiguous.length,
+    unmatchedExamples: plan.unmatched.slice(0, 10).map((entry) => entry.relativePath || entry.filename),
+    ambiguousExamples: plan.ambiguous
+      .slice(0, 10)
+      .map((entry) => entry.annotation.relativePath || entry.annotation.filename),
+  };
+}
+
+/**
  * Build the request handler for one engine instance.
  * Throws on unknown methods so the UI surfaces a real error instead of hanging.
  */
 export function createHandler(engine: EngineLike): Handler {
   const { catalog } = engine;
+  // One instance per engine, so playlist edits share the engine's connection.
+  const playlists = new Playlists(catalog);
 
   const handlers: Record<string, (params: unknown) => Promise<unknown> | unknown> = {
     search: (params) => engine.searchService.search(asParams<SearchParams>(params)),
@@ -307,6 +350,83 @@ export function createHandler(engine: EngineLike): Handler {
     },
 
     clearUsage: () => ({ removed: catalog.clearUsage() }),
+
+    // -- playlists (plan P1-3) -------------------------------------------
+    playlists: () => ({ playlists: playlists.list() }),
+
+    playlist: (params) => {
+      const { id } = asParams<{ id?: number }>(params);
+      if (typeof id !== 'number') throw new Error('需要 id');
+      const playlist = playlists.get(id);
+      if (!playlist) throw new Error('播放列表不存在');
+      return { ...playlist, items: playlists.items(id) };
+    },
+
+    createPlaylist: (params) => {
+      const { name } = asParams<{ name?: string }>(params);
+      return playlists.create(name ?? '');
+    },
+
+    renamePlaylist: (params) => {
+      const { id, name } = asParams<{ id?: number; name?: string }>(params);
+      if (typeof id !== 'number') throw new Error('需要 id');
+      return playlists.rename(id, name ?? '');
+    },
+
+    removePlaylist: (params) => {
+      const { id } = asParams<{ id?: number }>(params);
+      if (typeof id !== 'number') throw new Error('需要 id');
+      return { ok: playlists.remove(id) };
+    },
+
+    addToPlaylist: (params) => {
+      const { id, assetIds } = asParams<{ id?: number; assetIds?: number[] }>(params);
+      if (typeof id !== 'number') throw new Error('需要 id');
+      return { count: addToPlaylist(playlists, id, assetIds ?? []).length };
+    },
+
+    removeFromPlaylist: (params) => {
+      const { id, assetIds } = asParams<{ id?: number; assetIds?: number[] }>(params);
+      if (typeof id !== 'number') throw new Error('需要 id');
+      if (!assetIds || assetIds.length === 0) throw new Error('没有要移除的素材');
+      return { count: removeFromPlaylist(playlists, id, assetIds).length };
+    },
+
+    reorderPlaylist: (params) => {
+      const { id, assetId, toIndex } = asParams<{ id?: number; assetId?: number; toIndex?: number }>(params);
+      if (typeof id !== 'number' || typeof assetId !== 'number' || typeof toIndex !== 'number') {
+        throw new Error('需要 id、assetId 与 toIndex');
+      }
+      const order = moveWithinOrder(playlists.itemIds(id), assetId, toIndex);
+      playlists.setItemIds(id, order);
+      return { ok: true, order };
+    },
+
+    // -- sidecar backup / import (plan P1-3) ------------------------------
+    inspectBackup: (params) => {
+      const { backup } = asParams<{ backup?: unknown }>(params);
+      const parsed = parseBackup(backup);
+      const plan = planImport(parsed, catalog.sidecarCandidates());
+      return { backup: parsed.counts, plan: summarizePlan(plan) };
+    },
+
+    importBackup: (params) => {
+      const { backup, overwrite, includeHistory, includePlaylists } = asParams<{
+        backup?: unknown;
+        overwrite?: boolean;
+        includeHistory?: boolean;
+        includePlaylists?: boolean;
+      }>(params);
+      // The webview shows the dry run first, so arriving here is the confirmation.
+      const parsed = parseBackup(backup);
+      const plan = planImport(parsed, catalog.sidecarCandidates());
+      const result = applyImport(catalog, parsed, plan, {
+        overwrite: overwrite === true,
+        includeHistory: includeHistory !== false,
+        includePlaylists: includePlaylists !== false,
+      });
+      return { plan: summarizePlan(plan), result };
+    },
   };
 
   return async (method: string, params: unknown): Promise<unknown> => {

@@ -81,6 +81,23 @@ export interface EngineClient {
   recordUsage(params: { assetId: number; kind: UsageKind; query?: string | null }): Promise<void>;
   /** forget everything learned */
   clearUsage(): Promise<{ removed: number }>;
+  /** playlists (plan P1-3) */
+  playlists(): Promise<Playlist[]>;
+  playlist(id: number): Promise<PlaylistDetail>;
+  createPlaylist(name: string): Promise<Playlist>;
+  renamePlaylist(id: number, name: string): Promise<Playlist>;
+  removePlaylist(id: number): Promise<void>;
+  addToPlaylist(id: number, assetIds: number[]): Promise<number>;
+  removeFromPlaylist(id: number, assetIds: number[]): Promise<number>;
+  reorderPlaylist(id: number, assetId: number, toIndex: number): Promise<void>;
+  /** URL for a sidecar backup download; the engine sets the filename */
+  backupUrl(libraryId?: number, includeHistory?: boolean): string;
+  /** what an import would do, without doing it */
+  inspectBackup(backup: unknown): Promise<BackupInspection>;
+  importBackup(
+    backup: unknown,
+    options?: { overwrite?: boolean; includeHistory?: boolean; includePlaylists?: boolean },
+  ): Promise<BackupImportOutcome>;
   /** live job progress; returns an unsubscribe function */
   subscribe(onEvent: (event: EngineEvent) => void): () => void;
 }
@@ -183,6 +200,61 @@ export interface PersonalizationState {
   assets: number;
   /** the bound the weighting can never exceed, as a fraction */
   maxAdjustment: number;
+}
+
+export interface Playlist {
+  id: number;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+  itemCount: number;
+}
+
+export interface PlaylistItem {
+  assetId: number;
+  position: number;
+  filename: string;
+  durationMs: number | null;
+  ucsCatId: string | null;
+  favorite: boolean;
+  /** false when the asset row is gone but the reference survived */
+  present: boolean;
+}
+
+export interface PlaylistDetail extends Playlist {
+  items: PlaylistItem[];
+}
+
+/**
+ * What an import would do.
+ *
+ * `byMethod` is the important part: it says whether the match came from content
+ * hashes (trustworthy), paths, or the filename+size fallback (weak). `ambiguous`
+ * counts records that tied on an identifier and were therefore skipped rather than
+ * guessed.
+ */
+export interface BackupInspection {
+  backup: { annotations: number; playlists: number; searches: number; usage: number };
+  plan: {
+    matched: number;
+    byMethod: Record<string, number>;
+    unmatched: number;
+    ambiguous: number;
+    unmatchedExamples: string[];
+    ambiguousExamples: string[];
+  };
+}
+
+export interface BackupImportOutcome {
+  plan: BackupInspection['plan'];
+  result: {
+    applied: number;
+    playlistsCreated: number;
+    playlistItems: number;
+    searchesAdded: number;
+    usageAdded: number;
+    skipped: Array<{ reason: string; detail: string }>;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -421,6 +493,83 @@ class HttpEngineClient implements EngineClient {
     return this.request<{ removed: number }>('/api/personalization/usage', { method: 'DELETE' });
   }
 
+  // -- playlists ---------------------------------------------------------
+
+  playlists(): Promise<Playlist[]> {
+    return this.request<{ playlists: Playlist[] }>('/api/playlists').then((r) => r.playlists ?? []);
+  }
+
+  playlist(id: number): Promise<PlaylistDetail> {
+    return this.request<PlaylistDetail>(`/api/playlists/${id}`);
+  }
+
+  createPlaylist(name: string): Promise<Playlist> {
+    return this.request<Playlist>('/api/playlists', { method: 'POST', body: JSON.stringify({ name }) });
+  }
+
+  renamePlaylist(id: number, name: string): Promise<Playlist> {
+    return this.request<Playlist>(`/api/playlists/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
+  }
+
+  async removePlaylist(id: number): Promise<void> {
+    await this.request(`/api/playlists/${id}`, { method: 'DELETE' });
+  }
+
+  addToPlaylist(id: number, assetIds: number[]): Promise<number> {
+    return this.request<{ count: number }>(`/api/playlists/${id}/items`, {
+      method: 'POST',
+      body: JSON.stringify({ assetIds }),
+    }).then((r) => r.count ?? 0);
+  }
+
+  removeFromPlaylist(id: number, assetIds: number[]): Promise<number> {
+    return this.request<{ count: number }>(`/api/playlists/${id}/items`, {
+      method: 'DELETE',
+      body: JSON.stringify({ assetIds }),
+    }).then((r) => r.count ?? 0);
+  }
+
+  async reorderPlaylist(id: number, assetId: number, toIndex: number): Promise<void> {
+    await this.request(`/api/playlists/${id}/items`, {
+      method: 'PUT',
+      body: JSON.stringify({ assetId, toIndex }),
+    });
+  }
+
+  // -- sidecar backup / import -------------------------------------------
+
+  backupUrl(libraryId?: number, includeHistory = true): string {
+    const qs = new URLSearchParams({ token: this.token });
+    if (libraryId !== undefined) qs.set('libraryId', String(libraryId));
+    if (!includeHistory) qs.set('history', '0');
+    return `${this.base}/api/backup?${qs.toString()}`;
+  }
+
+  inspectBackup(backup: unknown): Promise<BackupInspection> {
+    return this.request<BackupInspection>('/api/backup/inspect', {
+      method: 'POST',
+      body: JSON.stringify({ backup }),
+    });
+  }
+
+  importBackup(
+    backup: unknown,
+    options: { overwrite?: boolean; includeHistory?: boolean; includePlaylists?: boolean } = {},
+  ): Promise<BackupImportOutcome> {
+    return this.request<BackupImportOutcome>('/api/backup/import', {
+      method: 'POST',
+      body: JSON.stringify({
+        backup,
+        // the UI runs `inspectBackup` and shows the report first, so reaching this
+        // point IS the confirmation
+        confirm: true,
+        overwrite: options.overwrite === true,
+        includeHistory: options.includeHistory !== false,
+        includePlaylists: options.includePlaylists !== false,
+      }),
+    });
+  }
+
   subscribe(onEvent: (event: EngineEvent) => void): () => void {
     this.listeners.add(onEvent);
     return () => this.listeners.delete(onEvent);
@@ -657,6 +806,62 @@ class VscodeEngineClient implements EngineClient {
 
   clearUsage(): Promise<{ removed: number }> {
     return this.call<{ removed: number }>('clearUsage');
+  }
+
+  // -- playlists ---------------------------------------------------------
+
+  playlists(): Promise<Playlist[]> {
+    return this.call<{ playlists: Playlist[] }>('playlists').then((r) => r.playlists ?? []);
+  }
+
+  playlist(id: number): Promise<PlaylistDetail> {
+    return this.call<PlaylistDetail>('playlist', { id });
+  }
+
+  createPlaylist(name: string): Promise<Playlist> {
+    return this.call<Playlist>('createPlaylist', { name });
+  }
+
+  renamePlaylist(id: number, name: string): Promise<Playlist> {
+    return this.call<Playlist>('renamePlaylist', { id, name });
+  }
+
+  async removePlaylist(id: number): Promise<void> {
+    await this.call('removePlaylist', { id });
+  }
+
+  addToPlaylist(id: number, assetIds: number[]): Promise<number> {
+    return this.call<{ count: number }>('addToPlaylist', { id, assetIds }).then((r) => r.count ?? 0);
+  }
+
+  removeFromPlaylist(id: number, assetIds: number[]): Promise<number> {
+    return this.call<{ count: number }>('removeFromPlaylist', { id, assetIds }).then((r) => r.count ?? 0);
+  }
+
+  async reorderPlaylist(id: number, assetId: number, toIndex: number): Promise<void> {
+    await this.call('reorderPlaylist', { id, assetId, toIndex });
+  }
+
+  // -- sidecar backup / import -------------------------------------------
+
+  backupUrl(libraryId?: number, includeHistory = true): string {
+    // The extension host serves the same HTTP engine, so the download URL works
+    // here too — and a real download is what a webview needs anyway.
+    const qs = new URLSearchParams({ token: this.token });
+    if (libraryId !== undefined) qs.set('libraryId', String(libraryId));
+    if (!includeHistory) qs.set('history', '0');
+    return `${this.base}/api/backup?${qs.toString()}`;
+  }
+
+  inspectBackup(backup: unknown): Promise<BackupInspection> {
+    return this.call<BackupInspection>('inspectBackup', { backup });
+  }
+
+  importBackup(
+    backup: unknown,
+    options: { overwrite?: boolean; includeHistory?: boolean; includePlaylists?: boolean } = {},
+  ): Promise<BackupImportOutcome> {
+    return this.call<BackupImportOutcome>('importBackup', { backup, ...options });
   }
 
   /**

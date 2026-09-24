@@ -11,6 +11,7 @@ import { useState } from 'react';
 import { store } from '../state/store.ts';
 import { useAppState } from '../state/useAppState.ts';
 import { formatBytes } from '../util/format.ts';
+import { PlaylistSection } from './PlaylistSection.tsx';
 
 export function Sidebar(): React.JSX.Element {
   const state = useAppState();
@@ -80,6 +81,12 @@ export function Sidebar(): React.JSX.Element {
           </button>
         </div>
       ))}
+
+      <div className="pane-head" style={{ top: 0 }}>
+        <span>播放列表</span>
+        <span className="count">{state.playlists.length || ''}</span>
+      </div>
+      <PlaylistSection />
 
       <div className="pane-head" style={{ top: 0 }}>
         <span>UCS 分类</span>
