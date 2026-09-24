@@ -63,6 +63,7 @@ app.innerHTML = `
     <div id="fav-contents" class="hidden">
       <div class="row">
         <button id="fav-back">← 返回</button>
+        <button id="fav-play-all" class="primary" title="清空队列，把这个收藏夹的歌全部加入队列">播放歌单</button>
         <span class="hint" id="fav-contents-title"></span>
       </div>
       <div class="search-row">
@@ -197,11 +198,8 @@ app.innerHTML = `
   <div class="player">
     <div class="cover" id="cover"></div>
     <div class="meta">
-      <div class="meta-text">
-        <div class="title" id="title">未在播放</div>
-        <div class="author" id="author"></div>
-      </div>
-      <span class="time" id="time">0:00 / 0:00</span>
+      <div class="title" id="title">未在播放</div>
+      <div class="author" id="author"></div>
     </div>
     <div class="controls">
       <button id="prev" title="上一首">⏮</button>
@@ -220,7 +218,10 @@ app.innerHTML = `
       </select>
     </div>
     <button id="unmute" class="unmute hidden" title="浏览器要求先点一下才能出声">🔇 点这里恢复声音</button>
-    <input id="progress" class="progress" type="range" min="0" max="1000" value="0" step="1" />
+    <div class="progress-row">
+      <input id="progress" class="progress" type="range" min="0" max="1000" value="0" step="1" />
+      <span class="time" id="time">0:00 / 0:00</span>
+    </div>
     <audio id="audio" preload="auto"></audio>
     <div id="toast" class="toast hidden"></div>
   </div>
@@ -889,6 +890,11 @@ $('fav-create-ok').addEventListener('click', () => {
   $('fav-create-form').classList.add('hidden');
 });
 $('fav-back').addEventListener('click', closeFolderView);
+$('fav-play-all').addEventListener('click', () => {
+  if (!openFolder) return;
+  // 清空队列并整夹入队由宿主完成：先播已加载的部分，剩余页后台继续补。
+  post({ type: 'favorites.playAll', mediaId: openFolder.id });
+});
 $('fav-more').addEventListener('click', () => {
   if (openFolder) post({ type: 'favorites.open', mediaId: openFolder.id, page: favoritePage + 1, keyword: favoriteKeyword });
 });
@@ -1314,6 +1320,11 @@ window.addEventListener('message', (event) => {
       }
       break;
     }
+    case 'favorites.playAll.state':
+      setFavStatus(message.message || '');
+      if (message.state === 'done') toast('info', message.message || '歌单已加入队列');
+      else if (message.state === 'error') toast('error', message.message || '加入歌单失败');
+      break;
     case 'dialog.result': {
       const resolve = pendingDialogs.get(message.id);
       if (resolve) {

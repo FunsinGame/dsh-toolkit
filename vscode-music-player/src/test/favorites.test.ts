@@ -3,9 +3,12 @@ import { test } from 'node:test';
 
 import { BilibiliApi } from '../bilibili/api';
 import {
+  collectRemainingPages,
   describeInvalidAttr,
   toFavoriteContentsView,
   toFavoriteEntry,
+  type FavoriteContentsView,
+  type FavoriteEntry,
 } from '../bilibili/favorites';
 import type { BilibiliClient } from '../bilibili/client';
 import type { WbiKeyStore } from '../bilibili/wbi';
@@ -208,4 +211,108 @@ test('getFavoriteResourceIds：返回空数组而不是 null/对象', async () =
   // 空收藏夹时接口真的会回 `{}` 而不是数组。
   const objectCase = apiWith({ '/x/v3/fav/resource/ids': {} });
   assert.deepEqual(await objectCase.api.getFavoriteResourceIds(7), []);
+});
+
+/* -------------------------------------------------- 「播放歌单」的翻页收集 */
+
+function view(entries: FavoriteEntry[], hasMore: boolean): FavoriteContentsView {
+  return { title: '夹子', total: entries.length, entries, hasMore };
+}
+
+function entry(name: string): FavoriteEntry {
+  return {
+    avid: 1,
+    bvid: `BV${name}`,
+    title: name,
+    cover: '',
+    upperName: 'UP',
+    durationSeconds: 10,
+    pageCount: 1,
+    invalid: false,
+    invalidReason: null,
+  };
+}
+
+test('collectRemainingPages：逐页取完并把每页交给回调', async () => {
+  const requested: number[] = [];
+  const batches: string[][] = [];
+  const result = await collectRemainingPages({
+    startPage: 1,
+    hasMore: true,
+    fetchPage: async (page) => {
+      requested.push(page);
+      if (page === 2) return view([entry('B'), entry('C')], true);
+      if (page === 3) return view([entry('D')], false);
+      return view([entry('X')], false);
+    },
+    onBatch: (entries, page) => {
+      batches.push([`p${page}`, ...entries.map((item) => item.title)]);
+    },
+  });
+
+  assert.deepEqual(requested, [2, 3], '从 startPage+1 开始，遇到 has_more=false 停止');
+  assert.deepEqual(batches, [
+    ['p2', 'B', 'C'],
+    ['p3', 'D'],
+  ]);
+  assert.deepEqual(result, { pages: 2, items: 3, truncated: false });
+});
+
+test('collectRemainingPages：已无更多时一个请求都不发', async () => {
+  let calls = 0;
+  const result = await collectRemainingPages({
+    startPage: 3,
+    hasMore: false,
+    fetchPage: async () => {
+      calls++;
+      return view([], false);
+    },
+    onBatch: () => undefined,
+  });
+  assert.equal(calls, 0);
+  assert.deepEqual(result, { pages: 0, items: 0, truncated: false });
+});
+
+test('collectRemainingPages：单页失败就停下并回报，不抛给调用方', async () => {
+  const reported: number[] = [];
+  const result = await collectRemainingPages({
+    startPage: 1,
+    hasMore: true,
+    fetchPage: async (page) => {
+      if (page === 3) throw new Error('网络炸了');
+      return view([entry('A')], true);
+    },
+    onBatch: () => undefined,
+    onError: (_error, page) => reported.push(page),
+  });
+  assert.deepEqual(reported, [3]);
+  assert.equal(result.pages, 1, '只成功取到第 2 页');
+});
+
+test('collectRemainingPages：达到安全上限时标记 truncated（防止接口异常导致无限翻页）', async () => {
+  const result = await collectRemainingPages({
+    startPage: 0,
+    hasMore: true,
+    maxPages: 3,
+    fetchPage: async () => view([entry('A')], true),
+    onBatch: () => undefined,
+  });
+  assert.deepEqual(result, { pages: 3, items: 3, truncated: true });
+});
+
+test('collectRemainingPages：空页也计入页数并继续（until has_more 变假）', async () => {
+  const pages: number[] = [];
+  const result = await collectRemainingPages({
+    startPage: 4,
+    hasMore: true,
+    fetchPage: async (page) => {
+      pages.push(page);
+      return view([], page < 6);
+    },
+    onBatch: () => {
+      throw new Error('空页不该触发回调');
+    },
+  });
+  assert.deepEqual(pages, [5, 6]);
+  assert.deepEqual(result, { pages: 2, items: 0, truncated: false });
 });

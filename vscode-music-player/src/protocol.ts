@@ -145,6 +145,13 @@ export type HostToWebview =
       items: TrackSummary[];
     }
   | { type: 'favorites.membership'; bvid: string; folders: FavoriteMembershipView[] }
+  /** 「播放歌单」的进度：先播已加载的部分，剩余页在后台继续补进队列。 */
+  | {
+      type: 'favorites.playAll.state';
+      state: 'running' | 'done' | 'error';
+      message: string;
+      queued: number;
+    }
   /** 原生确认对话框的结果（删除收藏夹之类的破坏性操作走它）。 */
   | { type: 'dialog.result'; id: string; confirmed: boolean }
   /** 某个耗时操作的开始/结束，用于禁用按钮。 */
@@ -214,6 +221,8 @@ export type WebviewToHost =
   | { type: 'favorites.removeResources'; mediaId: number; bvids: string[] }
   | { type: 'favorites.membership'; bvid: string }
   | { type: 'favorites.deal'; bvid: string; addIds: string[]; delIds: string[] }
+  /** 播放歌单：清空队列，把该收藏夹的所有歌曲加入队列并开始播放。 */
+  | { type: 'favorites.playAll'; mediaId: number }
   /** 请宿主弹一个原生确认框；结果通过 `dialog.result` 回来。 */
   | { type: 'dialog.confirm'; id: string; message: string; detail?: string }
   | {
@@ -266,6 +275,7 @@ export const WEBVIEW_TO_HOST_TYPES = [
   'favorites.removeResources',
   'favorites.membership',
   'favorites.deal',
+  'favorites.playAll',
   'dialog.confirm',
   'report',
   'log',

@@ -14,7 +14,7 @@ import * as vscode from 'vscode';
 import { BilibiliApi } from './bilibili/api';
 import { BilibiliClient } from './bilibili/client';
 import { toBilibiliError } from './bilibili/errors';
-import { toFavoriteContentsView, type FavoriteEntry } from './bilibili/favorites';
+import { toFavoriteContentsView, collectRemainingPages, type FavoriteEntry } from './bilibili/favorites';
 import { getUserId } from './bilibili/cookies';
 import { WbiKeyStore, type WbiKeys } from './bilibili/wbi';
 import { QrLoginError, QrLoginFlow, svgToDataUrl } from './auth/qrLogin';
@@ -551,6 +551,10 @@ class MusicPlayerApp implements vscode.Disposable {
         );
         return;
       }
+      case 'favorites.playAll': {
+        await this.playFavoriteFolder(Number(message['mediaId'] ?? 0));
+        return;
+      }
       case 'cache.stats': {
         await this.postCacheInfo();
         return;
@@ -758,6 +762,15 @@ class MusicPlayerApp implements vscode.Disposable {
     return mid;
   }
 
+  /** 当前打开的收藏夹（宿主侧的已加载内容，「播放歌单」直接用这份）。 */
+  private favoriteView: {
+    mediaId: number;
+    title: string;
+    items: TrackSummary[];
+    page: number;
+    hasMore: boolean;
+  } | null = null;
+
   private favoriteEntryToTrack(entry: FavoriteEntry): TrackSummary {
     return {
       bvid: entry.bvid,
@@ -806,6 +819,24 @@ class MusicPlayerApp implements vscode.Disposable {
           : { keyword: options.keyword, scope: 'this' as const }),
       });
       const view = toFavoriteContentsView(page);
+      const items = view.entries.map((entry) => this.favoriteEntryToTrack(entry));
+      // 记住当前这一夹的已加载内容：宿主是「播放歌单」的数据来源，不必让界面回传。
+      if (options.page <= 1 || this.favoriteView?.mediaId !== options.mediaId) {
+        this.favoriteView = {
+          mediaId: options.mediaId,
+          title: view.title,
+          items,
+          page: options.page,
+          hasMore: view.hasMore,
+        };
+      } else {
+        this.favoriteView = {
+          ...this.favoriteView,
+          items: [...this.favoriteView.items, ...items],
+          page: options.page,
+          hasMore: view.hasMore,
+        };
+      }
       this.logger.info('收藏夹内容', {
         mediaId: options.mediaId,
         page: options.page,
@@ -821,13 +852,80 @@ class MusicPlayerApp implements vscode.Disposable {
         title: view.title,
         total: view.total,
         hasMore: view.hasMore,
-        items: view.entries.map((entry) => this.favoriteEntryToTrack(entry)),
+        items,
       });
     } catch (error) {
       this.toast('error', `读取收藏夹内容失败：${toBilibiliError(error).userMessage}`);
     } finally {
       this.post({ type: 'busy', what: 'favorites', on: false });
     }
+  }
+
+  /**
+   * 播放歌单：清空队列 → 把已加载的内容入队并立刻开播 → 剩余页在后台继续补进队列。
+   *
+   * 之所以先播已加载的：收藏夹可能有几百首、要翻十几页，等全部取完再出声太慢。
+   */
+  private async playFavoriteFolder(mediaId: number): Promise<void> {
+    if (this.requireLogin() === null) return;
+    const view = this.favoriteView;
+    if (view === null || view.mediaId !== mediaId || view.items.length === 0) {
+      this.toast('warn', '请先打开这个收藏夹（内容还没加载）');
+      return;
+    }
+
+    this.post({ type: 'favorites.playAll.state', state: 'running', message: '正在准备歌单…', queued: 0 });
+    // 队列由宿主接管：先清空，再用这一夹的内容作为播放队列。
+    this.player.clearQueue();
+    this.player.adoptQueue(view.items, 0);
+    this.logger.info('播放歌单', { mediaId, title: view.title, first: view.items.length, hasMore: view.hasMore });
+
+    const first = view.items[0];
+    if (first !== undefined) await this.playTrack(first);
+
+    if (!view.hasMore) {
+      this.post({
+        type: 'favorites.playAll.state',
+        state: 'done',
+        message: `已加入 ${view.items.length} 首`,
+        queued: view.items.length,
+      });
+      return;
+    }
+
+    let queued = view.items.length;
+    const result = await collectRemainingPages({
+      startPage: view.page,
+      hasMore: view.hasMore,
+      fetchPage: async (page) => {
+        const raw = await this.api.getFavoriteContents({ mediaId, page });
+        return toFavoriteContentsView(raw);
+      },
+      onBatch: (entries) => {
+        const tracks = entries.map((entry) => this.favoriteEntryToTrack(entry));
+        this.player.appendQueue(tracks);
+        queued += tracks.length;
+        this.post({
+          type: 'favorites.playAll.state',
+          state: 'running',
+          message: `正在加入队列…（已 ${queued} 首）`,
+          queued,
+        });
+      },
+      onError: (error) => {
+        this.logger.warn('补齐收藏夹剩余页失败', toBilibiliError(error).message);
+      },
+    });
+    // 刻意不改缓存里的 `hasMore`：再次点「播放歌单」时重新翻页才是正确的（这次只是
+    // 把内容送进了队列，并没有改变「收藏夹还有多少页没加载」这个事实）。
+    this.post({
+      type: 'favorites.playAll.state',
+      state: 'done',
+      message: result.truncated
+        ? `已加入 ${queued} 首（收藏夹过大，只取了前 ${result.pages} 页）`
+        : `已加入 ${queued} 首`,
+      queued,
+    });
   }
 
   /** 原生模态确认框——破坏性操作不接受 webview 里的自绘确认。 */

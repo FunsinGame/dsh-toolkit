@@ -359,6 +359,28 @@ test('加入队列、拖动排序、移除都反映到队列状态与当前曲�
   assert.ok(queueEvents.length >= 4, '每次队列变化都应广播');
 });
 
+test('appendQueue 批量追加且不动当前曲目（播放歌单补页用）', async () => {
+  const { service, queueEvents } = queueService();
+  const items = list('A', 'B');
+  service.adoptQueue(items, 0);
+  await service.play(items[0] as TrackSummary);
+
+  const before = queueEvents.length;
+  service.appendQueue([
+    { ...(items[0] as TrackSummary), bvid: 'BVC', title: 'C' },
+    { ...(items[0] as TrackSummary), bvid: 'BVD', title: 'D' },
+  ]);
+  assert.deepEqual(
+    service.queueState.items.map((item) => item.title),
+    ['A', 'B', 'C', 'D'],
+  );
+  assert.equal(service.current.track?.title, 'A', '批量追加不该打断当前播放');
+  assert.equal(queueEvents.length, before + 1, '只广播一次，避免队列列表被刷多次');
+
+  service.appendQueue([]);
+  assert.equal(queueEvents.length, before + 1, '空批量不发广播');
+});
+
 test('清空队列保留播放模式', () => {
   const { service } = queueService();
   service.adoptQueue(list('A', 'B'), 0);

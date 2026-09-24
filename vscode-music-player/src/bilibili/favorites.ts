@@ -79,3 +79,58 @@ export function toFavoriteContentsView(page: FavoriteContentsPage): FavoriteCont
     hasMore: page.has_more === true,
   };
 }
+
+export interface CollectPagesOptions {
+  /** 取第 `page` 页。 */
+  fetchPage: (page: number) => Promise<FavoriteContentsView>;
+  /** 从第几页开始继续取（当前已加载到第 `startPage` 页）。 */
+  startPage: number;
+  /** 已加载页是否还有更多。 */
+  hasMore: boolean;
+  /** 每页取到就回调一次（调用方把这一批追加进队列）。 */
+  onBatch: (entries: FavoriteEntry[], page: number) => void | Promise<void>;
+  /** 安全上限，防止接口异常导致无限翻页。 */
+  maxPages?: number;
+  onError?: (error: unknown, page: number) => void;
+}
+
+export interface CollectPagesResult {
+  pages: number;
+  items: number;
+  /** 是否因为 `maxPages` 上限而提前停止。 */
+  truncated: boolean;
+}
+
+/**
+ * 把收藏夹剩下的页逐页取完（「播放歌单」用它把整个收藏夹补进队列）。
+ *
+ * 单页失败就停下并回报，而不是让调用方一直等——部分入队比卡住强。
+ */
+export async function collectRemainingPages(
+  options: CollectPagesOptions,
+): Promise<CollectPagesResult> {
+  const maxPages = options.maxPages ?? 50;
+  let page = options.startPage;
+  let hasMore = options.hasMore;
+  let pages = 0;
+  let items = 0;
+
+  while (hasMore && pages < maxPages) {
+    page += 1;
+    let view: FavoriteContentsView;
+    try {
+      view = await options.fetchPage(page);
+    } catch (error) {
+      options.onError?.(error, page);
+      return { pages, items, truncated: false };
+    }
+    if (view.entries.length > 0) {
+      items += view.entries.length;
+      await options.onBatch(view.entries, page);
+    }
+    pages += 1;
+    hasMore = view.hasMore;
+  }
+
+  return { pages, items, truncated: hasMore && pages >= maxPages };
+}

@@ -232,6 +232,15 @@ export class PlayerService {
     this.emitQueue();
   }
 
+  /** 批量追加（「播放歌单」补页时用），只在全部追加完后广播一次。 */
+  appendQueue(tracks: TrackSummary[]): void {
+    if (tracks.length === 0) return;
+    let next = this.queue;
+    for (const track of tracks) next = enqueue(next, track);
+    this.queue = next;
+    this.emitQueue();
+  }
+
   removeQueueAt(index: number): void {
     this.queue = removeAt(this.queue, index);
     this.emitQueue();

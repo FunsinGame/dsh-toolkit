@@ -41,6 +41,7 @@ const MESSAGES_THE_WEBVIEW_SENDS = [
   'favorites.removeResources',
   'favorites.membership',
   'favorites.deal',
+  'favorites.playAll',
   'dialog.confirm',
   'report',
   'log',

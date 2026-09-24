@@ -528,13 +528,9 @@ button.primary:hover {
 .meta {
   grid-area: meta;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.meta-text {
-  flex: 1 1 auto;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
   min-width: 0;
 }
 
@@ -553,7 +549,10 @@ button.primary:hover {
   white-space: nowrap;
 }
 
-/* 控制行：上一首/播放/下一首 + 静音 + 音量 + 倍速，全部挤在一行里。 */
+/*
+ * 控制行：播放按钮靠左，音量与倍速靠右。
+ * `margin-left: auto` 把右侧这一组顶到行尾；音量滑块给固定上限，不再一路拉长。
+ */
 .controls {
   grid-area: controls;
   display: flex;
@@ -567,9 +566,14 @@ button.primary:hover {
   padding: 2px 5px;
 }
 
+.controls #mute-toggle {
+  margin-left: auto;
+}
+
 .controls #volume {
-  flex: 1 1 56px;
-  min-width: 40px;
+  flex: 1 1 48px;
+  min-width: 0;
+  max-width: 72px;
 }
 
 .controls #rate {
@@ -582,16 +586,25 @@ button.primary:hover {
   font-variant-numeric: tabular-nums;
 }
 
-.time {
+/* 进度条与时间同一行，时间贴右侧。 */
+.progress-row {
+  grid-area: progress;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.progress-row .progress {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.progress-row .time {
   flex: 0 0 auto;
   color: var(--vscode-descriptionForeground);
   font-variant-numeric: tabular-nums;
   font-size: 0.85em;
-}
-
-.progress {
-  grid-area: progress;
-  width: 100%;
 }
 
 /* 「被自动播放策略静音」时的显眼提示：时钟在走却没声音，必须让用户一眼看到。 */

@@ -98,7 +98,7 @@ test('设置页提供缓存占用与清空入口', () => {
   assert.match(ruleBody(css, '.bar-fill'), /width:/);
 });
 
-test('播放栏提供音量与倍速控制（与控制按钮同一行）', () => {
+test('播放栏提供音量与倍速控制（与控制按钮同一行、靠右对齐）', () => {
   // 三个控件都在播放栏里
   assert.match(js, /id="volume"[^>]*type="range"/);
   assert.match(js, /id="mute-toggle"/);
@@ -106,14 +106,31 @@ test('播放栏提供音量与倍速控制（与控制按钮同一行）', () =>
   // 音量与倍速并进控制行，不再单独占一行（省高度）
   const controls = ruleBody(css, '.controls');
   assert.match(controls, /display:\s*flex/);
-  assert.match(controls, /flex-wrap:\s*nowrap|gap:\s*4px/, '控制行要紧凑');
-  assert.match(ruleBody(css, '.controls #volume'), /flex:\s*1 1 56px/, '音量滑块占据剩余宽度');
+  assert.match(controls, /gap:\s*4px/, '控制行要紧凑');
+  // 右侧这一组靠右：静音按钮上的 auto 外边距把音量与倍速顶到行尾
+  assert.match(ruleBody(css, '.controls #mute-toggle'), /margin-left:\s*auto/);
+  // 音量滑块有上限，不再一路拉长
+  const volumeRule = ruleBody(css, '.controls #volume');
+  assert.match(volumeRule, /max-width:\s*72px/);
+  assert.match(volumeRule, /flex:\s*1 1 48px/);
   assert.doesNotMatch(js, /id="player-extra"/, '不该再有单独的第三行容器');
   assert.doesNotMatch(css, /grid-template-areas:[^}]*extra extra/, '网格里不该再有 extra 行');
-  // 时间挪到标题行右侧
-  const meta = ruleBody(css, '.meta');
-  assert.match(meta, /display:\s*flex/);
-  assert.match(ruleBody(css, '.meta-text'), /flex:\s*1 1 auto/);
+
+  // 时间与进度条同一行，且贴在右侧
+  assert.match(js, /class="progress-row"/);
+  const progressRow = js.slice(js.indexOf('class="progress-row"'));
+  assert.match(progressRow.slice(0, 300), /id="time"/, '时间要在进度行里');
+  assert.doesNotMatch(
+    js.slice(js.indexOf('<div class="meta">'), js.indexOf('class="controls"')),
+    /id="time"/,
+    '时间不该留在标题行',
+  );
+  assert.match(ruleBody(css, '.progress-row'), /display:\s*flex/);
+  assert.match(ruleBody(css, '.progress-row .progress'), /flex:\s*1 1 auto/);
+  assert.match(ruleBody(css, '.progress-row .time'), /flex:\s*0 0 auto/);
+  assert.doesNotMatch(js, /meta-text/, '标题行不再需要内层容器');
+  assert.match(ruleBody(css, '.meta'), /flex-direction:\s*column/);
+
   // 「恢复声音」提示单独一行
   assert.match(ruleBody(css, '.unmute'), /grid-area:\s*hint/);
   assert.match(ruleBody(css, '.player'), /'hint hint'/);
@@ -161,4 +178,24 @@ test('收藏夹勾选面板：只有用户点 ★ 才弹出', () => {
   assert.match(closeHandler.slice(0, 400), /membershipWantOpen = false/);
   const favHandler = js.slice(js.indexOf("li.querySelector('.fav-one').addEventListener"));
   assert.match(favHandler.slice(0, 300), /membershipWantOpen = true/);
+});
+
+test('收藏夹提供「播放歌单」入口，且 + 只入队一首', () => {
+  // 按钮在收藏夹内容视图里
+  assert.match(js, /id="fav-play-all"/);
+  assert.match(js, /播放歌单/);
+  const handler = js.slice(js.indexOf("$('fav-play-all').addEventListener"));
+  assert.match(handler.slice(0, 400), /post\(\{ type: 'favorites\.playAll', mediaId: openFolder\.id \}\)/);
+  // 进度与结果反馈
+  assert.match(js, /case 'favorites\.playAll\.state'/);
+  assert.match(js, /setFavStatus\(message\.message/);
+  // 「+」只发单首（收藏夹与搜索结果两处都要如此）
+  const addHandlers = [
+    ...js.matchAll(/li\.querySelector\('\.add-one'\)\.addEventListener\([\s\S]*?\n    \}\);/g),
+  ];
+  assert.equal(addHandlers.length, 2, '搜索结果与收藏夹各一处 + 按钮');
+  for (const match of addHandlers) {
+    assert.match(match[0], /enqueue\(track\)/);
+    assert.doesNotMatch(match[0], /playAll|queue: /, '不能顺带把整份列表塞进队列');
+  }
 });
