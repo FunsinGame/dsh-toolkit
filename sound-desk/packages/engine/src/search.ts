@@ -271,10 +271,21 @@ export class SearchService {
     let captionsUsed: string[] = [];
     let unmatchedTerms: string[] = [];
 
+    /**
+     * Resolve the query's English renderings up front.
+     *
+     * This used to happen inside `runVector`, which meant only the embedding path saw
+     * the rewrite. That made keyword mode useless for a Chinese query over an English
+     * library: the catalogue indexes `crow death` / `weald`, the query was `怪物`, and
+     * BM25 over text that is not there can only return nothing. Hybrid mode hid the
+     * bug because its vector retriever found results anyway.
+     */
+    const expansion = this.expandForSearch(parsed, rawQuery);
+
     // --- retriever 1: FTS5 / BM25 -------------------------------------
     if (mode !== 'similar' && (mode === 'keyword' || mode === 'hybrid') && rawQuery.length > 0) {
       const t0 = Date.now();
-      const ftsList = this.runFts(parsed, limit * 4, allowed);
+      const ftsList = this.runFts(parsed, limit * 4, allowed, expansion.captions);
       diagnostics.perRetriever.push({ retriever: 'fts', candidates: ftsList.ids.length, tookMs: Date.now() - t0 });
       if (ftsList.ids.length > 0) lists.push(ftsList);
     }
@@ -305,8 +316,7 @@ export class SearchService {
         const result = await this.runVector(rawQuery, parsed, limit * 4, allowed, req.vectorField ?? 'mean');
         captionsUsed = result.captionsUsed;
         unmatchedTerms = result.unmatched;
-        vectorScores = result.scores;
-        const ids = this.rankFromScores(vectorScores, limit * 4);
+        vectorScores = result.scores;        const ids = this.rankFromScores(vectorScores, limit * 4);
         diagnostics.perRetriever.push({ retriever: 'vector', candidates: ids.length, tookMs: Date.now() - t0 });
         if (ids.length > 0) {
           lists.push({
@@ -346,6 +356,19 @@ export class SearchService {
       const structIds = this.runStruct(allowed, limit * 3);
       diagnostics.perRetriever.push({ retriever: 'struct', candidates: structIds.length, tookMs: Date.now() - t0 });
       if (structIds.length > 0) lists.push({ retriever: 'struct', ids: structIds, weight: this.weights().struct });
+    }
+
+    /**
+     * Report the rewrite even when the embedding path did not run.
+     *
+     * `runVector` is the only other source of `captionsUsed`, and it returns early
+     * without a model — so on a model-less install a Chinese query was searched *in
+     * English* while the UI still showed the Chinese as "未识别". The user could not
+     * tell what was actually searched for, which is exactly the situation where
+     * showing the rewrite matters most.
+     */
+    if (captionsUsed.length === 0 && expansion.captions.length > 0) {
+      captionsUsed = expansion.captions;
     }
 
     if (lists.length === 0) {
@@ -514,15 +537,67 @@ export class SearchService {
 
   // -- retrievers --------------------------------------------------------
 
-  private runFts(parsed: ParsedQuery, limit: number, allowed: Set<number> | null): RankedList {
-    const match = toFtsMatch(parsed, ['searchText']);
-    if (!match) return { retriever: 'fts', ids: [], scores: [], weight: this.weights().fts };
+  /**
+   * Expand a parsed query into the English text that is actually indexed.
+   *
+   * Returns the captions to search for, restricted to terms that can plausibly appear
+   * in the catalogue. Never throws: a rewrite failure must degrade to searching the
+   * raw query, not to a failed search.
+   */
+  private expandForSearch(parsed: ParsedQuery, rawQuery: string): { captions: string[] } {
+    const semanticText = semanticTextOf(parsed);
+    const source = semanticText.length > 0 ? semanticText : rawQuery;
+    if (source.length === 0) return { captions: [] };
+    try {
+      return { captions: this.deps.expandQuery(source).captions };
+    } catch {
+      return { captions: [] };
+    }
+  }
+
+  /**
+   * BM25 over `searchText`.
+   *
+   * `captions` lets the caller supply the query's English renderings. They are used
+   * as the *positive* terms, which is what makes a Chinese query work at all: the
+   * indexed text is filenames, metadata and UCS names, none of which contain CJK for
+   * an English library. Crucially this is a **restriction** of the match rather than
+   * an addition — searching the raw Chinese alongside the English would mean two FTS
+   * lists fused as if they were independent evidence, which double-counts one
+   * question. Exclusions survive untouched, so `-clang` still excludes.
+   */
+  private runFts(
+    parsed: ParsedQuery,
+    limit: number,
+    allowed: Set<number> | null,
+    captions?: readonly string[],
+  ): RankedList {
+    const empty = { retriever: 'fts' as const, ids: [], scores: [], weight: this.weights().fts };
+
+    // Longest first, so a phrase is tried before its individual words; capped so a
+    // pathological expansion cannot build an enormous MATCH expression.
+    const alternatives = (captions ?? [])
+      .map((caption) => caption.trim())
+      .filter((caption) => caption.length >= 2)
+      .sort((a, b) => b.length - a.length)
+      .slice(0, 8);
+
+    // `toFtsMatch` ANDs the positive terms, so an alternative phrasing must be passed
+    // as an optional group: `query` AND (`monster` OR `creature`) is not what we want
+    // (both would have to match), whereas a single OR group over the renderings is.
+    const withAlternatives: ParsedQuery =
+      alternatives.length > 0
+        ? { ...parsed, required: [], optionalGroups: [alternatives] }
+        : parsed;
+
+    const match = toFtsMatch(withAlternatives, ['searchText']);
+    if (!match) return empty;
     let rows: Array<{ id: number; score: number }>;
     try {
       rows = this.deps.catalog.ftsSearch(match, limit, allowed ?? undefined);
     } catch {
       // A malformed MATCH expression must not take down search.
-      return { retriever: 'fts', ids: [], scores: [], weight: this.weights().fts };
+      return empty;
     }
     // bm25() returns lower-is-better (negative) scores; negate so higher is better.
     return {

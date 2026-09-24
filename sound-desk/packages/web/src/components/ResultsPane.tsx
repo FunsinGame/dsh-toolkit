@@ -215,9 +215,28 @@ export function ResultsPane({ playingId, onPlay }: { playingId: number | null; o
         {total === 0 && !state.searching && (
           <div className="center-msg">
             <div>没有结果</div>
-            <div style={{ fontSize: 12 }}>
-              试试换个说法、拆成更具体的词（对象 + 材质 + 动作），或者用「关键词」模式搜文件名。
-            </div>
+            {/*
+              Which advice is useful depends entirely on the mode, and the old copy
+              recommended 「关键词」 even when the user was already in it — a dead end,
+              and exactly the situation where a Chinese query against an English
+              library returns nothing because no filename contains the word.
+            */}
+            {state.mode === 'keyword' && (state.stats?.embedded ?? 0) > 0 ? (
+              <>
+                <div style={{ fontSize: 12 }}>
+                  「关键词」只比对文件名、内嵌元数据和 UCS 分类名。中文词会被改写成英文再搜，
+                  但库里没有哪个文件叫这个名字时就搜不到——而语义搜索比的是<strong>声音指纹</strong>，
+                  能找出名字完全不同的素材。
+                </div>
+                <button style={{ marginTop: 8 }} onClick={() => store.setMode('hybrid')}>
+                  改用语义搜索试试
+                </button>
+              </>
+            ) : (
+              <div style={{ fontSize: 12 }}>
+                试试换个说法、拆成更具体的词（对象 + 材质 + 动作），或者改用「关键词」模式搜文件名。
+              </div>
+            )}
           </div>
         )}
       </div>
