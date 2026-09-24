@@ -567,6 +567,161 @@ test('search history is recorded for non-empty queries', async () => {
 });
 
 /**
+ * Personalised ranking (plan P2-3).
+ *
+ * The properties worth testing are the *off switch* and the *bound*: a learned
+ * weight may nudge near-ties but must never reorder a clear result, and turning it
+ * off must restore the exact original order.
+ */
+test('personalised ranking is off by default and changes nothing until switched on', async () => {
+  const h = await startHarness(false);
+  try {
+    assert.equal(h.app.catalog.personalizationEnabled(), false, 'default must be reproducible ordering');
+
+    const first = await h.app.searchService.search({ q: 'door', mode: 'hybrid', limit: 10 });
+    const ids = first.hits.map((hit) => hit.asset.id);
+    assert.ok(ids.length > 0, 'need results to test with');
+
+    // Play one of the results a lot. Nothing should move while the toggle is off.
+    for (let i = 0; i < 10; i += 1) h.app.catalog.recordUsage(ids[ids.length - 1]!, 'play', 'door');
+    const stillOff = await h.app.searchService.search({ q: 'door', mode: 'hybrid', limit: 10 });
+    assert.deepEqual(
+      stillOff.hits.map((hit) => hit.asset.id),
+      ids,
+      'with the toggle off the order must be byte-identical',
+    );
+    assert.equal(stillOff.personalized, undefined, 'and nothing should be reported as adjusted');
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('switching personalisation on applies a bounded weight and explains it', async () => {
+  const h = await startHarness(false);
+  try {
+    const base = await h.app.searchService.search({ q: 'door', mode: 'hybrid', limit: 10 });
+    const ids = base.hits.map((hit) => hit.asset.id);
+    assert.ok(ids.length >= 1, 'need a result to test with');
+
+    // A decisive history for the top result: 20 plays for this very query.
+    const favourite = ids[0]!;
+    for (let i = 0; i < 20; i += 1) h.app.catalog.recordUsage(favourite, 'play', 'door');
+    h.app.catalog.setPersonalizationEnabled(true);
+
+    const on = await h.app.searchService.search({ q: 'door', mode: 'hybrid', limit: 10 });
+    assert.ok(on.personalized && on.personalized.length > 0, 'the adjustment must be reported');
+
+    const adjustment = on.personalized!.find((p) => p.assetId === favourite);
+    assert.ok(adjustment, 'the played asset must be among the adjusted');
+    // The bound is the whole justification for having this feature.
+    assert.ok(adjustment!.weight <= 1.1 + 1e-9, `weight ${adjustment!.weight} exceeded the ceiling`);
+    assert.ok(adjustment!.weight > 1, 'a heavily played asset should be nudged up');
+    assert.ok(adjustment!.reason.length > 0, 'the reason must be human-readable');
+    assert.ok(adjustment!.reason.includes('20'), `reason should cite the count: ${adjustment!.reason}`);
+
+    // The score actually rose by exactly that weight — the report is not decorative.
+    const after = on.hits.find((hit) => hit.asset.id === favourite)!;
+    const before = base.hits.find((hit) => hit.asset.id === favourite)!;
+    assert.ok(
+      Math.abs(after.score.final - before.score.final * adjustment!.weight) < 1e-9,
+      'the reported weight must be the one that was applied',
+    );
+
+    // Every reported weight respects the ceiling, not just this one.
+    for (const p of on.personalized!) {
+      assert.ok(p.weight >= 0.9 - 1e-9 && p.weight <= 1.1 + 1e-9, `weight ${p.weight} out of band`);
+    }
+
+    // The same query with personalisation forced off returns the original order.
+    const forcedOff = await h.app.searchService.search({ q: 'door', mode: 'hybrid', limit: 10, personalize: false });
+    assert.deepEqual(forcedOff.hits.map((hit) => hit.asset.id), ids, 'personalize:false must be reproducible');
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('a huge play history cannot breach the ±10% ceiling', async () => {
+  const h = await startHarness(false);
+  try {
+    const base = await h.app.searchService.search({ q: 'door', mode: 'hybrid', limit: 10 });
+    const ids = base.hits.map((hit) => hit.asset.id);
+    assert.ok(ids.length >= 1);
+
+    // Far more history than any real user produces, for every result.
+    for (const id of ids) {
+      for (let i = 0; i < 300; i += 1) h.app.catalog.recordUsage(id, 'play', 'door');
+    }
+    h.app.catalog.setPersonalizationEnabled(true);
+
+    const on = await h.app.searchService.search({ q: 'door', mode: 'hybrid', limit: 10 });
+    const before = new Map(base.hits.map((hit) => [hit.asset.id, hit.score.final]));
+
+    for (const hit of on.hits) {
+      const original = before.get(hit.asset.id);
+      if (original === undefined || original === 0) continue;
+      const ratio = hit.score.final / original;
+      assert.ok(
+        ratio >= 0.9 - 1e-9 && ratio <= 1.1 + 1e-9,
+        `asset ${hit.asset.id} moved by ${ratio.toFixed(4)}× — outside the ±10% band`,
+      );
+    }
+    // 300 plays should have saturated the curve, i.e. reached near the ceiling
+    const favourite = on.personalized?.find((p) => p.assetId === ids[0]!);
+    assert.ok(favourite, 'the adjusted asset should be reported');
+    assert.ok(favourite!.weight > 1.05, `saturation should approach the ceiling, got ${favourite!.weight}`);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('clearing the usage log returns the ranking to exactly its unlearned order', async () => {
+  const h = await startHarness(false);
+  try {
+    const learned = await h.app.searchService.search({ q: 'door', mode: 'hybrid', limit: 10 });
+    const ids = learned.hits.map((hit) => hit.asset.id);
+
+    for (let i = 0; i < 30; i += 1) h.app.catalog.recordUsage(ids[ids.length - 1]!, 'play', 'door');
+    h.app.catalog.setPersonalizationEnabled(true);
+    const personalized = await h.app.searchService.search({ q: 'door', mode: 'hybrid', limit: 10 });
+    assert.ok(personalized.personalized && personalized.personalized.length > 0);
+
+    const removed = h.app.catalog.clearUsage();
+    assert.ok(removed > 0, 'clearing should report how much it forgot');
+    assert.equal(h.app.catalog.countUsageEvents(), 0);
+
+    const after = await h.app.searchService.search({ q: 'door', mode: 'hybrid', limit: 10 });
+    assert.equal(after.personalized, undefined, 'with no history there is nothing to apply');
+    assert.deepEqual(after.hits.map((hit) => hit.asset.id), ids, 'and the order is the unlearned one');
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('usage events are scoped to the query they were made for', async () => {
+  const h = await startHarness(false);
+  try {
+    const door = await h.app.searchService.search({ q: 'door', mode: 'hybrid', limit: 10 });
+    const target = door.hits[0]!.asset.id;
+    h.app.catalog.recordUsage(target, 'play', 'metal door');
+
+    h.app.catalog.setPersonalizationEnabled(true);
+    const sameQuery = await h.app.searchService.search({ q: 'metal door', mode: 'hybrid', limit: 10 });
+    const otherQuery = await h.app.searchService.search({ q: 'footsteps', mode: 'hybrid', limit: 10 });
+
+    const weightIn = (res: typeof sameQuery): number =>
+      res.personalized?.find((p) => p.assetId === target)?.weight ?? 1;
+
+    // picked for *this* query counts more than a general favourite
+    assert.ok(
+      weightIn(sameQuery) >= weightIn(otherQuery),
+      `same-query weight ${weightIn(sameQuery)} should be at least the cross-query one ${weightIn(otherQuery)}`,
+    );
+  } finally {
+    h.cleanup();
+  }
+});
+
+/**
  * `--print-url` exists because the token rotates on every start, so a user who
  * lost the address cannot find it by restarting. These tests pin the boundary
  * that matters: a leftover runtime.json from a dead process must never be

@@ -44,6 +44,9 @@ export function Transport({
     () =>
       onPlayRequest(({ assetId, autoplay }) => {
         const url = store.getClient().mediaUrl(assetId);
+        // A play is the strongest signal the learned weighting uses, so it is
+        // recorded here — at the single place playback actually begins.
+        store.recordUsage(assetId, 'play');
         void (async () => {
           await player.load(assetId, url);
           if (autoplay) await player.play();

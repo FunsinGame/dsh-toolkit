@@ -74,6 +74,13 @@ export interface EngineClient {
   revealInSystem(assetId: number): Promise<void>;
   /** Ask the host to open the asset in an editor tab. VSCode only. */
   openInEditor(assetId: number): Promise<void>;
+  /** personalised-ranking state (plan P2-3) */
+  personalization(): Promise<PersonalizationState>;
+  setPersonalization(enabled: boolean): Promise<PersonalizationState>;
+  /** report what the user did, which is the only input to the learned weights */
+  recordUsage(params: { assetId: number; kind: UsageKind; query?: string | null }): Promise<void>;
+  /** forget everything learned */
+  clearUsage(): Promise<{ removed: number }>;
   /** live job progress; returns an unsubscribe function */
   subscribe(onEvent: (event: EngineEvent) => void): () => void;
 }
@@ -163,6 +170,19 @@ export interface DeleteExportsResult {
   removed: string[];
   /** paths that were refused, with the reason */
   failed: Array<{ filePath: string; reason: string }>;
+}
+
+/** Mirrors the engine's usage kinds; see `@sounddesk/core`. */
+export type UsageKind = 'play' | 'select' | 'export' | 'download';
+
+export interface PersonalizationState {
+  enabled: boolean;
+  /** how many usage events are stored */
+  events: number;
+  /** how many distinct assets have history */
+  assets: number;
+  /** the bound the weighting can never exceed, as a fraction */
+  maxAdjustment: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -376,6 +396,29 @@ class HttpEngineClient implements EngineClient {
 
   openInEditor(): Promise<void> {
     return Promise.reject(new Error('浏览器无法在编辑器里打开文件，请在 VSCode 里使用'));
+  }
+
+  personalization(): Promise<PersonalizationState> {
+    return this.request<PersonalizationState>('/api/personalization');
+  }
+
+  setPersonalization(enabled: boolean): Promise<PersonalizationState> {
+    return this.request<PersonalizationState>('/api/personalization', {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    });
+  }
+
+  recordUsage(params: { assetId: number; kind: UsageKind; query?: string | null }): Promise<void> {
+    // Fire-and-forget on the engine side; the caller must not block playback on it.
+    return this.request<{ ok: boolean }>('/api/personalization/usage', {
+      method: 'POST',
+      body: JSON.stringify({ assetId: params.assetId, kind: params.kind, query: params.query ?? null }),
+    }).then(() => undefined);
+  }
+
+  clearUsage(): Promise<{ removed: number }> {
+    return this.request<{ removed: number }>('/api/personalization/usage', { method: 'DELETE' });
   }
 
   subscribe(onEvent: (event: EngineEvent) => void): () => void {
@@ -598,6 +641,22 @@ class VscodeEngineClient implements EngineClient {
 
   openInEditor(assetId: number): Promise<void> {
     return this.hostAction('openInEditor', assetId);
+  }
+
+  personalization(): Promise<PersonalizationState> {
+    return this.call<PersonalizationState>('personalization');
+  }
+
+  setPersonalization(enabled: boolean): Promise<PersonalizationState> {
+    return this.call<PersonalizationState>('setPersonalization', { enabled });
+  }
+
+  recordUsage(params: { assetId: number; kind: UsageKind; query?: string | null }): Promise<void> {
+    return this.call<void>('recordUsage', params);
+  }
+
+  clearUsage(): Promise<{ removed: number }> {
+    return this.call<{ removed: number }>('clearUsage');
   }
 
   /**

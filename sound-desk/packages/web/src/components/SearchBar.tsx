@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { SearchMode } from '@sounddesk/core';
+import { describePersonalization } from '@sounddesk/core';
 
 import { store } from '../state/store.ts';
 import { useAppState } from '../state/useAppState.ts';
@@ -81,6 +82,20 @@ export function SearchBar(): React.JSX.Element {
             </button>
           ))}
         </div>
+        {/* Personal ranking is opt-in and states its bound, because a search that
+            quietly reshapes itself around your history is hard to trust. */}
+        {state.personalization && (
+          <button
+            className={state.personalization.enabled ? 'active' : ''}
+            onClick={() => void store.setPersonalization(!state.personalization!.enabled)}
+            title={describePersonalization(
+              state.personalization.enabled,
+              state.personalization.assets,
+            )}
+          >
+            个性化
+          </button>
+        )}
       </div>
       <div className="meta">
         {running

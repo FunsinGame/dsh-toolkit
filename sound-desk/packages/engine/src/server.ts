@@ -740,6 +740,55 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       return;
     }
 
+    // -- personalised ranking (plan P2-3) --------------------------------
+    //
+    // The UI reports what the user actually did; the engine turns that into a
+    // bounded ±10% weight. Everything is exposed so the behaviour can be
+    // inspected and undone: a self-adjusting ranking you cannot audit is worse
+    // than no adjustment at all.
+    if (pathname === '/api/personalization' && method === 'GET') {
+      sendJson(res, 200, {
+        enabled: opts.catalog.personalizationEnabled(),
+        events: opts.catalog.countUsageEvents(),
+        assets: opts.catalog.countUsageAssets(),
+        // the bound is part of the contract, not an implementation detail
+        maxAdjustment: 0.1,
+      });
+      return;
+    }
+
+    if (pathname === '/api/personalization' && method === 'PUT') {
+      const body = await readJson<{ enabled?: boolean }>(req);
+      if (typeof body.enabled !== 'boolean') {
+        sendJson(res, 400, { error: 'enabled 必须是布尔值' });
+        return;
+      }
+      opts.catalog.setPersonalizationEnabled(body.enabled);
+      sendJson(res, 200, {
+        enabled: opts.catalog.personalizationEnabled(),
+        events: opts.catalog.countUsageEvents(),
+        assets: opts.catalog.countUsageAssets(),
+      });
+      return;
+    }
+
+    if (pathname === '/api/personalization/usage' && method === 'POST') {
+      const body = await readJson<{ assetId?: number; kind?: string; query?: string | null }>(req);
+      if (typeof body.assetId !== 'number' || typeof body.kind !== 'string') {
+        sendJson(res, 400, { error: '需要 assetId 与 kind' });
+        return;
+      }
+      opts.catalog.recordUsage(body.assetId, body.kind, body.query ?? null);
+      sendJson(res, 201, { ok: true, events: opts.catalog.countUsageEvents() });
+      return;
+    }
+
+    if (pathname === '/api/personalization/usage' && method === 'DELETE') {
+      const removed = opts.catalog.clearUsage();
+      sendJson(res, 200, { removed, events: 0, assets: 0 });
+      return;
+    }
+
     // -- static web assets ---------------------------------------------
     if (opts.webRoot) {
       const served = await serveStatic(res, opts.webRoot, pathname);

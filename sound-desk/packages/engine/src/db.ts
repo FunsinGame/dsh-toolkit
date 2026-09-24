@@ -19,6 +19,11 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 
+import type { UsageEvent, UsageKind } from '@sounddesk/core';
+
+/** Kinds we accept into the usage log; anything else is a bug in a caller. */
+const USAGE_KINDS: ReadonlySet<string> = new Set<UsageKind>(['play', 'select', 'export', 'download']);
+
 const SCHEMA_VERSION = 1;
 
 const INIT_SQL = `
@@ -197,6 +202,22 @@ CREATE TABLE IF NOT EXISTS search_history (
   hits   INTEGER NOT NULL,
   at     INTEGER NOT NULL
 );
+
+-- Raw usage events, the only input to personalised ranking (plan P2-3).
+--
+-- Kept as events rather than a running score: the weight is then a pure function
+-- that can be recomputed when the formula changes, explained per result, and
+-- discarded by simply not reading the table. A stored score could do none of
+-- those. The query column is nullable for context-free actions such as a download.
+CREATE TABLE IF NOT EXISTS usage_events (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  assetId INTEGER NOT NULL,
+  query   TEXT,
+  kind    TEXT NOT NULL,
+  at      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_usage_asset ON usage_events(assetId);
+CREATE INDEX IF NOT EXISTS idx_usage_at ON usage_events(at);
 
 CREATE TABLE IF NOT EXISTS playlists (
   id   INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -621,6 +642,70 @@ export class Catalog {
 
   addSearchHistory(query: string, mode: string, hits: number): void {
     this.db.prepare('INSERT INTO search_history(query, mode, hits, at) VALUES (?, ?, ?, ?)').run(query, mode, hits, Date.now());
+  }
+
+  // -- usage events (personalised ranking) ---------------------------------
+
+  /**
+   * Record one usage event.
+   *
+   * Ignored silently when the asset does not exist: a stale click after a rescan
+   * must not break playback, and the event would be meaningless anyway.
+   */
+  recordUsage(assetId: number, kind: UsageKind | string, query: string | null): void {
+    if (!USAGE_KINDS.has(kind)) return;
+    const exists = this.db.prepare('SELECT 1 AS ok FROM assets WHERE id = ?').get(assetId);
+    if (!exists) return;
+    this.db
+      .prepare('INSERT INTO usage_events(assetId, query, kind, at) VALUES (?, ?, ?, ?)')
+      .run(assetId, query && query.trim().length > 0 ? query.trim() : null, kind, Date.now());
+  }
+
+  /**
+   * Recent usage events, newest first, capped.
+   *
+   * The cap is a deliberate bound on how far back a preference is remembered: an
+   * unbounded history would let a sound chosen months ago keep a permanent nudge,
+   * which is not what "learn what you reach for" should mean.
+   */
+  recentUsage(limit = 5000): UsageEvent[] {
+    const rows = this.db
+      .prepare('SELECT assetId, query, kind, at FROM usage_events ORDER BY at DESC LIMIT ?')
+      .all(limit) as Array<{ assetId: number; query: string | null; kind: string; at: number }>;
+    // Rows written by an older build could hold an unknown kind; drop those rather
+    // than let a stray string reach the weighting maths.
+    return rows
+      .filter((row) => USAGE_KINDS.has(row.kind))
+      .map((row) => ({ assetId: row.assetId, query: row.query, kind: row.kind as UsageKind, at: row.at }));
+  }
+
+  countUsageEvents(): number {
+    return (this.db.prepare('SELECT COUNT(*) AS n FROM usage_events').get() as { n: number }).n;
+  }
+
+  countUsageAssets(): number {
+    return (this.db.prepare('SELECT COUNT(DISTINCT assetId) AS n FROM usage_events').get() as { n: number }).n;
+  }
+
+  /** Forget everything learned. The events are the only input, so this is complete. */
+  clearUsage(): number {
+    const before = this.countUsageEvents();
+    this.db.prepare('DELETE FROM usage_events').run();
+    return before;
+  }
+
+  /**
+   * Is personalised ranking switched on?
+   *
+   * Read from the catalogue rather than captured in a dependency so the toggle
+   * takes effect on the next search without rebuilding the engine.
+   */
+  personalizationEnabled(): boolean {
+    return this.getMeta('personalization') === 'on';
+  }
+
+  setPersonalizationEnabled(enabled: boolean): void {
+    this.setMeta('personalization', enabled ? 'on' : 'off');
   }
 }
 

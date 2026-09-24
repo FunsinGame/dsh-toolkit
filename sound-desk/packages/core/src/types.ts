@@ -256,6 +256,12 @@ export interface SearchRequest {
    * measurable.
    */
   rerank?: boolean;
+  /**
+   * Apply learned usage weights (plan P2-3). When omitted the engine's own
+   * setting decides; passing `false` forces reproducible ordering, which is what
+   * benchmarks and tests want.
+   */
+  personalize?: boolean;
 }
 
 export interface SearchResponse {
@@ -274,6 +280,14 @@ export interface SearchResponse {
    * keyword-only result set as if it were semantic.
    */
   semanticIncomplete?: boolean;
+  /**
+   * Which results the learned weighting moved, and why (plan P2-3).
+   *
+   * Returned rather than kept internal because a ranking that shifted for reasons
+   * the user cannot see is untrustworthy: the UI shows these as "because you
+   * picked this for this query".
+   */
+  personalized?: Array<{ assetId: number; weight: number; reason: string }>;
   diagnostics?: {
     perRetriever: Array<{ retriever: Retriever; candidates: number; tookMs: number }>;
     vectorCoverage: { embedded: number; total: number };

@@ -278,6 +278,35 @@ export function createHandler(engine: EngineLike): Handler {
         : [...catalog.listLibraries().map((l) => l.root), ...exportRootsFor(null, engine.dataDir)];
       return deleteExports(paths ?? [], roots);
     },
+
+    // -- personalised ranking (plan P2-3) --------------------------------
+    personalization: () => ({
+      enabled: catalog.personalizationEnabled(),
+      events: catalog.countUsageEvents(),
+      assets: catalog.countUsageAssets(),
+      maxAdjustment: 0.1,
+    }),
+
+    setPersonalization: (params) => {
+      const { enabled } = asParams<{ enabled?: boolean }>(params);
+      if (typeof enabled !== 'boolean') throw new Error('enabled 必须是布尔值');
+      catalog.setPersonalizationEnabled(enabled);
+      return {
+        enabled: catalog.personalizationEnabled(),
+        events: catalog.countUsageEvents(),
+        assets: catalog.countUsageAssets(),
+        maxAdjustment: 0.1,
+      };
+    },
+
+    recordUsage: (params) => {
+      const { assetId, kind, query } = asParams<{ assetId?: number; kind?: string; query?: string | null }>(params);
+      if (typeof assetId !== 'number' || typeof kind !== 'string') throw new Error('需要 assetId 与 kind');
+      catalog.recordUsage(assetId, kind, query ?? null);
+      return { ok: true };
+    },
+
+    clearUsage: () => ({ removed: catalog.clearUsage() }),
   };
 
   return async (method: string, params: unknown): Promise<unknown> => {

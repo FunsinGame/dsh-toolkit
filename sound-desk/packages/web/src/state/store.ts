@@ -19,7 +19,7 @@ import type {
   StatsResponse,
 } from '@sounddesk/core';
 
-import type { EngineClient, UcsTree } from '../api/client.ts';
+import type { EngineClient, PersonalizationState, UcsTree } from '../api/client.ts';
 import { createOfflineAudioContext } from '../audio/offline.ts';
 import { getMixer } from '../audio/mixer.ts';
 import { getPlayer } from '../audio/player.ts';
@@ -80,6 +80,8 @@ export interface AppState {
   exportFiles: string[];
   /** last failure from a host-only action (reveal in OS, open in editor) */
   hostActionError: string | null;
+  /** personalised ranking (plan P2-3) */
+  personalization: PersonalizationState | null;
 
   ucsTree: UcsTree | null;
   libraries: Library[];
@@ -117,6 +119,7 @@ const initialState: AppState = {
   exportResult: null,
   exportFiles: [],
   hostActionError: null,
+  personalization: null,
   ucsTree: null,
   libraries: [],
   stats: null,
@@ -172,6 +175,8 @@ class Store {
       ]);
       this.set({ libraries, ucsTree, stats, jobs, ready: true });
       void this.runSearch();
+      // Loaded separately so a personalization failure cannot block the workbench.
+      void this.refreshPersonalization();
     } catch (err) {
       this.set({ fatalError: err instanceof Error ? err.message : String(err) });
     }
@@ -280,6 +285,9 @@ class Store {
       return;
     }
     this.set({ selectedId: hit.asset.id, selectedScore: hit.score, loadingAsset: true });
+    // Looking at a result is weak evidence, but it is the only signal that exists
+    // before anyone presses play, so it is recorded at a low weight.
+    this.recordUsage(hit.asset.id, 'select');
     try {
       const asset = await this.getClient().asset(hit.asset.id);
       this.set({ selected: asset, loadingAsset: false });
@@ -499,6 +507,56 @@ class Store {
     } catch (err) {
       this.set({ hostActionError: err instanceof Error ? err.message : String(err) });
     }
+  }
+
+  // -- personalised ranking (plan P2-3) ----------------------------------
+
+  async refreshPersonalization(): Promise<void> {
+    try {
+      this.set({ personalization: await this.getClient().personalization() });
+    } catch (err) {
+      // Not fatal: the ranking simply stays unadjusted.
+      this.set({ personalization: null, searchError: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  async setPersonalization(enabled: boolean): Promise<void> {
+    try {
+      const next = await this.getClient().setPersonalization(enabled);
+      this.set({ personalization: next });
+      // Turning it on or off changes the order, so the visible results must follow.
+      await this.runSearch();
+    } catch (err) {
+      this.set({ searchError: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  async clearUsage(): Promise<void> {
+    try {
+      await this.getClient().clearUsage();
+      await this.refreshPersonalization();
+      await this.runSearch();
+    } catch (err) {
+      this.set({ searchError: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  /**
+   * Record what the user did, for the learned weighting.
+   *
+   * Fire-and-forget and never surfaced as an error: failing to record a play must
+   * not interrupt playback, and the weighting is a nicety, not a feature anyone is
+   * waiting on. Deliberately records `select` too — it is the only signal that
+   * exists before anyone has pressed play.
+   */
+  recordUsage(assetId: number, kind: 'play' | 'select' | 'export' | 'download'): void {
+    if (!this.client) return;
+    const query = this.state.query.trim();
+    void this.client
+      .recordUsage({ assetId, kind, query: query.length > 0 ? query : null })
+      .catch(() => {
+        /* the weighting is best-effort */
+      });
   }
 
   /**

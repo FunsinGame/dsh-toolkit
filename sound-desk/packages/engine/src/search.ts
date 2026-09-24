@@ -17,6 +17,7 @@ import {
   DEFAULT_SEARCH_LIMIT,
   IndexStage,
   SIMILARITY_THRESHOLD,
+  applyPersonalization,
   buildScoreBreakdown,
   cosineSimilarity,
   l2Normalize,
@@ -24,6 +25,7 @@ import {
   parseQuery,
   reciprocalRankFusion,
   semanticTextOf,
+  summarizeUsage,
   toFtsMatch,
   type AssetSummary,
   type DspFeatures,
@@ -200,6 +202,13 @@ export class SearchService {
     const rawQuery = (req.q ?? '').trim();
     const parsed = parseQuery(rawQuery);
     const allowed = this.resolveFilterIds(req.filters);
+
+    // The request wins over the stored setting, so a caller can always ask for
+    // reproducible ordering. Read from the catalogue per search rather than
+    // captured at construction, so toggling it takes effect immediately.
+    const personalizationOn =
+      req.personalize ?? this.deps.catalog.personalizationEnabled();
+    const personalized: NonNullable<SearchResponse['personalized']> = [];
 
     const lists: RankedList[] = [];
     let captionsUsed: string[] = [];
@@ -397,6 +406,35 @@ export class SearchService {
       candidates.sort((a, b) => b.hit.score.final - a.hit.score.final);
     }
 
+    // --- personalised ranking (plan P2-3) ------------------------------
+    // Applied after reranking so the learned weight is the last, smallest word.
+    // Bounded to ±10% by construction (see core/personalize.ts), which is what
+    // makes it safe to leave on: it nudges near-ties and cannot promote a poor
+    // match over a good one.
+    if (personalizationOn && candidates.length > 0 && rawQuery.length > 0) {
+      const usage = summarizeUsage(this.deps.catalog.recentUsage(), rawQuery);
+      if (usage.size > 0) {
+        const { items, adjustments } = applyPersonalization(
+          candidates.map((c) => ({ id: c.hit.asset.id, score: c.hit.score.final, candidate: c })),
+          usage,
+          true,
+        );
+        for (const item of items) {
+          item.candidate.hit.score.final = item.score;
+          if (item.personalized) {
+            personalized.push({
+              assetId: item.personalized.assetId,
+              weight: item.personalized.weight,
+              reason: item.personalized.reason ?? '',
+            });
+          }
+        }
+        if (adjustments.length > 0) {
+          candidates.sort((a, b) => b.hit.score.final - a.hit.score.final);
+        }
+      }
+    }
+
     const offset = Math.max(0, req.offset ?? 0);
     const page = candidates.slice(offset, offset + limit).map((c) => c.hit);
 
@@ -412,6 +450,7 @@ export class SearchService {
       unmatchedTerms,
       belowThreshold,
       semanticIncomplete,
+      personalized: personalized.length > 0 ? personalized : undefined,
       diagnostics: req.explain ? diagnostics : undefined,
     };
   }
