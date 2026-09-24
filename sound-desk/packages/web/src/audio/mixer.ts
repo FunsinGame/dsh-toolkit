@@ -60,6 +60,8 @@ export type MixerListener = (state: MixerState) => void;
 export type StaggerMode = 'sequential' | 'overlap' | 'together';
 
 interface ActiveVoice {
+  /** which track this voice is playing, so a change can target the right one */
+  trackId: string;
   source: AudioBufferSourceNode;
   graph: ChainGraph;
   panner: StereoPannerNode;
@@ -75,6 +77,8 @@ export class Mixer {
   private tracks: MixerTrack[] = [];
   private listeners = new Set<MixerListener>();
   private startedAt = 0;
+  /** master fader, kept here because reading it back off the node is unreliable */
+  private masterVolume = 1;
   private rafHandle: number | null = null;
   private state: MixerState = {
     tracks: [],
@@ -235,7 +239,12 @@ export class Mixer {
         this.stopVoices();
         this.startVoices(position);
       } else {
-        for (const voice of this.voices) this.applyLive(voice, track);
+        // Only this track's voice may move. Applying a change to every voice
+        // would rewrite the other tracks' gains with this track's value.
+        for (const voice of this.voices) {
+          if (voice.trackId !== id) continue;
+          this.applyLive(voice, track);
+        }
       }
     }
     this.patch({ duration: this.duration(), tracks: this.tracks.map((t) => ({ ...t })) });
@@ -260,17 +269,22 @@ export class Mixer {
     this.patch({ duration: 0, position: 0, error: null, tracks: [] });
   }
 
-  /** Apply the live-controllable parameters of one track to its voice. */
+  /**
+   * Apply the live-controllable parameters of one track to its voice.
+   *
+   * Reads the mixer's own master volume rather than the node's `gain.value`:
+   * reading back a value from an automated AudioParam is unreliable across
+   * implementations, and the master fader is scheduled with a ramp.
+   */
   private applyLive(voice: ActiveVoice, track: MixerTrack): void {
     const anySolo = this.tracks.some((t) => t.solo);
     const audible = anySolo ? track.solo : !track.mute;
-    const target = audible ? track.volume : 0;
+    const target = track.chain.outputGain * (audible ? track.volume : 0) * this.masterVolume;
     const now = this.ctx?.currentTime ?? 0;
-    // chain.outputGain is the chain's own trim; the fader multiplies it
     const param = voice.graph.output.gain;
     param.cancelScheduledValues(now);
     param.setValueAtTime(param.value, now);
-    param.linearRampToValueAtTime(track.chain.outputGain * target * masterTrim(this.master), now + 0.02);
+    param.linearRampToValueAtTime(target, now + 0.02);
     voice.panner.pan.cancelScheduledValues(now);
     voice.panner.pan.setValueAtTime(voice.panner.pan.value, now);
     voice.panner.pan.linearRampToValueAtTime(track.pan, now + 0.02);
@@ -294,7 +308,7 @@ export class Mixer {
       // the preview level and the exported level are the same number.
       const anySolo = this.tracks.some((t) => t.solo);
       const audible = anySolo ? track.solo : !track.mute;
-      graph.output.gain.value = track.chain.outputGain * (audible ? track.volume : 0);
+      graph.output.gain.value = track.chain.outputGain * (audible ? track.volume : 0) * this.masterVolume;
 
       source.connect(graph.input as unknown as AudioNode);
       graph.output.connect(panner as unknown as AudioNode);
@@ -314,7 +328,7 @@ export class Mixer {
 
       graph.scheduleEnvelope(when, remaining);
       source.start(when, offset, remaining);
-      this.voices.push({ source, graph, panner });
+      this.voices.push({ trackId: track.id, source, graph, panner });
     }
 
     this.startedAt = ctx.currentTime - fromSeconds;
@@ -403,12 +417,24 @@ export class Mixer {
   /** The mixer's own output trim, so the master fader has somewhere to live. */
   setMasterVolume(volume: number): void {
     const clamped = Math.max(0, Math.min(1, volume));
+    this.masterVolume = clamped;
     if (this.master) {
       const now = this.ctx?.currentTime ?? 0;
       this.master.gain.cancelScheduledValues(now);
       this.master.gain.setValueAtTime(this.master.gain.value, now);
       this.master.gain.linearRampToValueAtTime(clamped, now + 0.02);
     }
+    // keep the per-track gains consistent with the new master level
+    if (this.state.playing) {
+      for (const voice of this.voices) {
+        const track = this.tracks.find((t) => t.id === voice.trackId);
+        if (track) this.applyLive(voice, track);
+      }
+    }
+  }
+
+  getMasterVolume(): number {
+    return this.masterVolume;
   }
 
   /** Tracks shaped for the offline renderer. */
@@ -437,11 +463,6 @@ export class Mixer {
         },
       }));
   }
-}
-
-/** The master fader is applied inside the mixer, not to individual voices. */
-function masterTrim(master: GainNode | null): number {
-  return master ? master.gain.value : 1;
 }
 
 export function getMixer(): Mixer {

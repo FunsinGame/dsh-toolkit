@@ -1,7 +1,9 @@
 /* SoundDesk workbench — dark-first, no CSS framework. */
 
-/* Right-hand column: the effect panel stacks above the details pane when open.
-   The details pane keeps the scroll so its long content is unaffected. */
+/* Right-hand column: the effect and mixer panels stack above the details pane.
+   Each is capped at half the column, so when both are open the details pane still
+   gets half the height rather than being squeezed to nothing. The details pane
+   owns its own scroll so its long content is unaffected. */
 .pane.stack {
   display: flex;
   flex-direction: column;
@@ -15,16 +17,11 @@
   overflow: auto;
 }
 
-.pane.effects {
-  flex: 0 0 auto;
-  max-height: 58%;
-  overflow-y: auto;
-  border-bottom: 1px solid var(--border-strong);
-}
-
+.pane.effects,
 .pane.mixer {
   flex: 0 0 auto;
-  max-height: 62%;
+  /* half each, so two open panels cannot crowd out the details pane */
+  max-height: 50%;
   overflow-y: auto;
   border-bottom: 1px solid var(--border-strong);
 }

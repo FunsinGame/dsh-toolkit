@@ -453,6 +453,50 @@ test('the mix honours each track own output trim as well as the fader', async ()
   assert.ok(Math.abs(ratio - 0.25) < 0.03, `expected chain trim × fader = 0.25, got ${ratio.toFixed(3)}`);
 });
 
+/**
+ * The preview and the export must compute a track's level the same way:
+ * `chain.outputGain × volume`. Getting this wrong is what produced the two live
+ * mixer bugs (a stale master read, and one track's change being written to every
+ * voice), so the formula is pinned here as a numeric result rather than left to
+ * the two implementations agreeing by inspection.
+ */
+test('a track level is exactly chain trim × fader', async () => {
+  const audio = tone(440, 0.3, 0.5);
+  const unity = await render([track({ assetId: 1, label: 'a', audio })]);
+  const base = rms(unity.left);
+
+  // three independent combinations, each checked against the same formula
+  const cases: Array<{ trim: number; volume: number }> = [
+    { trim: 1, volume: 0.5 },
+    { trim: 0.25, volume: 1 },
+    { trim: 0.4, volume: 0.25 },
+    { trim: 2, volume: 0.5 },
+  ];
+  for (const { trim, volume } of cases) {
+    const chain = normalizeChain({ ...structuredClone(DEFAULT_EFFECT_CHAIN), outputGain: trim });
+    const { left } = await render([track({ assetId: 1, label: 'a', audio, volume, chain })]);
+    const expected = trim * volume;
+    const actual = rms(left) / base;
+    assert.ok(
+      Math.abs(actual - expected) / expected < 0.05,
+      `trim ${trim} × volume ${volume} should be ${expected}, measured ${actual.toFixed(4)}`,
+    );
+  }
+});
+
+test('a silent track contributes nothing to the mix level', async () => {
+  const audio = tone(440, 0.3);
+  const alone = await render([track({ assetId: 1, label: 'a', audio })]);
+  const withSilent = await render([
+    track({ assetId: 1, label: 'a', audio }),
+    track({ assetId: 2, label: 'muted', audio: tone(660, 0.3), mute: true }),
+  ]);
+
+  const before = rms(alone.left);
+  const after = rms(withSilent.left);
+  assert.ok(Math.abs(before - after) / before < 0.01, `a muted track changed the level: ${before} -> ${after}`);
+});
+
 test('a very short mix still renders at least one frame', async () => {
   const audio = tone(440, 0.001);
   const { result } = await render([track({ assetId: 1, label: 'a', audio })]);

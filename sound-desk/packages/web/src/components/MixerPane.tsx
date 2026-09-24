@@ -37,6 +37,7 @@ export function MixerPane({ onEditChain }: { onEditChain: (trackId: string) => v
   const state = useAppState();
   const [mix, setMix] = useState<MixerState>(() => mixer.getState());
   const [stagger, setStagger] = useState<StaggerMode>('sequential');
+  const [masterVolume, setMasterVolume] = useState(() => mixer.getMasterVolume());
 
   useEffect(() => mixer.subscribe(setMix), []);
 
@@ -105,6 +106,31 @@ export function MixerPane({ onEditChain }: { onEditChain: (trackId: string) => v
               onChange={(ev) => mixer.seek(Number(ev.target.value))}
               style={{ flex: '1 1 auto' }}
             />
+          </div>
+        )}
+
+        {mix.tracks.length > 0 && (
+          <div className="fx-row">
+            <label>总音量</label>
+            <div className="fx-control">
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={masterVolume}
+                onChange={(ev) => {
+                  const next = Number(ev.target.value);
+                  setMasterVolume(next);
+                  mixer.setMasterVolume(next);
+                }}
+                onDoubleClick={() => {
+                  setMasterVolume(1);
+                  mixer.setMasterVolume(1);
+                }}
+              />
+              <span className="fx-value">{masterVolume.toFixed(2)}</span>
+            </div>
           </div>
         )}
 
