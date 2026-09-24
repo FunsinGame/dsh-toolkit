@@ -39,6 +39,8 @@ import {
   type EmbeddingResult,
 } from '@sounddesk/core';
 
+import { MAXSIM_MAX_WINDOWS, windowOffsets } from './maxsim.js';
+
 /** Default model: LAION-CLAP, the text/audio dual tower. */
 export const DEFAULT_CLAP_MODEL = 'Xenova/clap-htsat-unfused';
 
@@ -74,6 +76,18 @@ export const CLAP_HOP_SECONDS = 10;
  * analysis, and halving the ceiling halves the worst-case cost.
  */
 export const CLAP_MAX_SECONDS = 30;
+
+/**
+ * Absolute ceiling on how much audio one file may contribute to an analysis pass.
+ *
+ * `windowOffsets` already bounds the number of windows, so this only matters for a
+ * pathologically long file (a field recording of hours): without it, 24 windows
+ * would be spread so far apart that the file is sampled rather than searched, and
+ * the offsets reported for a match would point into a region we never compared.
+ * Five minutes of coverage is enough for a similarity fingerprint and keeps the
+ * worst case bounded.
+ */
+export const MAX_AUDIO_ANALYSIS_SECONDS = 300;
 
 export class NullEmbedder implements Embedder {
   readonly id = 'none';
@@ -217,23 +231,31 @@ export class ClapEmbedder implements Embedder {
     const mono = sampleRate === CLAP_SAMPLE_RATE ? samples : resampleLinear(samples, sampleRate, CLAP_SAMPLE_RATE);
 
     const windowSize = CLAP_WINDOW_SECONDS * CLAP_SAMPLE_RATE;
-    const hopSize = CLAP_HOP_SECONDS * CLAP_SAMPLE_RATE;
-    const maxSamples = CLAP_MAX_SECONDS * CLAP_SAMPLE_RATE;
-    const usable = mono.subarray(0, Math.min(mono.length, maxSamples));
+    const seconds = mono.length / CLAP_SAMPLE_RATE;
+    // The window plan is shared with max-similarity search so that the vectors we
+    // store and the offsets we report come from exactly the same definition of
+    // "window". A 30 s cap used to truncate long files here, which meant the tail of
+    // an ambience bed could never match anything; `windowOffsets` instead samples up
+    // to MAXSIM_MAX_WINDOWS windows across the whole file, so cost stays bounded
+    // while coverage does not.
+    const offsetsMs = windowOffsets(seconds * 1000, { maxWindows: MAXSIM_MAX_WINDOWS });
+    // A pathological duration must not turn one file into an hour of inference.
+    const capped = offsetsMs.filter((offset) => offset < MAX_AUDIO_ANALYSIS_SECONDS * 1000);
 
     const windows: Float32Array[] = [];
-    if (usable.length <= windowSize) {
-      windows.push(usable);
-    } else {
-      for (let start = 0; start < usable.length; start += hopSize) {
-        const slice = usable.subarray(start, Math.min(start + windowSize, usable.length));
-        // shorter than a second adds more noise than signal
-        if (slice.length < CLAP_SAMPLE_RATE) break;
-        // copy: the extractor may keep a reference to the buffer
-        windows.push(Float32Array.from(slice));
-        if (start + windowSize >= usable.length) break;
-      }
-      if (windows.length === 0) windows.push(usable);
+    const usedOffsets: number[] = [];
+    for (const offsetMs of capped) {
+      const start = Math.round((offsetMs / 1000) * CLAP_SAMPLE_RATE);
+      const slice = mono.subarray(start, Math.min(start + windowSize, mono.length));
+      // shorter than a second adds more noise than signal
+      if (slice.length < CLAP_SAMPLE_RATE) continue;
+      // copy: the extractor may keep a reference to the buffer
+      windows.push(Float32Array.from(slice));
+      usedOffsets.push(offsetMs);
+    }
+    if (windows.length === 0) {
+      windows.push(mono.subarray(0, Math.min(mono.length, windowSize)));
+      usedOffsets.push(0);
     }
 
     const vectors: Float32Array[] = [];
@@ -251,7 +273,15 @@ export class ClapEmbedder implements Embedder {
 
     const mean = weightedMean(vectors, weights);
     const onset = vectors[0] ?? mean;
-    return { mean, onset, frames: vectors.length > 1 ? vectors : undefined };
+    return {
+      mean,
+      onset,
+      frames: vectors.length > 1 ? vectors : undefined,
+      // Only meaningful alongside `frames`; omitted for a single-window file, where
+      // the window's own offset would just be 0 and the mean already covers it.
+      framesStartMs: vectors.length > 1 ? usedOffsets : undefined,
+      framesDurationMs: Math.round((mono.length / CLAP_SAMPLE_RATE) * 1000),
+    };
   }
 }
 

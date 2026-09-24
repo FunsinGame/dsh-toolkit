@@ -129,6 +129,52 @@ export class VectorIndex {
     return scored.slice(0, limit);
   }
 
+  /**
+   * Max-similarity for a specific set of assets.
+   *
+   * Used by the probe path, where the candidate set is already known and re-reading
+   * the whole window table for a handful of ids would be wasteful. Returns one entry
+   * per asset that had at least one comparable window.
+   *
+   * Deliberately NOT offered as a whole-library search: max-sim over every stored
+   * window would be a scan of the entire window table, which is orders of magnitude
+   * larger than the mean table and cannot meet the search latency budget without an
+   * ANN index over the window vectors. Query-by-example does not need one, because it
+   * already knows which few files it might be looking for.
+   */
+  searchMaxsimFor(
+    query: Float32Array,
+    assetIds: readonly number[],
+  ): Array<{ assetId: number; score: number; startMs: number; windows: number }> {
+    if (assetIds.length === 0 || query.length === 0) return [];
+    const q = l2Normalize(query);
+    const out: Array<{ assetId: number; score: number; startMs: number; windows: number }> = [];
+
+    for (const assetId of assetIds) {
+      const windows = this.catalog.loadWindowedEmbeddingsFor(assetId);
+      if (windows.length === 0) continue;
+      let best = -Infinity;
+      let bestStart = windows[0]!.startMs;
+      let compared = 0;
+      for (const window of windows) {
+        if (window.vector.length !== q.length) continue;
+        compared += 1;
+        const score = cosineSimilarity(q, window.vector);
+        if (score > best) {
+          best = score;
+          bestStart = window.startMs;
+        }
+      }
+      if (compared > 0) out.push({ assetId, score: best, startMs: bestStart, windows: compared });
+    }
+    return out;
+  }
+
+  /** How many assets have sub-window vectors stored, for the engine info panel. */
+  get windowedSize(): number {
+    return this.catalog.countWindowedAssets();
+  }
+
   /** Nearest neighbours of an already-indexed asset — no inference needed. */
   similarTo(assetId: number, limit: number, field: 'mean' | 'onset' = 'mean'): Array<{ id: number; score: number }> {
     const vec = this.get(assetId, field);

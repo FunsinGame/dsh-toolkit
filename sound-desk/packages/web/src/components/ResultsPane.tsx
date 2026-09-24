@@ -12,6 +12,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { store } from '../state/store.ts';
 import { useAppState } from '../state/useAppState.ts';
+import type { ProbeHit } from '../api/client.ts';
 import { confidenceClass, formatDuration, formatRate, rerankReasons, sourceLabel } from '../util/format.ts';
 import { buildDragData } from '../util/dragOut.ts';
 
@@ -124,6 +125,9 @@ export function ResultsPane({ playingId, onPlay }: { playingId: number | null; o
               const asset = hit.asset;
               const selected = state.selectedId === asset.id;
               const playing = playingId === asset.id;
+              // Only probe / slice results carry a matched window; a text search has
+              // no reference to compare windows against.
+              const maxsim = (hit as ProbeHit).maxsim;
               return (
                 <div
                   key={asset.id}
@@ -186,6 +190,22 @@ export function ResultsPane({ playingId, onPlay }: { playingId: number | null; o
                     >
                       {sourceLabel(asset.ucsSource)}
                     </span>
+                    {/*
+                      A window match means this file CONTAINS the reference rather
+                      than resembling it as a whole. Showing the offset is what makes
+                      that usable on a ten-minute ambience — without it the user has
+                      to scrub the file to find out why it matched.
+                    */}
+                    {maxsim && (
+                      <span
+                        className="badge"
+                        title={`与参考音频的第 ${maxsim.windows} 个分析窗比对命中（${
+                          maxsim.via === 'stored' ? '来自已存窗口向量' : '本次现场分析'
+                        }）`}
+                      >
+                        @{maxsim.offset}
+                      </span>
+                    )}
                   </div>
                 </div>
               );

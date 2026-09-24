@@ -371,3 +371,18 @@ export {
   type MatchMethod,
   type SidecarCatalog,
 } from './sidecar.js';
+
+export {
+  MAXSIM_DEFAULT_REFINE,
+  MAXSIM_HOP_SECONDS,
+  MAXSIM_MAX_WINDOWS,
+  MAXSIM_REFINE_POOL,
+  MAXSIM_WINDOW_SECONDS,
+  formatOffset as formatMaxsimOffset,
+  isWindowable,
+  windowOffsets,
+  type MaxsimOutcome,
+  type MaxsimPlan,
+  type WindowHit,
+  type WindowVector,
+} from './maxsim.js';

@@ -359,8 +359,16 @@ export interface EmbeddingResult {
   mean: Float32Array;
   /** first-window embedding, L2-normalized — better recall for transient sounds */
   onset: Float32Array;
-  /** optional sub-window matrix for slice/similar search */
+  /**
+   * Per-window embeddings, present only when the file produced more than one
+   * window. These are what max-similarity search (plan §3.4) compares against: a
+   * short sound inside a long file is invisible to `mean` but wins on a window.
+   */
   frames?: Float32Array[];
+  /** start offset of each entry in `frames`, in milliseconds; same length as `frames` */
+  framesStartMs?: number[];
+  /** how much audio the analysis actually consumed, in milliseconds */
+  framesDurationMs?: number;
 }
 
 export interface Embedder {

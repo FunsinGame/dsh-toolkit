@@ -100,6 +100,15 @@ export interface AppState {
     /** the reference's own description, so a bad result is explicable */
     label: string;
     preview: ProbeResponse['preview'] | null;
+    /**
+     * What the max-similarity pass over long files did.
+     *
+     * Kept so the bar can say "re-analysed 3 long files" instead of silently taking
+     * a second longer than a keyword search would.
+     */
+    maxsim: ProbeResponse['maxsim'] | null;
+    /** how many returned hits were matched by a window rather than the whole file */
+    windowMatches: number;
   } | null;
   /** personalised ranking (plan P2-3) */
   personalization: PersonalizationState | null;
@@ -1010,7 +1019,11 @@ class Store {
    */
   private async runProbe(label: string, run: () => Promise<ProbeResponse>): Promise<void> {
     const seq = ++this.searchSeq;
-    this.set({ searching: true, searchError: null, probe: { kind: 'probe', label, preview: null } });
+    this.set({
+      searching: true,
+      searchError: null,
+      probe: { kind: 'probe', label, preview: null, maxsim: null, windowMatches: 0 },
+    });
     try {
       const response = await run();
       if (seq !== this.searchSeq) return;
@@ -1024,7 +1037,13 @@ class Store {
         belowThreshold: false,
         semanticIncomplete: false,
         searching: false,
-        probe: { kind: response.source, label, preview: response.preview },
+        probe: {
+          kind: response.source,
+          label,
+          preview: response.preview,
+          maxsim: response.maxsim,
+          windowMatches: response.hits.filter((hit) => hit.maxsim !== undefined).length,
+        },
       });
     } catch (err) {
       if (seq !== this.searchSeq) return;

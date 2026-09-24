@@ -27,7 +27,19 @@ import path from 'node:path';
 import type { Embedder } from '@sounddesk/core';
 
 import { decodeAudio, type DecodeResult } from './decode.js';
+import { MAX_AUDIO_ANALYSIS_SECONDS } from './embedder.js';
 import type { Catalog } from './db.js';
+import {
+  MAXSIM_DEFAULT_REFINE,
+  MAXSIM_MAX_WINDOWS,
+  MAXSIM_REFINE_POOL,
+  isWindowable,
+  mergeMaxsim,
+  planMaxsim,
+  selectBestWindow,
+  type MaxsimCandidate,
+  type MaxsimOutcome,
+} from './maxsim.js';
 import type { VectorIndex } from './search.js';
 
 /** Longest reference clip we accept, matching the plan's ≤60s. */
@@ -115,15 +127,47 @@ export interface ProbeDeps {
   vectorIndex: VectorIndex;
   embedder: Embedder | null;
   dataDir: string;
+  /**
+   * How many candidate files may be re-embedded per query when their window
+   * vectors are not stored yet. Bounds the worst-case latency of a probe; see
+   * MAXSIM_DEFAULT_REFINE.
+   */
+  maxsimRefine?: number;
 }
 
 export interface ProbeMatches {
   preview: ProbePreview;
   /** asset id → cosine similarity, best first */
-  matches: Array<{ assetId: number; score: number; via: 'probe' | 'slice' }>;
+  matches: Array<{
+    assetId: number;
+    score: number;
+    via: 'probe' | 'slice';
+    /**
+     * Present when the score came from a sub-window comparison rather than the
+     * whole-file mean — i.e. the file *contains* something like the reference.
+     */
+    maxsim?: { startMs: number; windows: number; via: 'stored' | 'analysed' };
+  }>;
   warnings: string[];
   /** which mechanism answered, so the UI can say so */
   source: 'probe' | 'slice';
+  /**
+   * What the max-similarity pass did, so the UI can explain why a query took a
+   * second and how much of the library it was able to cover.
+   */
+  maxsim: MaxsimReport;
+}
+
+export interface MaxsimReport {
+  /** files whose stored window vectors were compared (no inference cost) */
+  stored: number;
+  /** files re-analysed for this query (each one costs a decode + inference) */
+  analysed: number;
+  /** files skipped, by reason */
+  skippedShort: number;
+  skippedBudget: number;
+  /** window cap used, for the UI's wording */
+  maxWindows: number;
 }
 
 /**
@@ -220,7 +264,14 @@ export class ProbeService {
     return decoded;
   }
 
-  private async searchWithSamples(
+  /**
+   * Search using raw decoded samples.
+   *
+   * Shared by both entry points above, and public because a caller that already
+   * holds decoded audio (another decoder, a test, a future in-browser path) should
+   * not have to round-trip it through a file to ask the question.
+   */
+  async searchWithSamples(
     channelData: Float32Array[],
     sampleRate: number,
     limit: number,
@@ -244,14 +295,138 @@ export class ProbeService {
     // a reference clip the mean vector is what we compare with, since the reference
     // may be an ambience rather than an impact.
     const embedding = await this.deps.embedder.embedAudio(mono, sampleRate);
-    const matches = this.deps.vectorIndex.search(embedding.mean, limit, 'mean');
+
+    // A wide pool, because the whole point of the max-sim pass is that the file we
+    // want may not be in the whole-file top-N at all: its mean is dominated by
+    // whatever else is in it.
+    const pool = Math.min(
+      MAXSIM_REFINE_POOL,
+      Math.max(limit, limit * 4),
+    );
+    const meanMatches = this.deps.vectorIndex.search(embedding.mean, pool, 'mean');
+    const meanScores = new Map(meanMatches.map((match) => [match.id, match.score]));
+
+    const { outcomes, report } = await this.runMaxsim(embedding.mean, meanMatches);
+    const merged = mergeMaxsim(meanScores, outcomes).slice(0, limit);
 
     return {
       preview,
-      matches: matches.map((entry) => ({ assetId: entry.id, score: entry.score, via: source })),
+      matches: merged.map((entry) => ({
+        assetId: entry.assetId,
+        score: entry.score,
+        via: source,
+        ...(entry.maxsim
+          ? { maxsim: { startMs: entry.maxsim.startMs, windows: entry.maxsim.windows, via: entry.maxsim.via } }
+          : {}),
+      })),
       warnings: preview.warnings,
       source,
+      maxsim: report,
     };
+  }
+
+  /**
+   * The max-similarity pass — plan §3.4's "检索时取 max 而非 mean".
+   *
+   * A whole-file mean averages a short sound inside a long file into invisibility,
+   * so a reference clip that matches two seconds of a ten-minute bed scores near
+   * zero against that bed and never appears. Comparing the reference against the
+   * bed's individual windows instead gives that bed the score of its best window,
+   * which is the question a sound search is actually asking.
+   *
+   * Cheap when windows are stored (no inference), and bounded when they are not:
+   * only the top few candidates by mean score are re-embedded, because only those
+   * could plausibly win.
+   */
+  private async runMaxsim(
+    query: Float32Array,
+    meanMatches: ReadonlyArray<{ id: number; score: number }>,
+  ): Promise<{ outcomes: MaxsimOutcome[]; report: MaxsimReport }> {
+    const report: MaxsimReport = {
+      stored: 0,
+      analysed: 0,
+      skippedShort: 0,
+      skippedBudget: 0,
+      maxWindows: MAXSIM_MAX_WINDOWS,
+    };
+
+    const candidates = this.buildCandidates(meanMatches);
+    const plan = planMaxsim(candidates, { refine: this.deps.maxsimRefine ?? MAXSIM_DEFAULT_REFINE });
+
+    for (const step of plan.steps) {
+      if (step.action === 'skip') {
+        if (step.reason === 'short') report.skippedShort += 1;
+        else if (step.reason === 'budget') report.skippedBudget += 1;
+        continue;
+      }
+      if (step.action === 'stored') report.stored += 1;
+      else report.analysed += 1;
+    }
+
+    const outcomes: MaxsimOutcome[] = [];
+
+    // 1) stored window vectors: no inference, so every candidate that has them is used
+    const storedIds = plan.steps
+      .filter((step) => step.action === 'stored')
+      .map((step) => step.candidate.assetId);
+    for (const hit of this.deps.vectorIndex.searchMaxsimFor(query, storedIds)) {
+      outcomes.push({ ...hit, via: 'stored' });
+    }
+
+    // 2) on-demand analysis for the candidates that have none
+    for (const step of plan.steps) {
+      if (step.action !== 'analyse') continue;
+      const analysed = await this.analyseWindowed(step.candidate.assetId, query);
+      if (analysed) outcomes.push({ ...analysed, via: 'analysed' });
+    }
+
+    return { outcomes, report };
+  }
+
+  /** Combine the mean ranking with what the vector index knows about windows. */
+  private buildCandidates(meanMatches: ReadonlyArray<{ id: number; score: number }>): MaxsimCandidate[] {
+    return meanMatches.map((match) => {
+      const row = this.deps.catalog.getAssetRow(match.id);
+      const durationMs = typeof row?.durationMs === 'number' ? row.durationMs : null;
+      const stored = isWindowable(durationMs) ? this.deps.catalog.loadWindowedEmbeddingsFor(match.id) : [];
+      return {
+        assetId: match.id,
+        meanScore: match.score,
+        durationMs,
+        windowsInIndex: stored.length > 0,
+        storedWindows: stored.length,
+      };
+    });
+  }
+
+  /**
+   * Re-analyse one file's windows for this query.
+   *
+   * Returns null instead of throwing when the file cannot be decoded: one
+   * undecodable candidate must not fail the whole search, and the mean comparison
+   * for it is still in the results.
+   */
+  private async analyseWindowed(assetId: number, query: Float32Array): Promise<MaxsimOutcome | null> {
+    const row = this.deps.catalog.getAssetRow(assetId);
+    const filePath = String(row?.path ?? '');
+    if (!filePath) return null;
+    try {
+      const decoded = await decodeAudio(filePath, { mono: true, maxSeconds: MAX_AUDIO_ANALYSIS_SECONDS });
+      if (!decoded.ok) return null;
+      const mono = decoded.channelData.length === 1 ? decoded.channelData[0]! : mixToMono(decoded.channelData);
+      const result = await this.deps.embedder!.embedAudio(mono, decoded.sampleRate);
+      const windows = (result.frames ?? []).map((vector, index) => ({
+        index,
+        startMs: result.framesStartMs?.[index] ?? 0,
+        vector,
+      }));
+      if (windows.length === 0) return null;
+      const hit = selectBestWindow(query, windows);
+      if (!hit) return null;
+      return { assetId, score: hit.score, startMs: hit.startMs, windows: hit.windows, via: 'analysed' };
+    } catch {
+      return null;
+    }
   }
 }
 

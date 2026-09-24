@@ -40,6 +40,30 @@ export function ProbeBar(): React.JSX.Element {
               {probe.preview.peak.toFixed(2)}
             </span>
           )}
+          {/*
+            Say what the long-file pass did. Re-analysing a few files costs seconds
+            of CPU, and a query that is slower than a keyword search should explain
+            itself rather than just feel slow.
+          */}
+          {probe.maxsim && probe.maxsim.analysed > 0 && (
+            <span
+              className="count"
+              title={
+                `把参考音频与长文件的分析窗逐一比对（每文件最多 ${probe.maxsim.maxWindows} 窗）。` +
+                `其中 ${probe.maxsim.stored} 个用了已存窗口向量，` +
+                `${probe.maxsim.analysed} 个本次现场分析，` +
+                `${probe.maxsim.skippedShort} 个太短无需切窗，` +
+                `${probe.maxsim.skippedBudget} 个因超出本查询预算而跳过。`
+              }
+            >
+              长文件切窗：现场分析 {probe.maxsim.analysed} 个
+            </span>
+          )}
+          {probe.windowMatches > 0 && (
+            <span className="count" title="这些结果是因为「文件里含有和参考音频相似的一段」而命中，而不是整体相似">
+              窗口命中 {probe.windowMatches}
+            </span>
+          )}
           <button onClick={() => store.clearProbe()} title="回到文字搜索">
             退出声音搜索
           </button>

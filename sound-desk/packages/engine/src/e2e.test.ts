@@ -378,6 +378,33 @@ test('peaks are built on demand and served as the SDPK container', async () => {
   }
 });
 
+test('the session endpoint describes engine capabilities, including max-sim coverage', async () => {
+  const h = await startHarness(true);
+  try {
+    const res = await fetch(`${h.server.url}/api/session`, { headers: { 'x-sounddesk-token': h.server.token } });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as {
+      ok: boolean;
+      embeddingDim: number;
+      ffmpeg: { available: boolean };
+      maxsim: { windowedAssets: number; windowedVectors: number; maxWindows: number; refinePerQuery: number };
+    };
+
+    assert.equal(body.ok, true);
+    assert.equal(body.embeddingDim, 512);
+    assert.equal(typeof body.ffmpeg.available, 'boolean');
+    // The sidebar and status bar read these to explain how much of a probe query can
+    // be answered without re-running inference.
+    assert.ok(body.maxsim, 'session must expose max-sim coverage');
+    assert.equal(typeof body.maxsim.windowedAssets, 'number');
+    assert.equal(typeof body.maxsim.windowedVectors, 'number');
+    assert.ok(body.maxsim.maxWindows > 0);
+    assert.ok(body.maxsim.refinePerQuery >= 0);
+  } finally {
+    h.cleanup();
+  }
+});
+
 test('UCS tree reports per-category counts and the lookup endpoint resolves aliases', async () => {
   const h = await startHarness(false);
   try {
@@ -1076,6 +1103,13 @@ test('an uploaded probe clip is embedded and searched without touching the libra
       preview: { durationSeconds: number; channels: number; peak: number; warnings: string[] };
       source: string;
       warnings: string[];
+      maxsim: {
+        stored: number;
+        analysed: number;
+        skippedShort: number;
+        skippedBudget: number;
+        maxWindows: number;
+      };
     };
 
     assert.equal(body.source, 'probe');
@@ -1084,6 +1118,13 @@ test('an uploaded probe clip is embedded and searched without touching the libra
     assert.ok(Math.abs(body.preview.durationSeconds - 0.25) < 0.03, `duration ${body.preview.durationSeconds}`);
     assert.equal(body.preview.channels, 1);
     assert.ok(body.preview.peak > 0);
+
+    // The max-sim pass must report what it did rather than being invisible: the web
+    // UI renders these counts, so a missing report would be a silent UI regression.
+    assert.ok(body.maxsim, 'the probe response must carry the max-sim report');
+    assert.equal(typeof body.maxsim.analysed, 'number');
+    assert.equal(typeof body.maxsim.stored, 'number');
+    assert.ok(body.maxsim.maxWindows > 0);
 
     for (let i = 1; i < body.hits.length; i += 1) {
       assert.ok(body.hits[i - 1]!.score >= body.hits[i]!.score, 'hits must be ordered by similarity');

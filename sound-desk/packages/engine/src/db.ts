@@ -148,6 +148,28 @@ CREATE TABLE IF NOT EXISTS embeddings (
   updatedAt INTEGER NOT NULL
 );
 
+-- Sub-window vectors for max-similarity search (plan section 3.4).
+--
+-- The row in the embeddings table is a mean over the whole file, which averages a
+-- short sound inside a long bed into invisibility. Keeping the individual window
+-- vectors lets query-by-example ask "does this file CONTAIN the reference" by
+-- taking the maximum cosine over windows instead of comparing means.
+--
+-- Only files long enough to have more than one window get rows here: for a short
+-- file the max over one window is the mean by construction, so storing it would
+-- double the size of the index to reproduce a number we already have.
+CREATE TABLE IF NOT EXISTS windowed_embeddings (
+  assetId   INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+  winIndex  INTEGER NOT NULL,
+  startMs   INTEGER NOT NULL,
+  dim       INTEGER NOT NULL,
+  vec       BLOB NOT NULL,
+  model     TEXT NOT NULL,
+  updatedAt INTEGER NOT NULL,
+  PRIMARY KEY (assetId, winIndex)
+);
+CREATE INDEX IF NOT EXISTS idx_windowed_asset ON windowed_embeddings(assetId);
+
 CREATE TABLE IF NOT EXISTS jobs (
   id         TEXT PRIMARY KEY,
   kind       TEXT NOT NULL,
@@ -285,6 +307,26 @@ export class Catalog {
       // Backfill from createdAt so an old playlist does not claim to be from 1970.
       this.db.exec('UPDATE playlists SET updatedAt = createdAt WHERE updatedAt = 0');
     }
+
+    // `windowed_embeddings` (max-similarity search) is already in INIT_SQL, so
+    // `open()` and `openMemory()` both create it. This repeats the statement so the
+    // guarantee holds for any code path that reaches migrate() without having run
+    // INIT_SQL, and so a future refactor that stops preprocessing INIT_SQL cannot
+    // silently remove max-sim (a missing table would degrade to "no windowed
+    // match" rather than to an error).
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS windowed_embeddings (
+        assetId   INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+        winIndex  INTEGER NOT NULL,
+        startMs   INTEGER NOT NULL,
+        dim       INTEGER NOT NULL,
+        vec       BLOB NOT NULL,
+        model     TEXT NOT NULL,
+        updatedAt INTEGER NOT NULL,
+        PRIMARY KEY (assetId, winIndex)
+      );
+      CREATE INDEX IF NOT EXISTS idx_windowed_asset ON windowed_embeddings(assetId);
+    `);
   }
 
   close(): void {
@@ -663,6 +705,62 @@ export class Catalog {
 
   countEmbeddings(): number {
     return (this.db.prepare('SELECT COUNT(*) AS n FROM embeddings').get() as { n: number }).n;
+  }
+
+  // -- sub-window vectors (max-similarity search, plan §3.4) ---------------
+
+  /**
+   * Replace the stored window vectors for one asset.
+   *
+   * Replace rather than merge: the window plan is a function of the file's
+   * duration, so a re-embed that produced a different number of windows would
+   * otherwise leave orphaned rows from the previous pass behind. An empty list
+   * therefore clears the asset, which is the correct outcome for a file that had
+   * windows and no longer does.
+   */
+  putWindowedEmbeddings(assetId: number, model: string, windows: ReadonlyArray<{ startMs: number; vector: Float32Array }>): void {
+    const now = Date.now();
+    this.db.prepare('DELETE FROM windowed_embeddings WHERE assetId = ?').run(assetId);
+    if (windows.length === 0) return;
+    const insert = this.db.prepare(
+      `INSERT INTO windowed_embeddings(assetId, winIndex, startMs, dim, vec, model, updatedAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    );
+    for (let i = 0; i < windows.length; i += 1) {
+      const window = windows[i]!;
+      insert.run(assetId, i, Math.round(window.startMs), window.vector.length, toBlob(window.vector), model, now);
+    }
+  }
+
+  /**
+   * Window vectors for one asset, ordered by window index.
+   *
+   * The blobs are copied out rather than viewed. `node:sqlite` is free to reuse the
+   * buffer behind a result once the statement is reset, and holding a view over it
+   * would hand out vectors that change under the caller — a bug that would only
+   * show up as occasionally wrong search results.
+   */
+  loadWindowedEmbeddingsFor(assetId: number): Array<{ startMs: number; vector: Float32Array }> {
+    const rows = this.db
+      .prepare('SELECT winIndex, startMs, dim, vec FROM windowed_embeddings WHERE assetId = ? ORDER BY winIndex')
+      .all(assetId) as Array<{ winIndex: number; startMs: number; dim: number; vec: Uint8Array }>;
+    return rows.map((row) => {
+      const copy = new Float32Array(row.dim);
+      const source = new Float32Array(row.vec.buffer, row.vec.byteOffset, row.dim);
+      copy.set(source);
+      return { startMs: row.startMs, vector: copy };
+    });
+  }
+
+  countWindowedEmbeddings(): number {
+    return (this.db.prepare('SELECT COUNT(*) AS n FROM windowed_embeddings').get() as { n: number }).n;
+  }
+
+  /** How many distinct assets have window vectors — the max-sim coverage. */
+  countWindowedAssets(): number {
+    return (
+      this.db.prepare('SELECT COUNT(DISTINCT assetId) AS n FROM windowed_embeddings').get() as { n: number }
+    ).n;
   }
 
   addSearchHistory(query: string, mode: string, hits: number): void {

@@ -140,7 +140,7 @@ export interface SessionInfo {
  * far better than an empty list does.
  */
 export interface ProbeResponse {
-  hits: SearchHit[];
+  hits: ProbeHit[];
   preview: {
     durationSeconds: number;
     sampleRate: number;
@@ -151,7 +151,40 @@ export interface ProbeResponse {
   warnings: string[];
   /** whether a reference clip or a selection answered */
   source: 'probe' | 'slice';
+  /** what the max-similarity pass over long files did (plan §3.4) */
+  maxsim: MaxsimReport | null;
   total: number;
+}
+
+/** A probe hit, optionally annotated with the window of the file that matched. */
+export interface ProbeHit extends SearchHit {
+  /**
+   * Present when the score came from comparing the reference against the file's
+   * individual windows rather than its whole-file mean.
+   *
+   * `offset` matters more than it looks: for a 10-minute ambience the mean-based
+   * match is meaningless, and "matches at 3:20" is what makes the result usable.
+   */
+  maxsim?: {
+    startMs: number;
+    offset: string;
+    windows: number;
+    via: 'stored' | 'analysed';
+  };
+}
+
+/**
+ * How the max-similarity pass went.
+ *
+ * `analysed` files cost a decode plus inference each, so a query that took a
+ * second deserves to say why rather than look slow for no reason.
+ */
+export interface MaxsimReport {
+  stored: number;
+  analysed: number;
+  skippedShort: number;
+  skippedBudget: number;
+  maxWindows: number;
 }
 
 export interface PatchableAsset {

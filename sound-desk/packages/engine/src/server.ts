@@ -39,6 +39,7 @@ import { errorMessage } from './indexer.js';
 import { ExportError, deleteExports, exportRootsFor, isInside, listExports, saveExport } from './export.js';
 import { ffmpegStatus, findFfmpeg, isRiffPath, transcodeToWav } from './decode.js';
 import { ProbeError, ProbeService, type ProbeMatches } from './probe.js';
+import { formatOffset, MAXSIM_DEFAULT_REFINE, MAXSIM_MAX_WINDOWS } from './maxsim.js';
 import {
   PlaylistError,
   Playlists,
@@ -71,6 +72,12 @@ export interface ServerOptions {
   reindexAsset?: (assetId: number) => Promise<void>;
   /** lookup helper backing /api/ucs/lookup */
   reclassifyLookup?: (term: string) => unknown[];
+  /**
+   * How many long candidates a probe query may re-analyse when their window
+   * vectors are not stored yet. Defaults to MAXSIM_DEFAULT_REFINE; 0 disables the
+   * on-demand pass entirely (stored windows are still used).
+   */
+  maxsimRefine?: number;
   host?: string;
   port?: number;
   log?: (msg: string) => void;
@@ -101,6 +108,9 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     vectorIndex: opts.vectorIndex,
     embedder: opts.searchService.audioEmbedder,
     dataDir: opts.catalog.dataDir,
+    // A knob for the max-sim cost/latency tradeoff: how many long candidates may be
+    // re-analysed per probe query when their window vectors are not stored yet.
+    ...(opts.maxsimRefine !== undefined ? { maxsimRefine: opts.maxsimRefine } : {}),
   });
   const host = opts.host ?? '127.0.0.1';
   const allowedOrigins = new Set(opts.allowedOrigins ?? []);
@@ -238,6 +248,20 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
          * seeing "no waveform" deserves to know why rather than guess.
          */
         ffmpeg,
+        /**
+         * Max-similarity coverage.
+         *
+         * `windowedAssets` counts files with stored sub-window vectors. It is
+         * surfaced because it decides how much of a probe query can be answered
+         * without re-running inference, and because 0 is a legitimate state: the
+         * feature still works, it just re-analyses candidates on demand.
+         */
+        maxsim: {
+          windowedAssets: opts.catalog.countWindowedAssets(),
+          windowedVectors: opts.catalog.countWindowedEmbeddings(),
+          maxWindows: MAXSIM_MAX_WINDOWS,
+          refinePerQuery: MAXSIM_DEFAULT_REFINE,
+        },
       });
       return;
     }
@@ -1284,10 +1308,17 @@ function toProbeResponse(
   result: ProbeMatches,
   excludeAssetId?: number,
 ): {
-  hits: Array<{ asset: ReturnType<typeof rowToSummary>; score: number; via: 'probe' | 'slice' }>;
+  hits: Array<{
+    asset: ReturnType<typeof rowToSummary>;
+    score: number;
+    via: 'probe' | 'slice';
+    /** present when the score came from a sub-window comparison */
+    maxsim?: { startMs: number; offset: string; windows: number; via: 'stored' | 'analysed' };
+  }>;
   preview: ProbeMatches['preview'];
   warnings: string[];
   source: 'probe' | 'slice';
+  maxsim: ProbeMatches['maxsim'];
   total: number;
 } {
   const wanted = result.matches
@@ -1313,13 +1344,30 @@ function toProbeResponse(
       entry.summary !== undefined,
     )
     .slice(0, 500)
-    .map((entry) => ({ asset: entry.summary, score: entry.match.score, via: entry.match.via }));
+    .map((entry) => ({
+      asset: entry.summary,
+      score: entry.match.score,
+      via: entry.match.via,
+      // The offset is what makes a max-sim hit actionable: "this 10-minute bed
+      // matches at 3:20" is the difference between a useful result and a puzzle.
+      ...(entry.match.maxsim
+        ? {
+            maxsim: {
+              startMs: entry.match.maxsim.startMs,
+              offset: formatOffset(entry.match.maxsim.startMs),
+              windows: entry.match.maxsim.windows,
+              via: entry.match.maxsim.via,
+            },
+          }
+        : {}),
+    }));
 
   return {
     hits,
     preview: result.preview,
     warnings: result.warnings,
     source: result.source,
+    maxsim: result.maxsim,
     total: hits.length,
   };
 }

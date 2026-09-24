@@ -21,11 +21,20 @@ import { buildSearchText, IndexStage, type EmbeddedMetadata, type DspFeatures, t
 import { probeWav, decodeWav, analyzeDsp, buildPeaks, serializePeaks } from '@sounddesk/audio-wav';
 
 import { decodeAudio, findFfmpeg, probeWithFfmpeg } from './decode.js';
-
+import { MAX_AUDIO_ANALYSIS_SECONDS } from './embedder.js';
 import type { Catalog } from './db.js';
 import { hashFile, discoverFiles, type DiscoveredFile } from './scanner.js';
 import { UcsClassifier } from './ucs-classifier.js';
 import { mkdir, writeFile } from 'node:fs/promises';
+
+/**
+ * How much audio the embed pass decodes per file.
+ *
+ * Must cover everything the window planner may sample, or a long file is truncated
+ * before the embedder can reach its tail — which is the failure mode max-sim exists
+ * to fix. See MAX_AUDIO_ANALYSIS_SECONDS.
+ */
+const EMBED_DECODE_SECONDS = MAX_AUDIO_ANALYSIS_SECONDS;
 
 export interface JobState {
   id: string;
@@ -462,8 +471,10 @@ export class Indexer extends EventEmitter {
 
       await this.runPool(pending, job, controller, async (item) => {
         // CLAP expects mono 48 kHz; the decoder resamples and the embedder handles
-        // anything left over.
-        const decoded = await decodeAudio(item.path, { mono: true, maxSeconds: 60 });
+        // anything left over. `maxSeconds` only bounds the *decode*: the ceiling has
+        // to be at least as long as the analysis window plan, or a long file would be
+        // truncated before the embedder ever got to sample its tail.
+        const decoded = await decodeAudio(item.path, { mono: true, maxSeconds: EMBED_DECODE_SECONDS });
         if (!decoded.ok) {
           // Not fatal for the library, but the asset stays un-embedded, so record the
           // reason: silently leaving it at stage 2 forever is worse.
@@ -473,6 +484,10 @@ export class Indexer extends EventEmitter {
         const mono = decoded.channelData.length === 1 ? decoded.channelData[0]! : mixToMono(decoded.channelData);
         const result = await this.embedder!.embedAudio(mono, decoded.sampleRate);
         this.catalog.putEmbedding(item.id, modelId, dim, result.mean, result.onset ?? null);
+        // Sub-window vectors for max-similarity search. Written in the same pass so
+        // the two can never disagree about which windows a file has; an empty list
+        // clears any rows left by a previous pass (see putWindowedEmbeddings).
+        this.catalog.putWindowedEmbeddings(item.id, modelId, windowEntries(result));
       });
 
       this.transition(job, controller.signal.aborted ? 'cancelled' : 'done');
@@ -625,6 +640,26 @@ function mixToMono(channels: Float32Array[]): Float32Array {
     out[i] = sum / channels.length;
   }
   return out;
+}
+
+/**
+ * Pair the embedder's window vectors with their offsets for storage.
+ *
+ * Returns `[]` when the file produced a single window: its one-window max-sim
+ * equals its mean by construction, so storing it would double the index size to
+ * reproduce a number `embeddings` already holds.
+ */
+export function windowEntries(result: {
+  frames?: Float32Array[];
+  framesStartMs?: number[];
+}): Array<{ startMs: number; vector: Float32Array }> {
+  const frames = result.frames;
+  if (!frames || frames.length === 0) return [];
+  const starts = result.framesStartMs;
+  return frames.map((vector, index) => ({
+    startMs: starts?.[index] ?? 0,
+    vector,
+  }));
 }
 
 export function errorMessage(err: unknown): string {
