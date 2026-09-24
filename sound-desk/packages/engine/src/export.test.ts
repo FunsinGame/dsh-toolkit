@@ -9,11 +9,21 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { ExportError, exportRootsFor, isInside, safeStem, saveExport, uniqueName } from './export.ts';
+import {
+  ExportError,
+  deleteExports,
+  exportRootsFor,
+  isExportArtifact,
+  isInside,
+  listExports,
+  safeStem,
+  saveExport,
+  uniqueName,
+} from './export.ts';
 import { encodeWav } from '@sounddesk/audio-effects';
 
 function tempRoot(): string {
@@ -258,6 +268,127 @@ test('saveExport writes the exact bytes it was given', () => {
     for (let i = 0; i < wav.byteLength; i += 1) {
       assert.equal(readBack[i], wav[i], `byte ${i} differs`);
     }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// cleaning up exports
+// ---------------------------------------------------------------------------
+
+test('isExportArtifact only accepts names this tool produces', () => {
+  assert.equal(isExportArtifact('a_fx.wav'), true);
+  assert.equal(isExportArtifact('/some/dir/a_fx.wav'), true);
+  assert.equal(isExportArtifact('A_FX.WAV'), true, 'comparison is case-insensitive');
+  // anything the user made must never be treated as ours
+  assert.equal(isExportArtifact('a.wav'), false);
+  assert.equal(isExportArtifact('a_fx.mp3'), false);
+  assert.equal(isExportArtifact('fx.wav'), false);
+  assert.equal(isExportArtifact('my_fx_notes.txt'), false);
+  assert.equal(isExportArtifact(''), false);
+});
+
+test('listExports finds exported files and ignores everything else', () => {
+  const root = tempRoot();
+  try {
+    const wav = tinyWav();
+    saveExport({ allowedRoots: [root], filename: 'one.wav', bytes: wav });
+    saveExport({ allowedRoots: [root], filename: 'two.wav', bytes: wav });
+    // things that are not exports
+    writeFileSync(path.join(root, 'source.wav'), wav);
+    writeFileSync(path.join(root, 'notes.txt'), 'hello');
+    mkdirSync(path.join(root, 'nested'), { recursive: true });
+    saveExport({ allowedRoots: [root], directory: path.join(root, 'nested'), filename: 'three.wav', bytes: wav });
+
+    const found = listExports(root, tempRoot()).map((f) => path.basename(f)).sort();
+    assert.deepEqual(found, ['one_fx.wav', 'three_fx.wav', 'two_fx.wav']);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('deleteExports refuses anything without the export suffix', () => {
+  const root = tempRoot();
+  try {
+    const wav = tinyWav();
+    // A file the user made, and a source file that merely looks similar.
+    const precious = path.join(root, 'recording.wav');
+    writeFileSync(precious, wav);
+    const exportPath = saveExport({ allowedRoots: [root], filename: 'mine.wav', bytes: wav }).filePath;
+
+    const result = deleteExports([precious, exportPath], [root]);
+
+    assert.deepEqual(result.removed, [exportPath], 'only the export should be removed');
+    assert.equal(result.failed.length, 1);
+    assert.match(result.failed[0]!.reason, /_fx|导出/);
+    assert.ok(existsSync(precious), 'the user file must still exist');
+    assert.ok(!existsSync(exportPath));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('deleteExports refuses paths outside the allowed roots', () => {
+  const allowed = tempRoot();
+  const elsewhere = tempRoot();
+  try {
+    const wav = tinyWav();
+    // a genuine export, but not in a root we were given
+    const outside = saveExport({ allowedRoots: [elsewhere], filename: 'x.wav', bytes: wav }).filePath;
+
+    const result = deleteExports([outside], [allowed]);
+    assert.deepEqual(result.removed, []);
+    assert.equal(result.failed.length, 1);
+    assert.match(result.failed[0]!.reason, /允许/);
+    assert.ok(existsSync(outside), 'a file outside the roots must survive');
+  } finally {
+    rmSync(allowed, { recursive: true, force: true });
+    rmSync(elsewhere, { recursive: true, force: true });
+  }
+});
+
+test('deleteExports reports a missing file instead of pretending it worked', () => {
+  const root = tempRoot();
+  try {
+    const gone = path.join(root, 'never_existed_fx.wav');
+    const result = deleteExports([gone], [root]);
+    assert.deepEqual(result.removed, []);
+    assert.equal(result.failed.length, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('deleteExports handles a traversal attempt safely', () => {
+  const root = tempRoot();
+  const victim = tempRoot();
+  try {
+    const wav = tinyWav();
+    const target = path.join(victim, 'important_fx.wav');
+    writeFileSync(target, wav);
+
+    // ask to delete it via a path that escapes the allowed root
+    const escape = path.join(root, '..', path.basename(victim), 'important_fx.wav');
+    const result = deleteExports([escape], [root]);
+    assert.deepEqual(result.removed, [], 'nothing outside the root may be deleted');
+    assert.ok(existsSync(target), 'the file must survive');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(victim, { recursive: true, force: true });
+  }
+});
+
+test('deleteExports can remove several exports at once', () => {
+  const root = tempRoot();
+  try {
+    const wav = tinyWav();
+    const a = saveExport({ allowedRoots: [root], filename: 'a.wav', bytes: wav }).filePath;
+    const b = saveExport({ allowedRoots: [root], filename: 'b.wav', bytes: wav }).filePath;
+    const result = deleteExports([a, b], [root]);
+    assert.equal(result.removed.length, 2);
+    assert.deepEqual(result.failed, []);
+    assert.deepEqual(readdirSync(root), []);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

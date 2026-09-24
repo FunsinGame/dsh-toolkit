@@ -53,6 +53,10 @@ export interface EngineClient {
   fetchWaveBytes(id: number): Promise<Uint8Array>;
   /** write rendered audio to disk; the engine picks a non-colliding name */
   saveExport(params: { assetId: number; filename: string; bytes: Uint8Array }): Promise<ExportResult>;
+  /** this tool's own exported files, so they can be reviewed and cleaned up */
+  listExports(libraryId?: number): Promise<string[]>;
+  /** delete exported files; the engine refuses anything without the `_fx` marker */
+  deleteExports(paths: string[], libraryId?: number): Promise<DeleteExportsResult>;
   /** live job progress; returns an unsubscribe function */
   subscribe(onEvent: (event: EngineEvent) => void): () => void;
 }
@@ -136,6 +140,12 @@ export interface ExportResult {
   /** true when the requested name was taken, so a numeric suffix was added */
   renamed: boolean;
   directory: string;
+}
+
+export interface DeleteExportsResult {
+  removed: string[];
+  /** paths that were refused, with the reason */
+  failed: Array<{ filePath: string; reason: string }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -325,6 +335,18 @@ class HttpEngineClient implements EngineClient {
     });
   }
 
+  listExports(libraryId?: number): Promise<string[]> {
+    const qs = libraryId !== undefined ? `?libraryId=${libraryId}` : '';
+    return this.request<{ files: string[] }>(`/api/export/list${qs}`).then((r) => r.files ?? []);
+  }
+
+  deleteExports(paths: string[], libraryId?: number): Promise<DeleteExportsResult> {
+    return this.request<DeleteExportsResult>('/api/export/delete', {
+      method: 'POST',
+      body: JSON.stringify({ paths, libraryId }),
+    });
+  }
+
   subscribe(onEvent: (event: EngineEvent) => void): () => void {
     this.listeners.add(onEvent);
     return () => this.listeners.delete(onEvent);
@@ -511,6 +533,14 @@ class VscodeEngineClient implements EngineClient {
 
   saveExport(params: { assetId: number; filename: string; bytes: Uint8Array }): Promise<ExportResult> {
     return this.call<ExportResult>('saveExport', params);
+  }
+
+  listExports(libraryId?: number): Promise<string[]> {
+    return this.call<{ files: string[] }>('listExports', { libraryId }).then((r) => r.files ?? []);
+  }
+
+  deleteExports(paths: string[], libraryId?: number): Promise<DeleteExportsResult> {
+    return this.call<DeleteExportsResult>('deleteExports', { paths, libraryId });
   }
 
   subscribe(onEvent: (event: EngineEvent) => void): () => void {

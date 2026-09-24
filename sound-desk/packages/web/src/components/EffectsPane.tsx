@@ -466,6 +466,32 @@ export function EffectsPane({
             </button>
           </div>
         )}
+
+        {/* Exported files are ordinary files in the library folder, so they are
+            visible and removable without hunting through the filesystem. Only
+            files carrying the _fx marker are ever listed or deleted. */}
+        <div style={{ marginTop: 8 }}>
+          <button onClick={() => void store.refreshExports()} title="列出本工具导出的文件（带 _fx 后缀）">
+            查看已导出文件{state.exportFiles.length > 0 ? `（${state.exportFiles.length}）` : ''}
+          </button>
+          {state.exportFiles.length > 0 && (
+            <>
+              <ul className="fx-files">
+                {state.exportFiles.map((file) => (
+                  <li key={file}>
+                    <code title={file}>{file}</code>
+                  </li>
+                ))}
+              </ul>
+              <button
+                onClick={() => void store.deleteExports(state.exportFiles)}
+                title="只删除带 _fx 后缀、且位于素材库或导出目录内的文件"
+              >
+                删除这些导出文件
+              </button>
+            </>
+          )}
+        </div>
       </div>
       )}
     </div>

@@ -76,6 +76,8 @@ export interface AppState {
   exportProgress: number;
   exportError: string | null;
   exportResult: { filePath: string; bytes: number; renamed: boolean; durationSeconds: number; files?: string[] } | null;
+  /** this tool's exported files currently on disk */
+  exportFiles: string[];
 
   ucsTree: UcsTree | null;
   libraries: Library[];
@@ -111,6 +113,7 @@ const initialState: AppState = {
   exportProgress: 0,
   exportError: null,
   exportResult: null,
+  exportFiles: [],
   ucsTree: null,
   libraries: [],
   stats: null,
@@ -458,6 +461,36 @@ class Store {
 
   clearExportStatus(): void {
     this.set({ exportResult: null, exportError: null, exportProgress: 0 });
+  }
+
+  /** List this tool's own exports, so test renders can be reviewed and removed. */
+  async refreshExports(): Promise<void> {
+    try {
+      const files = await this.getClient().listExports();
+      this.set({ exportFiles: files, exportError: null });
+    } catch (err) {
+      this.set({ exportError: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  /**
+   * Delete the given export files.
+   *
+   * The engine re-validates every path (suffix and containing root), so this can
+   * only ever remove files this tool produced, whatever it is asked to delete.
+   */
+  async deleteExports(paths: string[]): Promise<void> {
+    if (paths.length === 0) return;
+    try {
+      const result = await this.getClient().deleteExports(paths);
+      const remaining = this.state.exportFiles.filter((file) => !result.removed.includes(file));
+      this.set({
+        exportFiles: remaining,
+        exportError: result.failed.length > 0 ? `有 ${result.failed.length} 个文件没有删除：${result.failed[0]!.reason}` : null,
+      });
+    } catch (err) {
+      this.set({ exportError: err instanceof Error ? err.message : String(err) });
+    }
   }
 
   async rescan(libraryId: number): Promise<void> {

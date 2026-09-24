@@ -35,7 +35,7 @@ import type { SearchService, VectorIndex } from './search.js';
 import { rowToAsset, rowToSummary } from './mappers.js';
 import { streamPeaksFor } from './peaks.js';
 import { errorMessage } from './indexer.js';
-import { ExportError, exportRootsFor, saveExport } from './export.js';
+import { ExportError, deleteExports, exportRootsFor, isInside, listExports, saveExport } from './export.js';
 
 export interface ServerOptions {
   catalog: Catalog;
@@ -633,6 +633,42 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         }
         throw err;
       }
+      return;
+    }
+
+    // -- export: list and remove this tool's own rendered files ------------
+    //
+    // "Clean up my exports" needs care: a delete endpoint that removes whatever it
+    // is told to is far worse than the clutter it fixes. So only files carrying
+    // the export suffix, inside an allowed root, are ever touched, and the check
+    // is repeated per path rather than trusted from the request.
+    if (pathname === '/api/export/list' && method === 'GET') {
+      const libraryId = Number(url.searchParams.get('libraryId'));
+      const library = Number.isFinite(libraryId) ? opts.catalog.getLibrary(libraryId) : null;
+      // Without a specific library, search every library plus the export folder.
+      // Exports land next to their source, so a data-dir-only scan would report
+      // an empty list while the files sit in plain sight in the library.
+      const roots = library
+        ? [library.root]
+        : [...opts.catalog.listLibraries().map((l) => l.root), opts.catalog.dataDir];
+      const files = roots.flatMap((root) => listExports(root, opts.catalog.dataDir));
+      const unique = [...new Set(files)];
+      sendJson(res, 200, { files: library ? unique.filter((file) => isInside(library.root, file)) : unique });
+      return;
+    }
+
+    if (pathname === '/api/export/delete' && method === 'POST') {
+      const body = await readJson<{ paths?: string[]; libraryId?: number }>(req);
+      const paths = Array.isArray(body.paths) ? body.paths : [];
+      if (paths.length === 0) {
+        sendJson(res, 400, { error: '没有要删除的文件' });
+        return;
+      }
+      const library = body.libraryId !== undefined ? opts.catalog.getLibrary(Number(body.libraryId)) : null;
+      const roots = library
+        ? exportRootsFor(library.root, opts.catalog.dataDir)
+        : [...opts.catalog.listLibraries().map((l) => l.root), ...exportRootsFor(null, opts.catalog.dataDir)];
+      sendJson(res, 200, deleteExports(paths, roots));
       return;
     }
 

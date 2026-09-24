@@ -19,7 +19,7 @@
  *    bytes to arbitrary files.
  */
 
-import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 export interface ExportTarget {
@@ -171,6 +171,76 @@ export function exportRootsFor(libraryRoot: string | null, dataDir: string): str
   if (libraryRoot) roots.push(path.resolve(libraryRoot));
   roots.push(path.join(path.resolve(dataDir), 'exports'));
   return roots;
+}
+
+/**
+ * Is this a file this tool produced, rather than one the user made?
+ *
+ * The export suffix is the marker. This is deliberately the *only* thing that
+ * counts as removable: a file the user did not get from an export must never be
+ * deleted by a "clean up" action, however it is named.
+ */
+export function isExportArtifact(filePath: string): boolean {
+  return path.basename(filePath).toLowerCase().endsWith(`${EXPORT_SUFFIX}.wav`);
+}
+
+export interface DeleteExportsResult {
+  removed: string[];
+  /** paths that looked like exports but could not be removed, with the reason */
+  failed: Array<{ filePath: string; reason: string }>;
+}
+
+/**
+ * Delete exported files, and only those.
+ *
+ * Every requested path is re-validated here rather than trusted from the client:
+ * it must be inside an allowed root *and* carry the export suffix. A "clean up"
+ * endpoint that deletes whatever it is told to is a much worse bug than the
+ * clutter it is trying to fix.
+ */
+export function deleteExports(paths: string[], allowedRoots: string[]): DeleteExportsResult {
+  const roots = allowedRoots.filter((root) => root && root.length > 0);
+  const result: DeleteExportsResult = { removed: [], failed: [] };
+
+  for (const requested of paths) {
+    const target = path.resolve(requested);
+    if (!isExportArtifact(target)) {
+      result.failed.push({ filePath: target, reason: '不是本工具导出的文件（缺少 _fx 后缀）' });
+      continue;
+    }
+    if (!roots.some((root) => isInside(root, target))) {
+      result.failed.push({ filePath: target, reason: '不在允许的素材库/导出目录内' });
+      continue;
+    }
+    try {
+      rmSync(target);
+      result.removed.push(target);
+    } catch (err) {
+      result.failed.push({ filePath: target, reason: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  return result;
+}
+
+/** Every export artifact currently sitting in the allowed roots. */
+export function listExports(libraryRoot: string | null, dataDir: string): string[] {
+  const found: string[] = [];
+  const visit = (dir: string, depth: number): void => {
+    if (depth > 8) return;
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) visit(full, depth + 1);
+      else if (entry.isFile() && isExportArtifact(full)) found.push(full);
+    }
+  };
+  for (const root of exportRootsFor(libraryRoot, dataDir)) visit(root, 0);
+  return found;
 }
 
 /** True when the path exists and is a directory (used to validate a request). */

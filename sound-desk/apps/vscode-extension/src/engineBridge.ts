@@ -11,7 +11,7 @@ import path from 'node:path';
 import { statSync } from 'node:fs';
 
 import type { App } from '@sounddesk/engine';
-import { exportRootsFor, rowToAsset, rowToSummary, saveExport } from '@sounddesk/engine';
+import { deleteExports, exportRootsFor, isInside, listExports, rowToAsset, rowToSummary, saveExport } from '@sounddesk/engine';
 import { hasBackup, isEditableWav, restoreFromBackup, updateWavMetadataFields } from '@sounddesk/audio-wav';
 
 import {
@@ -256,6 +256,27 @@ export function createHandler(engine: EngineLike): Handler {
         filename: filename && filename.length > 0 ? filename : String(row.filename ?? 'export.wav'),
         bytes: bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes),
       });
+    },
+
+    listExports: (params) => {
+      const { libraryId } = asParams<{ libraryId?: number }>(params);
+      const library = libraryId !== undefined ? catalog.getLibrary(libraryId) : null;
+      // Exports land next to their source, so an unscoped listing has to visit
+      // every library rather than only the data directory.
+      const roots = library
+        ? [library.root]
+        : [...catalog.listLibraries().map((l) => l.root), engine.dataDir];
+      const files = [...new Set(roots.flatMap((root) => listExports(root, engine.dataDir)))];
+      return { files: library ? files.filter((file) => isInside(library.root, file)) : files };
+    },
+
+    deleteExports: (params) => {
+      const { paths, libraryId } = asParams<{ paths?: string[]; libraryId?: number }>(params);
+      const library = libraryId !== undefined ? catalog.getLibrary(libraryId) : null;
+      const roots = library
+        ? exportRootsFor(library.root, engine.dataDir)
+        : [...catalog.listLibraries().map((l) => l.root), ...exportRootsFor(null, engine.dataDir)];
+      return deleteExports(paths ?? [], roots);
     },
   };
 

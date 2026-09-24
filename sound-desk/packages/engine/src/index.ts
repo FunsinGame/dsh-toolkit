@@ -304,10 +304,14 @@ export { rowToAsset, rowToSummary } from './mappers.js';
 export {
   EXPORT_SUFFIX,
   ExportError,
+  deleteExports,
   exportRootsFor,
+  isExportArtifact,
   isInside,
+  listExports,
   safeStem,
   saveExport,
   uniqueName,
+  type DeleteExportsResult,
   type ExportResult,
 } from './export.js';

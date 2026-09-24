@@ -160,6 +160,24 @@
   overflow-wrap: anywhere;
 }
 
+/* Exported files: one line each, the full path available on hover. */
+.fx-files {
+  margin: 6px 0;
+  padding-left: 16px;
+  font-size: 11px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.fx-files code {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
 :root {
   color-scheme: dark;
   --bg: #0d1117;
