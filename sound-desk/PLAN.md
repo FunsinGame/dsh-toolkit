@@ -129,7 +129,7 @@ SoundSeeker 的做法可以推断为 **多模态音频-文本对比学习模型�
    │
    ├─(D) 融合 fuse()：加权 RRF（Reciprocal Rank Fusion）
    │     score = Σ w_i / (k + rank_i)     k=60
-   │     w_vector=0.60  w_fts=0.20  w_ucs=0.12  w_struct=0.08
+   │     w_vector=0.30  w_fts=0.50  w_ucs=0.12  w_struct=0.08
    │     再乘个性化系数 δ（0.9–1.1，学习常用方向，默认中性）  ← 对应"个性化排序"
    │
    └─(E) 重排 rerank()   ← 已实现：packages/engine/src/rerank.ts
