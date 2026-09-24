@@ -372,8 +372,46 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         sendJson(res, 404, { error: 'library not found' });
         return;
       }
-      const job = await opts.indexer.runFastPass(id, library.root);
-      sendJson(res, 200, { job: toJobProgress(job) });
+
+      /**
+       * `?full=1` finishes the whole pipeline instead of only re-reading metadata.
+       *
+       * This matters because the plain rescan runs *one* pass (`runFastPass`), which
+       * fills in metadata and nothing else. A library indexed with `--no-model`, or
+       * one whose later passes were interrupted, therefore stays permanently without
+       * waveforms and fingerprints however many times it is rescanned — and since
+       * semantic search needs fingerprints, "重扫" could not fix the very problem the
+       * UI was telling the user to fix with it.
+       *
+       * The waveform pass is awaited (it is CPU-light and bounded by file count). The
+       * fingerprint pass is **not**: it is minutes of inference on a real library, so
+       * it is started in the background and reported through the normal job events,
+       * exactly like every other long job here.
+       */
+      const full = url.searchParams.get('full') === '1';
+      const fast = await opts.indexer.runFastPass(id, library.root);
+      if (!full) {
+        sendJson(res, 200, { job: toJobProgress(fast), full: false });
+        return;
+      }
+
+      const waveform = await opts.indexer.runWaveformPass(id);
+      const embedderReady = opts.searchService.audioEmbedder?.ready === true;
+      if (embedderReady) {
+        // Deliberately not awaited; the client follows progress over the event channel.
+        void opts.indexer.runEmbedPass(id).catch((err: unknown) => {
+          log(`embed pass failed for library ${id}: ${err instanceof Error ? err.message : String(err)}`);
+        });
+      }
+
+      sendJson(res, 200, {
+        job: toJobProgress(waveform),
+        full: true,
+        embedStarted: embedderReady,
+        // Told plainly, because "fingerprints are being built now" and "there is no
+        // model, so they never will be" look identical from the UI otherwise.
+        embedSkippedReason: embedderReady ? null : '没有加载声音指纹模型，因此无法生成指纹',
+      });
       return;
     }
 

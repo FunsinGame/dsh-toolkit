@@ -98,7 +98,15 @@ export function ResultsPane({ playingId, onPlay }: { playingId: number | null; o
 
       {state.mode === 'semantic' && state.stats && state.stats.embedded === 0 && (
         <div className="notice">
-          还没有声音指纹，语义搜索暂时没有可比对的向量。运行一次不带 <code>--no-model</code> 的索引即可补齐。
+          {/*
+            This used to assert "运行一次不带 --no-model 的索引即可补齐", which is only
+            one of three possible causes and was actively wrong for a user whose model
+            loads fine and whose library simply never had the fingerprint pass run —
+            it sent them to re-index something that was already indexed.
+          */}
+          {state.stats.modelsReady
+            ? '这个库还没有生成声音指纹，所以没有可比对的向量。用左侧素材库的「补齐指纹」按钮补一次即可。'
+            : '声音指纹模型没有加载，所以语义搜索没有可比对的向量。确认模型可用后，用左侧素材库的「补齐指纹」按钮生成一次。'}
         </div>
       )}
 

@@ -33,7 +33,8 @@ export interface EngineClient {
   libraries(): Promise<Library[]>;
   addLibrary(root: string, name?: string): Promise<Library>;
   removeLibrary(id: number): Promise<void>;
-  rescanLibrary(id: number): Promise<JobProgress>;
+  /** `full` also rebuilds waveforms and fingerprints; the plain form re-reads metadata only. */
+  rescanLibrary(id: number, full?: boolean): Promise<JobProgress>;
   ucsTree(): Promise<UcsTree>;
   ucsLookup(term: string): Promise<UcsMatch[]>;
   stats(): Promise<StatsResponse & { dbBytes: number; modelsReady: boolean }>;
@@ -482,8 +483,9 @@ class HttpEngineClient implements EngineClient {
     await this.request(`/api/libraries/${id}`, { method: 'DELETE' });
   }
 
-  rescanLibrary(id: number): Promise<JobProgress> {
-    return this.request<{ job: JobProgress }>(`/api/libraries/${id}/rescan`, { method: 'POST' }).then((r) => r.job);
+  rescanLibrary(id: number, full = false): Promise<JobProgress> {
+    const query = full ? '?full=1' : '';
+    return this.request<{ job: JobProgress }>(`/api/libraries/${id}/rescan${query}`, { method: 'POST' }).then((r) => r.job);
   }
 
   ucsTree(): Promise<UcsTree> {
@@ -889,8 +891,8 @@ class VscodeEngineClient implements EngineClient {
     await this.call('removeLibrary', { id });
   }
 
-  rescanLibrary(id: number): Promise<JobProgress> {
-    return this.call('rescanLibrary', { id });
+  rescanLibrary(id: number, full = false): Promise<JobProgress> {
+    return this.call('rescanLibrary', { id, full });
   }
 
   ucsTree(): Promise<UcsTree> {

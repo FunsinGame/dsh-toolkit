@@ -23,6 +23,18 @@ export function Sidebar(): React.JSX.Element {
   // button that cannot work is worse than a documented command.
   const canImport = state.host === 'vscode';
 
+  /**
+   * Whether this library still lacks fingerprints.
+   *
+   * Fingerprints are per-library work while the stats are global, so this is exact for
+   * the single-library case and errs towards offering the button when there are
+   * several — which is the harmless direction, because the pass is resumable and skips
+   * assets that already have one.
+   */
+  const totalAssets = state.stats?.assets ?? 0;
+  const embeddedAssets = state.stats?.embedded ?? 0;
+  const embeddingsIncomplete = totalAssets > 0 && embeddedAssets < totalAssets;
+
   const tree = state.ucsTree?.tree ?? [];
   const needle = filter.trim().toLowerCase();
   // The vocabulary has ~32 categories; showing the empty ones would bury the
@@ -103,13 +115,24 @@ export function Sidebar(): React.JSX.Element {
           <div className="kv" style={{ fontSize: 10 }}>
             {library.root}
           </div>
-          <button
-            style={{ marginTop: 4, fontSize: 11, padding: '2px 6px' }}
-            onClick={() => void store.rescan(library.id)}
-            title="增量重扫这个目录，只处理新增或变化的文件"
-          >
-            重扫
-          </button>
+          <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+            <button
+              style={{ fontSize: 11, padding: '2px 6px' }}
+              onClick={() => void store.rescan(library.id)}
+              title="增量重扫这个目录，只重新读取元数据"
+            >
+              重扫
+            </button>
+            {embeddingsIncomplete && (
+              <button
+                style={{ fontSize: 11, padding: '2px 6px' }}
+                onClick={() => void store.rescan(library.id, true)}
+                title="补齐这个库的波形与声音指纹（指纹是语义搜索/以声搜声的前提，会比较久）"
+              >
+                补齐指纹
+              </button>
+            )}
+          </div>
         </div>
       ))}
 

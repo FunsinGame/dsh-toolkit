@@ -485,6 +485,74 @@ test('media and peaks also accept the token as a query parameter', async () => {
   }
 });
 
+test('rescan?full=1 finishes the pipeline; a plain rescan never produces fingerprints', async () => {
+  const h = await startHarness(true);
+  try {
+    const base = `${h.server.url}/api/libraries`;
+    const libraryId = h.app.catalog.listLibraries()[0]!.id;
+
+    // Reproduce the state that made the UI's advice impossible to follow: assets
+    // catalogued, but no fingerprints, so semantic search has nothing to compare.
+    h.app.catalog.db.prepare('DELETE FROM embeddings').run();
+    h.app.catalog.db.prepare('UPDATE assets SET stage = 1, hasPeaks = 0').run();
+    assert.equal(h.app.catalog.countEmbeddings(), 0);
+
+    // A plain rescan re-reads metadata only. This is the documented behaviour, and it
+    // is exactly why pressing it could not fix a library with no fingerprints.
+    const plain = await fetch(`${base}/${libraryId}/rescan`, {
+      method: 'POST',
+      headers: { 'x-sounddesk-token': h.server.token },
+    });
+    assert.equal(plain.status, 200);
+    const plainBody = (await plain.json()) as { full: boolean };
+    assert.equal(plainBody.full, false);
+    assert.equal(h.app.catalog.countEmbeddings(), 0, 'a plain rescan must not claim to embed');
+
+    // The full form runs waveforms and starts the fingerprint pass.
+    const full = await fetch(`${base}/${libraryId}/rescan?full=1`, {
+      method: 'POST',
+      headers: { 'x-sounddesk-token': h.server.token },
+    });
+    assert.equal(full.status, 200);
+    const fullBody = (await full.json()) as { full: boolean; embedStarted: boolean; embedSkippedReason: string | null };
+    assert.equal(fullBody.full, true);
+    assert.equal(fullBody.embedStarted, true, 'a ready model must start the fingerprint pass');
+    assert.equal(fullBody.embedSkippedReason, null);
+
+    // The fingerprint pass runs in the background by design, so wait for it rather
+    // than assuming it finished inside the response.
+    const deadline = Date.now() + 20_000;
+    while (h.app.catalog.countEmbeddings() === 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.ok(
+      h.app.catalog.countEmbeddings() > 0,
+      'after a full rescan the library must actually have fingerprints',
+    );
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('a full rescan without a model says so instead of silently doing nothing', async () => {
+  const h = await startHarness(false);
+  try {
+    const libraryId = h.app.catalog.listLibraries()[0]!.id;
+    const res = await fetch(`${h.server.url}/api/libraries/${libraryId}/rescan?full=1`, {
+      method: 'POST',
+      headers: { 'x-sounddesk-token': h.server.token },
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { embedStarted: boolean; embedSkippedReason: string | null };
+    assert.equal(body.embedStarted, false);
+    // The reason must be stated: "no fingerprints will ever appear" and "they are
+    // being built right now" are indistinguishable from the UI otherwise.
+    assert.ok(body.embedSkippedReason && body.embedSkippedReason.length > 0);
+  } finally {
+    h.cleanup();
+  }
+});
+
 test('cross-origin responses carry the headers the webview needs', async () => {
   const h = await startHarness(false);
   try {

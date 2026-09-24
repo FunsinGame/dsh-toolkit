@@ -222,10 +222,18 @@ export function createHandler(engine: EngineLike): Handler {
     },
 
     rescanLibrary: async (params) => {
-      const { id } = asParams<AssetIdParams>(params);
+      const { id, full } = asParams<{ id: number; full?: boolean }>(params);
       const library = catalog.getLibrary(id);
       if (!library) throw new Error(`library ${id} not found`);
       const job = await engine.indexer.runFastPass(id, library.root);
+      if (full !== true) return job;
+
+      // Same ordering as the HTTP route: waveforms are awaited, fingerprints run in
+      // the background because they are minutes of inference on a real library.
+      await engine.indexer.runWaveformPass(id);
+      if (engine.embedder?.ready) {
+        void engine.indexer.runEmbedPass(id).catch(() => undefined);
+      }
       return job;
     },
 

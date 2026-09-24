@@ -1186,8 +1186,17 @@ class Store {
     }
   }
 
-  async rescan(libraryId: number): Promise<void> {
-    await this.getClient().rescanLibrary(libraryId);
+  /**
+   * Re-index a library.
+   *
+   * `full` also rebuilds waveforms and fingerprints. The plain form re-reads metadata
+   * and nothing else, which is why it could never fix a library with no fingerprints
+   * however many times it was pressed.
+   */
+  async rescan(libraryId: number, full = false): Promise<void> {
+    await this.getClient().rescanLibrary(libraryId, full);
+    // A full rescan starts a background fingerprint pass; refresh so the job appears.
+    if (full) await this.refreshLibraryData();
   }
 
   async cancelJob(id: string): Promise<void> {
