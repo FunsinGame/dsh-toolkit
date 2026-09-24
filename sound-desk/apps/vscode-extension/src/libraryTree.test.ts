@@ -16,6 +16,7 @@ import {
   emptySnapshot,
   formatStatusText,
   formatStatusTooltip,
+  runningJob,
   uniqueQueries,
   type LibraryNode,
 } from './libraryTreeModel.ts';
@@ -131,6 +132,53 @@ test('the status bar text reflects the engine state and the asset count', () => 
   // Before the engine answers there is no count worth showing.
   assert.equal(formatStatusText(null, 'starting'), '$(music) SoundDesk');
   assert.equal(formatStatusText(null, 'error'), '$(warning) SoundDesk');
+});
+
+test('the status bar shows live index progress instead of the asset count', () => {
+  const running = emptySnapshot({
+    stats: { assets: 3383, libraries: 2, embedded: 120 },
+    jobs: [
+      { id: 'j1', kind: 'scan', state: 'running', done: 42, total: 100 },
+      { id: 'j2', kind: 'embed', state: 'done', done: 5, total: 5 },
+    ],
+  });
+
+  // Progress takes the space because it is the only thing changing moment to
+  // moment, and a silent index of a large library looks like a hang.
+  assert.equal(formatStatusText(running, 'ready'), '$(sync~spin) SoundDesk · 扫描文件 42/100');
+  assert.match(formatStatusTooltip(running, 'ready'), /正在进行：扫描文件（42\/100）/);
+
+  // Once nothing runs, the count comes back.
+  const finished = emptySnapshot({
+    stats: { assets: 3383, libraries: 2, embedded: 120 },
+    jobs: [{ id: 'j2', kind: 'embed', state: 'done', done: 5, total: 5 }],
+  });
+  assert.equal(formatStatusText(finished, 'ready'), '$(music) SoundDesk · 3383');
+  assert.doesNotMatch(formatStatusTooltip(finished, 'ready'), /正在进行/);
+
+  // A queued job is not progress, and an unknown total must not render "0/0".
+  const queued = emptySnapshot({
+    stats: { assets: 1, libraries: 1, embedded: 0 },
+    jobs: [{ id: 'j3', kind: 'scan', state: 'queued', done: 0, total: 0 }],
+  });
+  assert.equal(formatStatusText(queued, 'ready'), '$(music) SoundDesk · 1', 'queued is not running');
+
+  const unknownTotal = emptySnapshot({
+    stats: { assets: 1, libraries: 1, embedded: 0 },
+    jobs: [{ id: 'j4', kind: 'scan', state: 'running', done: 7, total: 0 }],
+  });
+  assert.equal(formatStatusText(unknownTotal, 'ready'), '$(sync~spin) SoundDesk · 扫描文件');
+});
+
+test('runningJob reports the running job and nothing else', () => {
+  assert.equal(runningJob(null), null);
+  assert.equal(runningJob(emptySnapshot()), null);
+  assert.equal(
+    runningJob(emptySnapshot({ jobs: [{ id: 'a', kind: 'scan', state: 'done', done: 1, total: 1 }] })),
+    null,
+  );
+  const job = { id: 'b', kind: 'embed', state: 'running' as const, done: 3, total: 9 };
+  assert.equal(runningJob(emptySnapshot({ jobs: [job] }))?.id, 'b');
 });
 
 test('the status tooltip reflects ffmpeg availability and embedder readiness', () => {

@@ -300,11 +300,31 @@ function engineInfoLine(snapshot: LibrarySnapshot): string {
  *
  * The asset count is the one number worth permanent space; everything else lives
  * in the tooltip, where it can be as long as it needs to be.
+ *
+ * While an index job runs, progress takes that space instead: it is the only thing
+ * on screen that changes moment to moment, and a silent index of a large library
+ * looks indistinguishable from a hang.
  */
 export function formatStatusText(snapshot: LibrarySnapshot | null, state: EngineStatusState): string {
   if (state === 'error') return '$(warning) SoundDesk';
   if (state === 'starting' || snapshot === null || snapshot.engineError !== null) return '$(music) SoundDesk';
+
+  const running = snapshot.jobs.find((job) => job.state === 'running');
+  if (running) {
+    const label = JOB_KIND_LABELS[running.kind] ?? running.kind;
+    // No count is shown when the total is unknown: "0/0" reads as broken and "42/"
+    // as truncated.
+    const progress = running.total > 0 ? ` ${running.done}/${running.total}` : '';
+    return `$(sync~spin) SoundDesk · ${label}${progress}`;
+  }
+
   return `$(music) SoundDesk · ${snapshot.stats.assets}`;
+}
+
+/** The running job, if any — used by the status bar tooltip and the sidebar. */
+export function runningJob(snapshot: LibrarySnapshot | null): SnapshotJob | null {
+  if (!snapshot) return null;
+  return snapshot.jobs.find((job) => job.state === 'running') ?? null;
 }
 
 /**
@@ -329,6 +349,12 @@ export function formatStatusTooltip(snapshot: LibrarySnapshot | null, state: Eng
   // Catalogue numbers are only meaningful once the engine answered; reporting
   // zeros for a failed engine would read as "your library is empty".
   if (state === 'ready' && snapshot !== null) {
+    const running = runningJob(snapshot);
+    if (running) {
+      const label = JOB_KIND_LABELS[running.kind] ?? running.kind;
+      const progress = running.total > 0 ? `${running.done}/${running.total}` : `${running.done}`;
+      lines.push(`正在进行：${label}（${progress}）`);
+    }
     lines.push(`引擎地址：${snapshot.engineUrl ?? '（未知）'}`);
     lines.push(`数据目录：${snapshot.dataDir ?? '（未知）'}`);
     lines.push(`素材：${snapshot.stats.assets} 条（已生成指纹 ${snapshot.stats.embedded}）`);

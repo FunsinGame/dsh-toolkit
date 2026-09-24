@@ -40,6 +40,14 @@ const STATUS_BAR_PRIORITY = 100;
 /** Sentinel for "create a new playlist" in the add-to-playlist quick pick. */
 const NEW_PLAYLIST_ID = -1;
 
+/**
+ * Minimum gap between sidebar rebuilds while an index job runs.
+ *
+ * The indexer emits progress once per file; the tree is not cheap to rebuild, so
+ * anything faster than this is wasted work. 750 ms still reads as live.
+ */
+const TREE_REFRESH_MS = 750;
+
 let host: EngineHost | null = null;
 let output: vscode.OutputChannel | null = null;
 
@@ -57,6 +65,8 @@ export function activate(context: vscode.ExtensionContext): void {
   /** Why the last start attempt failed; cleared as soon as one succeeds. */
   let engineError: string | null = null;
   let jobListenerBound = false;
+  /** throttle for tree rebuilds during a scan; see bindJobEvents */
+  let lastTreeRefresh = 0;
 
   /**
    * Recompute the status bar from the engine's *actual* state.
@@ -92,18 +102,26 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   /**
-   * Follow index jobs so the status bar count keeps up.
+   * Follow index jobs so the status bar and the sidebar show progress.
    *
-   * Throttled on purpose: the indexer emits once per file, and recomputing the
-   * catalogue statistics for every file of a 100k scan would cost more than the
-   * scan itself. Only a job that stopped running changes a number here.
+   * The status bar is updated on every event: its text is the only place the user
+   * can see that a long index is moving, and `collectSnapshot` reads a few counters
+   * rather than scanning the catalogue, so this is cheap.
+   *
+   * The tree is refreshed at most once every `TREE_REFRESH_MS`. It is a far more
+   * expensive rebuild, and the indexer emits once per file, so refreshing it per
+   * event would be a denial of service against our own extension host.
    */
   const bindJobEvents = (engine: EngineHandle): void => {
     if (jobListenerBound) return;
     jobListenerBound = true;
-    engine.app.indexer.on('job', (job: { state?: string }) => {
-      if (job.state === 'running' || job.state === 'queued') return;
+    engine.app.indexer.on('job', () => {
       void refreshStatusBar();
+
+      const now = Date.now();
+      if (now - lastTreeRefresh < TREE_REFRESH_MS) return;
+      lastTreeRefresh = now;
+      libraryTree.refresh();
     });
   };
 
