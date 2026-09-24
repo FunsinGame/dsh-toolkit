@@ -182,6 +182,14 @@ export function Transport({
             多轨
             {mixState.tracks.length > 0 ? ` ${mixState.tracks.length}` : ''}
           </button>
+          <button
+            className={state.compare ? 'active' : ''}
+            onClick={() => store.setCompare(!state.compare)}
+            title="多栏对比：每行一个查询，各栏独立排序，可钉住与调宽"
+          >
+            对比
+            {state.columns.length > 0 ? ` ${state.columns.length}` : ''}
+          </button>
         </div>
       </div>
 

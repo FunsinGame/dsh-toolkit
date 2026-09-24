@@ -20,6 +20,7 @@ import type {
 } from '@sounddesk/core';
 
 import type { EngineClient, PersonalizationState, UcsTree } from '../api/client.ts';
+import { parseBatchQueries, type CompareSort, type CompareColumn } from '../util/compare.ts';
 import { createOfflineAudioContext } from '../audio/offline.ts';
 import { getMixer } from '../audio/mixer.ts';
 import { getPlayer } from '../audio/player.ts';
@@ -83,6 +84,19 @@ export interface AppState {
   /** personalised ranking (plan P2-3) */
   personalization: PersonalizationState | null;
 
+  /**
+   * Compare workspace (plan P2-3): one column per query, side by side.
+   *
+   * Columns hold their own results and their own sort order, because the point of
+   * the view is to judge several searches against each other — a shared sort would
+   * make the comparison meaningless.
+   */
+  compare: boolean;
+  columns: CompareColumn[];
+  compareInput: string;
+  /** true once `runCompare` has completed at least once */
+  compareRan: boolean;
+
   ucsTree: UcsTree | null;
   libraries: Library[];
   stats: (StatsResponse & { dbBytes: number; modelsReady: boolean }) | null;
@@ -120,6 +134,10 @@ const initialState: AppState = {
   exportFiles: [],
   hostActionError: null,
   personalization: null,
+  compare: false,
+  columns: [],
+  compareInput: '',
+  compareRan: false,
   ucsTree: null,
   libraries: [],
   stats: null,
@@ -557,6 +575,157 @@ class Store {
       .catch(() => {
         /* the weighting is best-effort */
       });
+  }
+
+  // -- compare workspace (plan P2-3) -------------------------------------
+
+  setCompare(on: boolean): void {
+    this.set({ compare: on });
+  }
+
+  setCompareInput(text: string): void {
+    this.set({ compareInput: text });
+  }
+
+  /**
+   * Run every query as its own column.
+   *
+   * Searches run sequentially rather than in parallel: they share one engine and
+   * one SQLite connection, and overlapping them would make the timings in each
+   * column meaningless while gaining nothing on a local server.
+   */
+  async runCompare(): Promise<void> {
+    const { queries, dropped } = parseBatchQueries(this.state.compareInput);
+    if (queries.length === 0) {
+      this.set({ columns: [], compareRan: true, searchError: null });
+      return;
+    }
+    if (dropped > 0) {
+      this.set({ searchError: `已忽略 ${dropped} 个重复或超出上限的查询（最多 6 个）` });
+    } else {
+      this.set({ searchError: null });
+    }
+
+    // Preserve the width and pin state of columns that are being re-run, so
+    // re-running a batch does not throw away how the user arranged the view.
+    const previous = new Map(this.state.columns.map((column) => [column.query.toLowerCase(), column]));
+
+    const columns: CompareColumn[] = queries.map((query, index) => {
+      const before = previous.get(query.toLowerCase());
+      return {
+        id: before?.id ?? `col-${Date.now()}-${index}`,
+        query,
+        hits: [],
+        total: 0,
+        tookMs: 0,
+        sort: before?.sort ?? 'relevance',
+        width: before?.width ?? 320,
+        pinned: before?.pinned ?? false,
+        loading: true,
+        error: null,
+      };
+    });
+    this.set({ columns, compareRan: true, searchError: null });
+
+    for (let i = 0; i < columns.length; i += 1) {
+      const column = columns[i]!;
+      try {
+        const response = await this.getClient().search({
+          q: column.query,
+          mode: this.state.mode,
+          limit: 200,
+          filters: this.buildFilters(),
+          explain: true,
+        });
+        // A pinned column keeps its results: pinning means "hold this still while
+        // I try other queries", so refreshing it would defeat the purpose.
+        if (column.pinned) {
+          this.set({
+            columns: this.state.columns.map((c) => (c.id === column.id ? { ...c, loading: false } : c)),
+          });
+          continue;
+        }
+        this.set({
+          columns: this.state.columns.map((c) =>
+            c.id === column.id
+              ? { ...c, hits: response.hits, total: response.total, tookMs: response.tookMs, loading: false }
+              : c,
+          ),
+        });
+      } catch (err) {
+        this.set({
+          columns: this.state.columns.map((c) =>
+            c.id === column.id
+              ? { ...c, loading: false, error: err instanceof Error ? err.message : String(err) }
+              : c,
+          ),
+        });
+      }
+    }
+  }
+
+  /** Re-run one column, for when only its query changed. */
+  async rerunColumn(id: string): Promise<void> {
+    const column = this.state.columns.find((c) => c.id === id);
+    if (!column || column.pinned) return;
+    this.set({ columns: this.state.columns.map((c) => (c.id === id ? { ...c, loading: true, error: null } : c)) });
+    try {
+      const response = await this.getClient().search({
+        q: column.query,
+        mode: this.state.mode,
+        limit: 200,
+        filters: this.buildFilters(),
+        explain: true,
+      });
+      this.set({
+        columns: this.state.columns.map((c) =>
+          c.id === id
+            ? { ...c, hits: response.hits, total: response.total, tookMs: response.tookMs, loading: false }
+            : c,
+        ),
+      });
+    } catch (err) {
+      this.set({
+        columns: this.state.columns.map((c) =>
+          c.id === id ? { ...c, loading: false, error: err instanceof Error ? err.message : String(err) } : c,
+        ),
+      });
+    }
+  }
+
+  setColumnQuery(id: string, query: string): void {
+    this.set({ columns: this.state.columns.map((c) => (c.id === id ? { ...c, query } : c)) });
+  }
+
+  setColumnSort(id: string, sort: CompareSort): void {
+    this.set({ columns: this.state.columns.map((c) => (c.id === id ? { ...c, sort } : c)) });
+  }
+
+  setColumnWidth(id: string, width: number): void {
+    // Clamped so a drag cannot leave an unusable sliver or push the others away.
+    const clamped = Math.max(180, Math.min(720, Math.round(width)));
+    this.set({ columns: this.state.columns.map((c) => (c.id === id ? { ...c, width: clamped } : c)) });
+  }
+
+  toggleColumnPin(id: string): void {
+    this.set({ columns: this.state.columns.map((c) => (c.id === id ? { ...c, pinned: !c.pinned } : c)) });
+  }
+
+  removeColumn(id: string): void {
+    this.set({ columns: this.state.columns.filter((c) => c.id !== id) });
+  }
+
+  /**
+   * Promote one column into the main view.
+   *
+   * The bridge between the two modes: comparing several queries and then working
+   * with the winner should not require retyping it.
+   */
+  promoteColumn(id: string): void {
+    const column = this.state.columns.find((c) => c.id === id);
+    if (!column) return;
+    this.set({ compare: false, query: column.query });
+    void this.runSearch();
   }
 
   /**

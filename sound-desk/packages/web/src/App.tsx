@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getPlayer, type PlayerState } from './audio/player.ts';
 import { requestPlay } from './audio/playback.ts';
 import { DetailsPane } from './components/DetailsPane.tsx';
+import { ComparePane } from './components/ComparePane.tsx';
 import { EffectsPane } from './components/EffectsPane.tsx';
 import { MixerPane } from './components/MixerPane.tsx';
 import { ResultsPane } from './components/ResultsPane.tsx';
@@ -109,7 +110,11 @@ export function App({ bootError }: { bootError: string | null }): React.JSX.Elem
       <div className="body">
         <Sidebar />
         <div className="pane" style={{ display: 'flex', flexDirection: 'column', padding: 0 }}>
-          <ResultsPane playingId={playback.assetId} onPlay={(id) => requestPlay(id)} />
+          {state.compare ? (
+            <ComparePane />
+          ) : (
+            <ResultsPane playingId={playback.assetId} onPlay={(id) => requestPlay(id)} />
+          )}
         </div>
         <div className="pane stack">
           {showMixer && <MixerPane onEditChain={(trackId) => { setEditingTrackId(trackId); setShowEffects(true); }} />}

@@ -166,6 +166,131 @@
   overflow-y: auto;
 }
 
+/* -- compare workspace ---------------------------------------------------- */
+
+.pane.compare {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.cmp-input {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--bg-inset);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+}
+
+.cmp-columns {
+  display: flex;
+  gap: 1px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: auto;
+  background: var(--border);
+}
+
+.cmp-column {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 0 0 auto;
+  background: var(--bg);
+}
+
+.cmp-col-head,
+.cmp-col-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.cmp-col-meta select {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11px;
+}
+
+.cmp-col-head button {
+  padding: 0 5px;
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.cmp-query {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  background: var(--bg-inset);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2px 5px;
+}
+
+.cmp-col-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.cmp-row {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  cursor: default;
+}
+
+.cmp-row:hover {
+  background: var(--row-hover);
+}
+
+.cmp-row.selected {
+  background: var(--row-active);
+}
+
+.cmp-name {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cmp-sub {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* marks an asset more than one column found */
+.cmp-shared {
+  color: var(--green);
+  margin-right: 4px;
+}
+
+.cmp-resize {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+}
+
+.cmp-resize:hover {
+  background: var(--accent-dim);
+}
+
+
 .fx-files code {
   display: block;
   overflow: hidden;
