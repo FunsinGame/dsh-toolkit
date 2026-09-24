@@ -78,6 +78,8 @@ export interface AppState {
   exportResult: { filePath: string; bytes: number; renamed: boolean; durationSeconds: number; files?: string[] } | null;
   /** this tool's exported files currently on disk */
   exportFiles: string[];
+  /** last failure from a host-only action (reveal in OS, open in editor) */
+  hostActionError: string | null;
 
   ucsTree: UcsTree | null;
   libraries: Library[];
@@ -114,6 +116,7 @@ const initialState: AppState = {
   exportError: null,
   exportResult: null,
   exportFiles: [],
+  hostActionError: null,
   ucsTree: null,
   libraries: [],
   stats: null,
@@ -470,6 +473,31 @@ class Store {
       this.set({ exportFiles: files, exportError: null });
     } catch (err) {
       this.set({ exportError: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  /**
+   * Ask the host to reveal the selected asset in the OS file manager.
+   *
+   * VSCode-only: a browser page never sees a filesystem path, so the button that
+   * calls this is hidden in that host.
+   */
+  async revealInSystem(assetId: number): Promise<void> {
+    try {
+      await this.getClient().revealInSystem(assetId);
+      this.set({ hostActionError: null });
+    } catch (err) {
+      this.set({ hostActionError: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  /** Ask the host to open the selected asset in an editor tab. VSCode-only. */
+  async openInEditor(assetId: number): Promise<void> {
+    try {
+      await this.getClient().openInEditor(assetId);
+      this.set({ hostActionError: null });
+    } catch (err) {
+      this.set({ hostActionError: err instanceof Error ? err.message : String(err) });
     }
   }
 

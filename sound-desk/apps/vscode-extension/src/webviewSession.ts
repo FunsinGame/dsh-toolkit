@@ -16,7 +16,7 @@ import type { App } from '@sounddesk/engine';
 
 import type { EngineHost } from './engineHost.ts';
 import { createHandler } from './engineBridge.ts';
-import type { EngineBootstrap, WebviewToHost } from './protocol.ts';
+import type { EngineBootstrap, HostActionMessage, WebviewToHost } from './protocol.ts';
 import { buildWebviewHtml, localResourceRoots } from './webviewHtml.ts';
 
 export interface SessionOptions {
@@ -34,6 +34,8 @@ export class WebviewSession implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
   private bootstrap: EngineBootstrap | null = null;
   private handler: ((method: string, params: unknown) => Promise<unknown>) | null = null;
+  /** kept so host-only actions can resolve a path from the database */
+  private engine: App | null = null;
 
   constructor(private readonly options: SessionOptions) {}
 
@@ -59,6 +61,7 @@ export class WebviewSession implements vscode.Disposable {
     }
 
     this.bootstrap = engine.bootstrap;
+    this.engine = engine.app;
     this.handler = createHandler(engine.app);
     this.options.onReady?.(engine.app, engine.bootstrap);
 
@@ -103,6 +106,38 @@ export class WebviewSession implements vscode.Disposable {
       case 'webview.reveal': {
         // Path came from the engine's own database, but never trust it blindly.
         void vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(message.path));
+        return;
+      }
+      case 'webview.hostAction': {
+        // Resolve the path from the engine here rather than accepting one from the
+        // webview: a path from a page is untrusted input, and this hands it to the
+        // OS file manager.
+        const request = message as HostActionMessage;
+        const reply = async (): Promise<{ ok: boolean; error?: string }> => {
+          const row = this.engine?.catalog.getAssetRow(request.assetId);
+          if (!row) return { ok: false, error: `找不到素材 ${request.assetId}` };
+          const filePath = String(row.path ?? '');
+          if (!filePath) return { ok: false, error: '这条素材没有文件路径' };
+          const uri = vscode.Uri.file(filePath);
+          try {
+            if (request.action === 'revealInOS') {
+              await vscode.commands.executeCommand('revealFileInOS', uri);
+            } else {
+              await vscode.commands.executeCommand('vscode.open', uri, { preview: false });
+            }
+            return { ok: true };
+          } catch (err) {
+            return { ok: false, error: err instanceof Error ? err.message : String(err) };
+          }
+        };
+        void reply().then((result) => {
+          void webview.postMessage({
+            type: 'webview.hostActionReply',
+            requestId: request.requestId,
+            ok: result.ok,
+            ...(result.error ? { error: result.error } : {}),
+          });
+        });
         return;
       }
       case 'engine.request': {

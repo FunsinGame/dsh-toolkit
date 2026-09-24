@@ -47,6 +47,13 @@ export interface EngineClient {
   mediaUrl(id: number): string;
   peaksUrl(id: number): string;
   /**
+   * URL for a whole-file download that carries the original file name.
+   *
+   * Used for dragging a sound out to the Desktop or a DAW: the stream URL sends no
+   * `Content-Disposition`, so a dragged copy would arrive without an extension.
+   */
+  downloadUrl(id: number): string;
+  /**
    * Fetch a WAV's bytes for offline processing. Uses the authenticated media
    * route, which is the only way to get the decoded samples.
    */
@@ -57,6 +64,16 @@ export interface EngineClient {
   listExports(libraryId?: number): Promise<string[]>;
   /** delete exported files; the engine refuses anything without the `_fx` marker */
   deleteExports(paths: string[], libraryId?: number): Promise<DeleteExportsResult>;
+  /**
+   * Ask the host to reveal a file in the OS file manager.
+   *
+   * Only the VSCode host can do this — a browser page never sees a filesystem
+   * path — so the browser implementation throws a message the UI acts on by
+   * hiding the button instead.
+   */
+  revealInSystem(assetId: number): Promise<void>;
+  /** Ask the host to open the asset in an editor tab. VSCode only. */
+  openInEditor(assetId: number): Promise<void>;
   /** live job progress; returns an unsubscribe function */
   subscribe(onEvent: (event: EngineEvent) => void): () => void;
 }
@@ -311,6 +328,10 @@ class HttpEngineClient implements EngineClient {
     return `${this.base}/api/media/${id}/peaks?token=${encodeURIComponent(this.token)}`;
   }
 
+  downloadUrl(id: number): string {
+    return `${this.base}/api/media/${id}/download?token=${encodeURIComponent(this.token)}`;
+  }
+
   async fetchWaveBytes(id: number): Promise<Uint8Array> {
     const res = await fetch(this.mediaUrl(id), { headers: this.headers() });
     if (!res.ok) {
@@ -345,6 +366,16 @@ class HttpEngineClient implements EngineClient {
       method: 'POST',
       body: JSON.stringify({ paths, libraryId }),
     });
+  }
+
+  revealInSystem(): Promise<void> {
+    // A page has no filesystem access, so this is genuinely unavailable rather
+    // than merely unimplemented. The UI hides the button in this host.
+    return Promise.reject(new Error('浏览器无法在文件管理器中定位文件，请在 VSCode 里使用'));
+  }
+
+  openInEditor(): Promise<void> {
+    return Promise.reject(new Error('浏览器无法在编辑器里打开文件，请在 VSCode 里使用'));
   }
 
   subscribe(onEvent: (event: EngineEvent) => void): () => void {
@@ -408,6 +439,12 @@ class VscodeEngineClient implements EngineClient {
   private readonly base: string;
   private readonly token: string;
   private readonly pending = new Map<number, PendingResolver>();
+  /** host-only actions are answered on a different channel than engine requests */
+  private readonly pendingHostActions = new Map<
+    number,
+    { resolve: () => void; reject: (error: Error) => void }
+  >();
+  private nextHostActionId = 1;
   private nextId = 1;
   private listeners = new Set<(event: EngineEvent) => void>();
 
@@ -431,6 +468,14 @@ class VscodeEngineClient implements EngineClient {
     }
     if (msg.type === 'engine.event' && msg.job) {
       for (const listener of this.listeners) listener({ type: 'job', job: msg.job });
+    }
+    if (msg.type === 'webview.hostActionReply' && typeof (msg as { requestId?: number }).requestId === 'number') {
+      const reply = msg as { requestId: number; ok: boolean; error?: string };
+      const entry = this.pendingHostActions.get(reply.requestId);
+      if (!entry) return;
+      this.pendingHostActions.delete(reply.requestId);
+      if (reply.ok) entry.resolve();
+      else entry.reject(new Error(reply.error ?? '宿主操作失败'));
     }
   }
 
@@ -522,6 +567,10 @@ class VscodeEngineClient implements EngineClient {
     return `${this.base}/api/media/${id}/peaks?token=${encodeURIComponent(this.token)}`;
   }
 
+  downloadUrl(id: number): string {
+    return `${this.base}/api/media/${id}/download?token=${encodeURIComponent(this.token)}`;
+  }
+
   async fetchWaveBytes(id: number): Promise<Uint8Array> {
     // The extension host proxies everything else, but media is already served by
     // the in-process engine over HTTP, so reuse that rather than shipping
@@ -541,6 +590,35 @@ class VscodeEngineClient implements EngineClient {
 
   deleteExports(paths: string[], libraryId?: number): Promise<DeleteExportsResult> {
     return this.call<DeleteExportsResult>('deleteExports', { paths, libraryId });
+  }
+
+  revealInSystem(assetId: number): Promise<void> {
+    return this.hostAction('revealInOS', assetId);
+  }
+
+  openInEditor(assetId: number): Promise<void> {
+    return this.hostAction('openInEditor', assetId);
+  }
+
+  /**
+   * Ask the host to act on the asset's real file.
+   *
+   * Only the asset id travels; the extension host resolves the path from the
+   * engine's own database, so a path can never be injected from the webview.
+   */
+  private hostAction(action: 'revealInOS' | 'openInEditor', assetId: number): Promise<void> {
+    const requestId = this.nextHostActionId++;
+    return new Promise<void>((resolve, reject) => {
+      this.pendingHostActions.set(requestId, { resolve, reject });
+      this.vscode.postMessage({ type: 'webview.hostAction', action, assetId, requestId });
+      // A host that never answers must not leave the button spinning forever.
+      window.setTimeout(() => {
+        const entry = this.pendingHostActions.get(requestId);
+        if (!entry) return;
+        this.pendingHostActions.delete(requestId);
+        reject(new Error('宿主没有响应，请重试'));
+      }, 10_000);
+    });
   }
 
   subscribe(onEvent: (event: EngineEvent) => void): () => void {

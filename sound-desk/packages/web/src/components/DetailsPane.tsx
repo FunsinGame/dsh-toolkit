@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import { store } from '../state/store.ts';
 import { useAppState } from '../state/useAppState.ts';
 import { confidenceClass, formatBytes, formatDuration, formatRate, rerankReasons, sourceLabel } from '../util/format.ts';
+import { describeDragCapability, dragHint } from '../util/dragOut.ts';
 import type { ReclassifyResult } from '../api/client.ts';
 import { MetadataEditor } from './MetadataEditor.tsx';
 
@@ -42,6 +43,8 @@ export function DetailsPane({ onPlay, onSimilar }: { onPlay(id: number): void; o
   const em = asset.embedded;
   const dsp = asset.dsp;
   const reasons = rerankReasons(state.selectedScore);
+  // Which host-side file actions exist here, so the UI offers only real ones.
+  const capability = describeDragCapability(state.host ?? 'browser');
 
   async function suggest(): Promise<void> {
     if (!asset) return;
@@ -64,7 +67,7 @@ export function DetailsPane({ onPlay, onSimilar }: { onPlay(id: number): void; o
       <div className="section">
         <div style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{asset.filename}</div>
         <div className="kv">{asset.path}</div>
-        <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+        <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
           <button onClick={() => onPlay(asset.id)}>试听</button>
           <button onClick={() => onSimilar(asset.id)} title="以声搜声：用这条素材的声音指纹找相似的">
             找相似
@@ -72,7 +75,31 @@ export function DetailsPane({ onPlay, onSimilar }: { onPlay(id: number): void; o
           <button onClick={() => void store.patchSelected({ favorite: !asset.favorite })}>
             {asset.favorite ? '★ 已收藏' : '☆ 收藏'}
           </button>
+          {/* Download rather than drag: a page cannot hand a real file to the OS,
+              so this is the version that reliably produces a file on disk. */}
+          <a
+            href={store.getClient().downloadUrl(asset.id)}
+            download={asset.filename}
+            style={{ alignSelf: 'center' }}
+            title="下载原始文件（文件名保持不变）"
+          >
+            下载
+          </a>
+          {capability.canRevealFile && (
+            <button
+              onClick={() => void store.revealInSystem(asset.id)}
+              title="在系统的文件管理器里定位这个文件"
+            >
+              在系统中显示
+            </button>
+          )}
+          {capability.canOpenInEditor && (
+            <button onClick={() => void store.openInEditor(asset.id)} title="在 VSCode 编辑器里打开">
+              编辑器打开
+            </button>
+          )}
         </div>
+        {capability.canRevealFile && <div className="kv">{dragHint(capability)}</div>}
       </div>
 
       {reasons.length > 0 && (

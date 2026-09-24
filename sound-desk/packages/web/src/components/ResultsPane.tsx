@@ -13,6 +13,37 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { store } from '../state/store.ts';
 import { useAppState } from '../state/useAppState.ts';
 import { confidenceClass, formatDuration, formatRate, rerankReasons, sourceLabel } from '../util/format.ts';
+import { buildDragData } from '../util/dragOut.ts';
+
+/**
+ * MIME type for the drag payload.
+ *
+ * Only used as a hint to the drop target; the engine sends the authoritative
+ * `content-type` on the download route. WAV covers the library that exists today,
+ * and anything else falls back to a generic audio type rather than guessing wrong.
+ */
+function mimeTypeForName(filename: string): string {
+  const ext = filename.slice(filename.lastIndexOf('.')).toLowerCase();
+  switch (ext) {
+    case '.wav':
+    case '.wave':
+    case '.bwf':
+      return 'audio/wav';
+    case '.aif':
+    case '.aiff':
+      return 'audio/aiff';
+    case '.flac':
+      return 'audio/flac';
+    case '.mp3':
+      return 'audio/mpeg';
+    case '.ogg':
+      return 'audio/ogg';
+    case '.m4a':
+      return 'audio/mp4';
+    default:
+      return 'audio/wav';
+  }
+}
 import { waveformColorFor } from '../audio/peaks.ts';
 
 /** Row height used for windowing; must match the CSS. */
@@ -100,6 +131,21 @@ export function ResultsPane({ playingId, onPlay }: { playingId: number | null; o
                   style={{ height: ROW_HEIGHT }}
                   onClick={() => void store.select(hit)}
                   onDoubleClick={() => onPlay(asset.id)}
+                  // Dragging carries the asset's download URL out of the app, which
+                  // is what lets a DAW or the desktop import it. The row is the drag
+                  // handle because that is where the pointer already is.
+                  draggable
+                  onDragStart={(ev) => {
+                    void store.select(hit);
+                    buildDragData(ev.dataTransfer, {
+                      assetId: asset.id,
+                      filename: asset.filename,
+                      mimeType: mimeTypeForName(asset.filename),
+                      downloadUrl: store.getClient().downloadUrl(asset.id),
+                      filePath: asset.path,
+                    });
+                  }}
+                  title="拖到桌面 / DAW 可带出下载地址；详情面板有下载与在系统中显示"
                 >
                   <div style={{ minWidth: 0 }}>
                     <div className="name" title={asset.path}>

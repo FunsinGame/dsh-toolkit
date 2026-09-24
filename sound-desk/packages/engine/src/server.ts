@@ -523,6 +523,56 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
       return;
     }
 
+    /**
+     * Whole-file download with the original file name.
+     *
+     * Exists for the "drag out to the Desktop / a DAW" flow (plan P2-2). The
+     * stream route is for `<audio>` and sends no `Content-Disposition`, so a
+     * dragged or downloaded copy would land as `12345` with no extension. Here the
+     * name matters more than streaming, so Range is not offered.
+     *
+     * `filename*` carries the UTF-8 name (these libraries are full of Chinese and
+     * accented names); the quoted ASCII fallback keeps older clients working.
+     */
+    const downloadMatch = /^\/api\/media\/(\d+)\/download$/.exec(pathname);
+    if (downloadMatch && (method === 'GET' || method === 'HEAD')) {
+      const id = Number(downloadMatch[1]);
+      const row = opts.catalog.getAssetRow(id);
+      if (!row) {
+        sendJson(res, 404, { error: 'asset not found' });
+        return;
+      }
+      const assetPath = String(row.path ?? '');
+      // Same containment rule as streaming: the client addresses assets by id and
+      // can never hand us a path.
+      if (!assetPath || !isInsideAnyLibraryRoot(assetPath)) {
+        sendJson(res, 403, { error: 'file is outside every library root' });
+        return;
+      }
+      let st;
+      try {
+        st = await stat(assetPath);
+      } catch {
+        sendJson(res, 404, { error: 'file missing on disk' });
+        return;
+      }
+
+      const name = String(row.filename ?? path.basename(assetPath));
+      const asciiFallback = name.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
+      res.writeHead(200, {
+        'content-type': mimeFor(assetPath),
+        'content-length': String(st.size),
+        'content-disposition': `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(name)}`,
+        'cache-control': 'private, max-age=600',
+      });
+      if (method === 'HEAD') {
+        res.end();
+        return;
+      }
+      createReadStream(assetPath).pipe(res);
+      return;
+    }
+
     // -- ucs ------------------------------------------------------------
     if (pathname === '/api/ucs/tree' && method === 'GET') {
       const counts = new Map<string, number>();
@@ -669,6 +719,24 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         ? exportRootsFor(library.root, opts.catalog.dataDir)
         : [...opts.catalog.listLibraries().map((l) => l.root), ...exportRootsFor(null, opts.catalog.dataDir)];
       sendJson(res, 200, deleteExports(paths, roots));
+      return;
+    }
+
+    // -- drag-out test page ---------------------------------------------
+    //
+    // Served so the "drag a sound to the Desktop / a DAW" behaviour can actually be
+    // verified by hand: browsers do not report the result of a drag initiated
+    // inside a page, so there is no automated way to confirm a drop produced a
+    // usable file. `/drop-test?token=…` is that confirmation, and it doubles as the
+    // place to check what a host's webview really puts on the drag.
+    if ((pathname === '/drop-test' || pathname === '/drop-test.html') && method === 'GET') {
+      const html = await readFile(new URL('../assets/drop-test.html', import.meta.url)).catch(() => null);
+      if (!html) {
+        sendJson(res, 404, { error: 'drop-test.html not found next to the built server' });
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+      res.end(html);
       return;
     }
 

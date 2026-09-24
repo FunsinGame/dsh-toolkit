@@ -52,8 +52,42 @@ export interface RevealMessage {
   path: string;
 }
 
-export type WebviewToHost = EngineRequestBody | WebviewReadyMessage | OpenExternalMessage | RevealMessage;
-export type HostToWebview = EngineReadyMessage | EngineErrorMessage | { type: 'engine.response'; id: number; result?: unknown; error?: string } | { type: 'engine.event'; job?: unknown };
+/**
+ * Ask the host to do something the webview cannot: act on a real file path.
+ *
+ * The path is never sent by the UI. The webview asks with an asset id and the
+ * **host** resolves it from the engine's database — a path arriving from a webview
+ * would be untrusted input, and `revealFileInOS` on an arbitrary path is exactly
+ * the kind of thing a malicious page would like to trigger.
+ */
+export interface HostActionMessage {
+  type: 'webview.hostAction';
+  action: 'revealInOS' | 'openInEditor';
+  assetId: number;
+  /** correlation id, so the UI can surface a failure */
+  requestId: number;
+}
+
+export interface HostActionReply {
+  type: 'webview.hostActionReply';
+  requestId: number;
+  ok: boolean;
+  error?: string;
+}
+
+export type WebviewToHost =
+  | EngineRequestBody
+  | WebviewReadyMessage
+  | OpenExternalMessage
+  | RevealMessage
+  | HostActionMessage;
+
+export type HostToWebview =
+  | EngineReadyMessage
+  | EngineErrorMessage
+  | { type: 'engine.response'; id: number; result?: unknown; error?: string }
+  | { type: 'engine.event'; job?: unknown }
+  | HostActionReply;
 
 // -- params shapes -----------------------------------------------------------
 

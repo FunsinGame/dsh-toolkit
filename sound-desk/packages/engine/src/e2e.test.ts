@@ -677,6 +677,76 @@ test('the export route saves rendered audio next to the library without overwrit
   }
 });
 
+/**
+ * Drag-out (plan P2-2) needs a whole file with a usable name. The stream route
+ * sends no `Content-Disposition`, so a dragged copy would lose its extension —
+ * which is what would make dropping one into a DAW fail.
+ */
+test('the download route sends the original file name and the whole file', async () => {
+  const h = await startHarness(false);
+  try {
+    const base = `http://127.0.0.1:${h.server.port}`;
+    const token = h.server.token;
+    const assets = (await (
+      await fetch(`${base}/api/assets?limit=5`, { headers: { 'x-sounddesk-token': token } })
+    ).json()) as { items: Array<{ id: number; filename: string; sizeBytes: number }> };
+    const asset = assets.items[0]!;
+
+    const res = await fetch(`${base}/api/media/${asset.id}/download`, {
+      headers: { 'x-sounddesk-token': token },
+    });
+    assert.equal(res.status, 200);
+    const disposition = res.headers.get('content-disposition') ?? '';
+    assert.match(disposition, /^attachment;/, 'a download must be an attachment');
+    assert.ok(disposition.includes('filename='), `no filename in "${disposition}"`);
+    // the extension must survive, or the dragged file is unusable
+    assert.ok(disposition.includes('.wav'), `no extension in "${disposition}"`);
+
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    assert.equal(bytes.byteLength, asset.sizeBytes, 'the whole file must be sent');
+    // and it must still be a real WAV, not an error page
+    assert.equal(String.fromCharCode(bytes[0]!, bytes[1]!, bytes[2]!, bytes[3]!), 'RIFF');
+
+    // HEAD gives the headers without the body
+    const head = await fetch(`${base}/api/media/${asset.id}/download`, {
+      method: 'HEAD',
+      headers: { 'x-sounddesk-token': token },
+    });
+    assert.equal(head.status, 200);
+    assert.ok((head.headers.get('content-disposition') ?? '').includes('.wav'));
+    assert.equal((await head.arrayBuffer()).byteLength, 0);
+
+    // unknown asset, and no token
+    assert.equal((await fetch(`${base}/api/media/999999/download`, { headers: { 'x-sounddesk-token': token } })).status, 404);
+    assert.equal((await fetch(`${base}/api/media/${asset.id}/download`)).status, 401);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('the download route encodes a non-ASCII name for the client', async () => {
+  const h = await startHarness(false);
+  try {
+    const base = `http://127.0.0.1:${h.server.port}`;
+    const token = h.server.token;
+    // Rename one catalogue entry to a name with non-ASCII characters, which is
+    // the normal case for these libraries, and check how it is advertised.
+    const row = h.app.catalog.db.prepare('SELECT id FROM assets LIMIT 1').get() as { id: number };
+    h.app.catalog.db.prepare('UPDATE assets SET filename = ? WHERE id = ?').run('金属门_fx.wav', row.id);
+
+    const res = await fetch(`${base}/api/media/${row.id}/download`, {
+      headers: { 'x-sounddesk-token': token },
+    });
+    const disposition = res.headers.get('content-disposition') ?? '';
+    // RFC 5987 form so the real name survives, plus an ASCII fallback
+    assert.ok(disposition.includes("filename*=UTF-8''"), `missing filename* in "${disposition}"`);
+    assert.ok(disposition.includes(encodeURIComponent('金属门_fx.wav')), `wrong encoded name in "${disposition}"`);
+    assert.equal(res.status, 200);
+  } finally {
+    h.cleanup();
+  }
+});
+
 test('the export route refuses non-WAV payloads and unknown assets', async () => {
   const h = await startHarness(false);
   try {
