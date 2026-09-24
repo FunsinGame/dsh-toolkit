@@ -57,11 +57,6 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const extensionUri = context.extensionUri;
 
-  const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, STATUS_BAR_PRIORITY);
-  statusBar.command = 'soundDesk.open';
-  statusBar.text = formatStatusText(null, 'starting');
-  statusBar.tooltip = new vscode.MarkdownString(formatStatusTooltip(null, 'starting'));
-
   /** Why the last start attempt failed; cleared as soon as one succeeds. */
   let engineError: string | null = null;
   let jobListenerBound = false;
@@ -69,12 +64,36 @@ export function activate(context: vscode.ExtensionContext): void {
   let lastTreeRefresh = 0;
 
   /**
-   * Recompute the status bar from the engine's *actual* state.
+   * An opt-in status bar item.
+   *
+   * The engine state lives in the sidebar's 引擎状态 node by default, so this is
+   * hidden unless the user asks for it (`soundDesk.showStatusBar`). It is kept rather
+   * than deleted because a one-line summary is genuinely useful to some people, and
+   * removing the setting outright would silently discard their preference.
+   */
+  const wantStatusBar = (): boolean => config().get<boolean>('showStatusBar', false);
+  const statusBar = wantStatusBar()
+    ? vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, STATUS_BAR_PRIORITY)
+    : null;
+  if (statusBar) {
+    statusBar.command = 'soundDesk.open';
+    statusBar.text = formatStatusText(null, 'starting');
+    statusBar.tooltip = new vscode.MarkdownString(formatStatusTooltip(null, 'starting'));
+  }
+
+  /**
+   * Keep the (optional) status bar in sync with the engine's *actual* state.
    *
    * Deriving the state instead of tracking it means the item cannot drift out of
    * sync after a restart, a failed start or a finished index job.
    */
   const refreshStatusBar = async (): Promise<void> => {
+    if (!statusBar) return;
+    if (!wantStatusBar()) {
+      statusBar.hide();
+      return;
+    }
+
     const handle = host?.current ?? null;
     const state: EngineStatusState = handle ? 'ready' : engineError !== null ? 'error' : 'starting';
 
@@ -91,7 +110,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // Nothing worth showing before a start attempt settles: reporting "0 条素材"
     // while the engine is still booting would just be wrong.
-    if (state === 'starting' || !config().get<boolean>('showStatusBar', true)) {
+    if (state === 'starting') {
       statusBar.hide();
       return;
     }
@@ -159,10 +178,11 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     output,
-    statusBar,
     libraryTree,
     vscode.window.registerTreeDataProvider(LIBRARY_VIEW_ID, libraryTree),
+    ...(statusBar ? [statusBar] : []),
 
+    // Toggling the optional status bar takes effect immediately.
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration(`${CONFIG_SECTION}.showStatusBar`)) void refreshStatusBar();
     }),

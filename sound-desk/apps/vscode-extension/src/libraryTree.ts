@@ -44,6 +44,7 @@ const CONTEXT_VALUES: Record<LibraryNodeKind, string> = {
   job: 'soundDesk.job',
   engineInfo: 'soundDesk.engineInfo',
   engineOffline: 'soundDesk.engineOffline',
+  action: 'soundDesk.action',
 };
 
 /**
@@ -213,6 +214,16 @@ function collapsibleStateFor(node: LibraryNode): vscode.TreeItemCollapsibleState
  */
 function commandFor(node: LibraryNode): vscode.Command | undefined {
   switch (node.kind) {
+    // Action nodes carry the command to run, so the tree is the single place that
+    // decides what the sidebar's buttons do.
+    case 'action':
+      return node.command === undefined
+        ? undefined
+        : {
+            command: node.command,
+            title: node.label,
+            ...(node.commandArg !== undefined ? { arguments: [node.commandArg] } : {}),
+          };
     case 'library':
       return { command: 'soundDesk.open', title: '打开工作台' };
     case 'playlist':

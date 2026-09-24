@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * scripts/stage-vsix.mjs -?assemble everything the extension needs at runtime into
+ * scripts/stage-vsix.mjs -assemble everything the extension needs at runtime into
  * a staging directory, so a packaged VSIX can actually start.
  *
  * WHY THIS EXISTS
@@ -21,7 +21,7 @@
  * WHAT IT DOES
  *
  * Copies the built extension, the web UI bundle and the UCS dataset, then resolves
- * the engine's *production dependency closure* and copies that in too -?pruning
+ * the engine's *production dependency closure* and copies that in too -pruning
  * onnxruntime-node's binaries down to the current platform, which is the difference
  * between a ~300 MB and a ~150 MB package.
  *
@@ -120,11 +120,11 @@ async function main() {
   // check it before doing any work.
   const bundle = path.join(EXT_ROOT, 'out', 'extension.js');
   if (!existsSync(bundle)) {
-    throw new Error(`extension bundle missing at ${bundle} -?run \`pnpm --filter sound-desk-vscode build\` first`);
+    throw new Error(`extension bundle missing at ${bundle} -run \`pnpm --filter sound-desk-vscode build\` first`);
   }
   const webBundle = path.join(REPO_ROOT, 'packages', 'web', 'dist');
   if (!existsSync(webBundle)) {
-    throw new Error(`web bundle missing at ${webBundle} -?run \`pnpm --filter @sounddesk/web build\` first`);
+    throw new Error(`web bundle missing at ${webBundle} -run \`pnpm --filter @sounddesk/web build\` first`);
   }
 
   await rm(out, { recursive: true, force: true });
@@ -135,7 +135,7 @@ async function main() {
   await cp(path.join(EXT_ROOT, 'media'), path.join(out, 'media'), { recursive: true, dereference: true });
   // The UCS dataset goes inside `out/`, next to the bundle. `@sounddesk/ucs` is
   // bundled (not an external dependency), so when bundled to CommonJS its
-  // `import.meta.url` is unavailable and it falls back to `__dirname` -?looking for
+  // `import.meta.url` is unavailable and it falls back to `__dirname` -looking for
   // a sibling `data/` directory. Copying it to the extension root instead would make
   // the loader throw "UCS dataset not found" at startup.
   await cp(path.join(EXT_ROOT, 'data'), path.join(out, 'out', 'data'), { recursive: true, dereference: true });
@@ -236,7 +236,7 @@ async function main() {
   console.log(`[stage-vsix] staged ${report.sizeMb} MB into ${out}`);
   console.log(`[stage-vsix] platform: ${keepPlatform.platform}/${keepPlatform.arch}${allPlatforms ? ' (all platforms kept)' : ''}`);
   for (const pkg of copied) {
-    console.log(`[stage-vsix]   ${pkg.ok ? 'ok  ' : 'FAIL'} ${pkg.name}${pkg.ok ? '' : ` -?${pkg.reason}`}`);
+    console.log(`[stage-vsix]   ${pkg.ok ? 'ok  ' : 'FAIL'} ${pkg.name}${pkg.ok ? '' : ` (${pkg.reason})`}`);
   }
   const failed = copied.filter((pkg) => !pkg.ok);
   if (failed.length > 0) {

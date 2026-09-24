@@ -218,8 +218,8 @@
         },
         "soundDesk.showStatusBar": {
           "type": "boolean",
-          "default": true,
-          "description": "在状态栏显示 SoundDesk 引擎状态（素材数量、语义搜索、ffmpeg）。"
+          "default": false,
+          "markdownDescription": "在 VSCode 底部状态栏显示 SoundDesk 引擎状态。默认关闭：引擎状态、素材数量和索引进度都显示在侧边栏的「引擎状态」里，不必再占用底部那一条。"
         }
       }
     }

@@ -16,7 +16,7 @@ import type { App } from '@sounddesk/engine';
 
 import type { EngineHost } from './engineHost.ts';
 import { createHandler } from './engineBridge.ts';
-import type { EngineBootstrap, HostActionMessage, WebviewToHost } from './protocol.ts';
+import type { EngineBootstrap, HostActionMessage, PickFolderMessage, WebviewToHost } from './protocol.ts';
 import { buildWebviewHtml, localResourceRoots } from './webviewHtml.ts';
 
 export interface SessionOptions {
@@ -138,6 +138,42 @@ export class WebviewSession implements vscode.Disposable {
             ...(result.error ? { error: result.error } : {}),
           });
         });
+        return;
+      }
+      case 'webview.pickFolder': {
+        // The host owns this dialog because a webview cannot produce a real
+        // directory path: `<input webkitdirectory>` yields `File` objects with no
+        // filesystem path, and the engine needs a path to hand to its scanner.
+        //
+        // This is also the one place a path travels *from* the webview (as the chosen
+        // root). That is acceptable because the user picked it in a native dialog
+        // owned by the host, and the value is only used to add a library to this
+        // machine's own catalogue — the same thing the 添加素材库目录 command does.
+        const request = message as PickFolderMessage;
+        void (async () => {
+          try {
+            const picked = await vscode.window.showOpenDialog({
+              canSelectFolders: true,
+              canSelectFiles: false,
+              canSelectMany: false,
+              openLabel: request.title ?? '作为素材库索引',
+            });
+            const folder = picked?.[0];
+            await webview.postMessage({
+              type: 'webview.pickFolderReply',
+              requestId: request.requestId,
+              // Omitting `path` is how the UI learns the user cancelled, which is not
+              // an error and must not be reported as one.
+              ...(folder ? { path: folder.fsPath } : {}),
+            });
+          } catch (err) {
+            await webview.postMessage({
+              type: 'webview.pickFolderReply',
+              requestId: request.requestId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        })();
         return;
       }
       case 'engine.request': {

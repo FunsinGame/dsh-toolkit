@@ -140,6 +140,25 @@ export interface AppState {
   stats: (StatsResponse & { dbBytes: number; modelsReady: boolean }) | null;
   jobs: JobProgress[];
 
+  /**
+   * In-flight "add a local library" operation.
+   *
+   * While this is set the workbench is covered by a blocking progress screen: a
+   * half-indexed library makes every count, category and search result on screen
+   * wrong, so the UI is hidden rather than allowed to show numbers about to change.
+   */
+  libraryImport: { libraryId: number | null; libraryName: string; startedAt: number } | null;
+  /** summary shown after a successful import, dismissible */
+  libraryImportDone: {
+    name: string;
+    root: string;
+    assets: number;
+    failed: number;
+    /** true when no model was loaded, so no fingerprints were computed */
+    embedSkipped: boolean;
+  } | null;
+  libraryImportError: string | null;
+
   /** UCS category filter, drives the tree selection */
   activeCategory: string | null;
   activeCatId: string | null;
@@ -187,6 +206,10 @@ const initialState: AppState = {
   libraries: [],
   stats: null,
   jobs: [],
+
+  libraryImport: null,
+  libraryImportDone: null,
+  libraryImportError: null,
   activeCategory: null,
   activeCatId: null,
 };
@@ -423,6 +446,83 @@ class Store {
   async addLibrary(root: string, name?: string): Promise<void> {
     await this.getClient().addLibrary(root, name);
     await this.refreshLibraryData();
+  }
+
+  /**
+   * Add a local library and index it to completion, holding the UI at a progress
+   * screen until it is usable.
+   *
+   * The workbench is blocked for the duration because a half-indexed library makes
+   * every number on screen wrong: asset counts, the UCS tree and any search result
+   * are all about to change, so showing them would be showing a lie.
+   *
+   * Nothing here reports progress itself. The engine's job events already do, and
+   * `importProgress` derives the bar from them — a second reporting mechanism would
+   * eventually disagree with the first.
+   */
+  async importLibrary(): Promise<void> {
+    const client = this.getClient();
+    if (!client.pickFolder) {
+      this.set({ libraryImportError: '当前宿主不支持选择目录；请在插件里使用「添加素材库目录」，或用 CLI 的 --add。' });
+      return;
+    }
+
+    let root: string | null;
+    try {
+      root = await client.pickFolder('选择要索引的素材库目录');
+    } catch (err) {
+      this.set({ libraryImportError: err instanceof Error ? err.message : String(err) });
+      return;
+    }
+    // Cancelling is not a failure and must not leave an error on screen.
+    if (!root) return;
+
+    await this.importLibraryAt(root);
+  }
+
+  /** The import itself, given a path. Separated so the path can be tested directly. */
+  async importLibraryAt(root: string, name?: string): Promise<void> {
+    const client = this.getClient();
+    if (!client.importLibrary) {
+      this.set({ libraryImportError: '当前宿主不支持完整导入；请在插件里使用「添加素材库目录」，或用 CLI 的 --add。' });
+      return;
+    }
+    const importLibrary = client.importLibrary.bind(client);
+    const label = name?.trim() || root.split(/[\\/]/).filter(Boolean).pop() || root;
+    const started = Date.now();
+
+    this.set({
+      libraryImport: { libraryId: null, libraryName: label, startedAt: started },
+      libraryImportError: null,
+      libraryImportDone: null,
+    });
+
+    try {
+      // The extension host runs scan -> waveform -> [embed] and only resolves when all
+      // of them have finished; progress arrives over the job event channel.
+      const result = await importLibrary(root, name);
+      // Re-read the catalogue before clearing the block, so the workbench is never
+      // revealed still showing the pre-import counts.
+      await this.refreshLibraryData();
+      this.set({
+        libraryImport: null,
+        libraryImportDone: {
+          name: result.library?.name ?? label,
+          root: result.library?.root ?? root,
+          assets: result.library?.assetCount ?? 0,
+          failed: result.failed ?? 0,
+          embedSkipped: result.embedSkipped === true,
+        },
+      });
+    } catch (err) {
+      this.set({
+        libraryImport: null,
+        libraryImportError: err instanceof Error ? err.message : String(err),
+      });
+      // A failed import may still have created the library, so the lists are refreshed
+      // rather than left claiming the folder was never added.
+      await this.refreshLibraryData().catch(() => undefined);
+    }
   }
 
   /**
@@ -1059,6 +1159,11 @@ class Store {
   clearProbe(): void {
     this.set({ probe: null, searchError: null });
     void this.runSearch();
+  }
+
+  /** Dismiss the post-import summary and return to the workbench. */
+  dismissImportSummary(): void {
+    this.set({ libraryImportDone: null, libraryImportError: null });
   }
 
   /**

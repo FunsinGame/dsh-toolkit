@@ -18,6 +18,11 @@ export function Sidebar(): React.JSX.Element {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState('');
 
+  // Importing needs the extension host: only it can turn a folder the user picks into
+  // a real filesystem path. The browser gets the CLI instruction instead, because a
+  // button that cannot work is worse than a documented command.
+  const canImport = state.host === 'vscode';
+
   const tree = state.ucsTree?.tree ?? [];
   const needle = filter.trim().toLowerCase();
   // The vocabulary has ~32 categories; showing the empty ones would bury the
@@ -53,12 +58,38 @@ export function Sidebar(): React.JSX.Element {
         <span>素材库</span>
         <span className="count">{state.libraries.length}</span>
       </div>
-      {state.libraries.length === 0 && (
-        <div className="section" style={{ fontSize: 12, color: 'var(--text-dim)' }}>
-          还没有素材库。用 CLI 加一个目录：
-          <div className="kv" style={{ marginTop: 6 }}>
-            sounddesk --add "D:/SFX" 库名
+
+      {/*
+        Import is offered as a button only where the host can actually deliver a real
+        directory path. A browser cannot — `<input webkitdirectory>` yields File
+        objects with no path — so there the CLI instruction stays, because a button
+        that silently fails is worse than a documented command.
+      */}
+      {canImport ? (
+        <div style={{ padding: '6px 8px' }}>
+          <button
+            style={{ width: '100%', fontSize: 12 }}
+            onClick={() => void store.importLibrary()}
+            disabled={state.libraryImport !== null}
+            title="选择一个本地目录作为素材库，并索引到完成"
+          >
+            {state.libraryImport ? '正在导入…' : '＋ 添加本地素材库'}
+          </button>
+        </div>
+      ) : (
+        state.libraries.length === 0 && (
+          <div className="section" style={{ fontSize: 12, color: 'var(--text-dim)' }}>
+            还没有素材库。用 CLI 加一个目录：
+            <div className="kv" style={{ marginTop: 6 }}>
+              sounddesk --add "D:/SFX" 库名
+            </div>
           </div>
+        )
+      )}
+
+      {state.libraryImportError && (
+        <div className="section" style={{ fontSize: 11, color: 'var(--danger, #f85149)' }}>
+          {state.libraryImportError}
         </div>
       )}
       {state.libraries.map((library) => (

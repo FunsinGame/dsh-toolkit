@@ -86,10 +86,20 @@ export type LibraryNodeKind =
   | 'jobs'
   | 'job'
   | 'engineInfo'
-  | 'engineOffline';
+  | 'engineOffline'
+  | 'action';
 
 /** Built-in codicon names, so the provider never needs an image asset. */
-export type LibraryNodeIcon = 'library' | 'playlist' | 'search' | 'sync~spin' | 'info' | 'warning';
+export type LibraryNodeIcon =
+  | 'library'
+  | 'playlist'
+  | 'search'
+  | 'sync~spin'
+  | 'info'
+  | 'warning'
+  | 'play'
+  | 'add'
+  | 'refresh';
 
 /**
  * One node of the sidebar, as plain data.
@@ -112,6 +122,9 @@ export interface LibraryNode {
   query?: string;
   root?: string;
   jobId?: string;
+  /** for `action` nodes: the command to run, and its argument if it takes one */
+  command?: string;
+  commandArg?: string;
 }
 
 /** How many recent queries the sidebar keeps: more than this is a scroll, not a shortcut. */
@@ -173,10 +186,15 @@ export function uniqueQueries(queries: readonly string[], limit = RECENT_SEARCH_
 /**
  * Build the sidebar tree.
  *
- * Top-level order is fixed — 素材库, 播放列表, 最近搜索, 索引任务, 引擎信息 — and a
- * section is omitted entirely when it has no content, so an empty catalogue does
- * not look like a broken one. Never throws: a snapshot is plain data and every
- * field is read defensively by the type system, not by `try`.
+ * Top-level order is fixed - 引擎状态, 快捷操作, 素材库, 播放列表, 最近搜索, 索引任务 -
+ * and a section is omitted entirely when it has no content, so an empty catalogue does
+ * not look like a broken one. Never throws: a snapshot is plain data and every field is
+ * read defensively by the type system, not by `try`.
+ *
+ * 引擎状态 comes first because it replaced the bottom status bar: the engine URL, the
+ * asset count, the fingerprint coverage and live index progress all used to live down
+ * there, and moving them into the sidebar means they should be the first thing visible
+ * rather than buried under the category tree.
  */
 export function buildLibraryTree(snapshot: LibrarySnapshot): LibraryNode[] {
   if (snapshot.engineError !== null) {
@@ -189,10 +207,37 @@ export function buildLibraryTree(snapshot: LibrarySnapshot): LibraryNode[] {
         tooltip: snapshot.engineError,
         icon: 'warning',
       },
+      ...actionNodes(),
     ];
   }
 
   const nodes: LibraryNode[] = [];
+
+  nodes.push({
+    kind: 'engineInfo',
+    id: 'engine:info',
+    label: '引擎状态',
+    description: engineInfoLine(snapshot),
+    tooltip: formatStatusTooltip(snapshot, 'ready'),
+    icon: 'info',
+  });
+
+  // Live progress sits directly under the engine row while something is running, so
+  // the sidebar is where the user watches an import - the status bar is gone.
+  const running = runningJob(snapshot);
+  if (running) {
+    nodes.push({
+      kind: 'job',
+      id: `job:current`,
+      label: JOB_KIND_LABELS[running.kind] ?? running.kind,
+      description: jobProgressLabel(running),
+      tooltip: `任务 ${running.id}: ${running.done}/${running.total}`,
+      icon: 'sync~spin',
+      jobId: running.id,
+    });
+  }
+
+  nodes.push(...actionNodes());
 
   if (snapshot.libraries.length > 0) {
     nodes.push({
@@ -252,47 +297,80 @@ export function buildLibraryTree(snapshot: LibrarySnapshot): LibraryNode[] {
     });
   }
 
-  // The section is gated on a job actually running, but queued jobs are listed
-  // too: they are about to run, and hiding them would look like a stall.
+  // The section is for everything the single "current" row above does not already
+  // show: a second concurrent job, or the recent history when nothing is running.
   const activeJobs = snapshot.jobs.filter((job) => job.state === 'running' || job.state === 'queued');
-  if (activeJobs.some((job) => job.state === 'running')) {
+  const onlyCurrent = activeJobs.length === 1 && running !== null;
+  const listed = onlyCurrent ? [] : activeJobs.length > 0 ? activeJobs : snapshot.jobs.slice(0, 3);
+  if (listed.length > 0) {
     nodes.push({
       kind: 'jobs',
       id: 'section:jobs',
       label: '索引任务',
-      description: String(activeJobs.length),
+      description: String(listed.length),
       icon: 'sync~spin',
-      children: activeJobs.map((job) => {
-        const stateLabel = JOB_STATE_LABELS[job.state];
-        return {
-          kind: 'job',
-          id: `job:${job.id}`,
-          label: JOB_KIND_LABELS[job.kind] ?? job.kind,
-          description: `${job.done}/${job.total} · ${stateLabel}`,
-          tooltip: `任务 ${job.id}：${job.done}/${job.total}，状态 ${stateLabel}`,
-          icon: 'sync~spin',
-          jobId: job.id,
-        };
-      }),
+      children: listed.map((job) => ({
+        kind: 'job',
+        id: `job:${job.id}`,
+        label: JOB_KIND_LABELS[job.kind] ?? job.kind,
+        description: `${jobProgressLabel(job)} · ${JOB_STATE_LABELS[job.state]}`,
+        tooltip: `任务 ${job.id}：${job.done}/${job.total}`,
+        icon: 'sync~spin',
+        jobId: job.id,
+      })),
     });
   }
-
-  nodes.push({
-    kind: 'engineInfo',
-    id: 'engine:info',
-    label: '引擎信息',
-    description: engineInfoLine(snapshot),
-    tooltip: formatStatusTooltip(snapshot, 'ready'),
-    icon: 'info',
-  });
 
   return nodes;
 }
 
-/** One line summarising the catalogue, used as the 引擎信息 node's description. */
+/**
+ * The always-present actions.
+ *
+ * These exist because the sidebar is now the tool's control surface: with the status
+ * bar hidden, "open the workbench" has to live somewhere discoverable, and the same is
+ * true of adding a library.
+ */
+function actionNodes(): LibraryNode[] {
+  return [
+    {
+      kind: 'action',
+      id: 'action:open',
+      label: '打开工具页面',
+      description: '工作台',
+      tooltip: '在编辑器里打开完整的 SoundDesk 工作台（搜索 / 波形 / 效果链 / 素材库管理）',
+      icon: 'play',
+      command: 'soundDesk.open',
+    },
+    {
+      kind: 'action',
+      id: 'action:addLibrary',
+      label: '添加本地素材库',
+      tooltip: '选择一个本地目录并完整索引（扫描 → 波形 → 声音指纹）',
+      icon: 'add',
+      command: 'soundDesk.indexFolder',
+    },
+    {
+      kind: 'action',
+      id: 'action:refresh',
+      label: '刷新',
+      tooltip: '重新读取素材库、播放列表与任务状态',
+      icon: 'refresh',
+      command: 'soundDesk.refreshLibrary',
+    },
+  ];
+}
+
+/** `42/100 · 进行中`, or `42/100` when the state label would be redundant. */
+function jobProgressLabel(job: SnapshotJob): string {
+  if (job.total > 0) return `${job.done}/${job.total}`;
+  return job.done > 0 ? String(job.done) : '-';
+}
+
+/** One line summarising the catalogue, used as the 引擎状态 node's description. */
 function engineInfoLine(snapshot: LibrarySnapshot): string {
-  const ffmpeg = snapshot.ffmpeg.available ? '可用' : '不可用';
-  return `${snapshot.stats.assets} 条素材 · ${snapshot.stats.libraries} 个素材库 · ${snapshot.ucsCount} 个 UCS CatID · ffmpeg ${ffmpeg}`;
+  const ffmpeg = snapshot.ffmpeg.available ? 'ffmpeg 可用' : 'ffmpeg 不可用';
+  return `${snapshot.stats.assets} 条素材 · 指纹 ${snapshot.stats.embedded} · ${ffmpeg}`;
 }
 
 /**

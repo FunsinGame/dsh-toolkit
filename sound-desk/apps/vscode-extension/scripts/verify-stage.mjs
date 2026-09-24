@@ -20,10 +20,10 @@ let failures = 0;
 const check = (label, fn) => {
   try {
     const detail = fn();
-    console.log(`  ok    ${label}${detail ? ` -?${detail}` : ''}`);
+    console.log(`  ok    ${label}${detail ? ` (${detail})` : ''}`);
   } catch (err) {
     failures += 1;
-    console.log(`  FAIL  ${label} -?${err.code ?? err.message}`);
+    console.log(`  FAIL  ${label} (${err.code ?? err.message})`);
   }
 };
 
@@ -75,7 +75,7 @@ check('clap-htsat-unfused onnx files', () => {
 
 console.log('');
 if (failures > 0) {
-  console.log(`RESULT: ${failures} check(s) failed -?this VSIX would not work when installed.`);
+  console.log(`RESULT: ${failures} check(s) failed -this VSIX would not work when installed.`);
   process.exit(1);
 }
 console.log('RESULT: staged payload is self-contained.');

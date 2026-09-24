@@ -71,7 +71,12 @@ function makeFixture(): Fixture {
       listJobs: () => [],
       cancel: () => true,
       runFastPass: async () => ({ id: 'j', state: 'done', done: 0, total: 0, failed: 0 }),
+      runWaveformPass: async () => ({ id: 'j2', state: 'done', done: 0, total: 0, failed: 0 }),
+      runEmbedPass: async () => ({ id: 'j3', state: 'done', done: 0, total: 0, failed: 0 }),
     } as unknown as EngineLike['indexer'],
+    // Not ready, so `addLibraryAndIndex` skips the fingerprint pass — which is the
+    // behaviour under test rather than an accident of the fixture.
+    embedder: { id: 'none', dim: 512, ready: false } as unknown as EngineLike['embedder'],
   };
 
   const libraryId = catalog.addLibrary('Test Library', libraryRoot, 'local');
@@ -132,6 +137,78 @@ test('unknown methods fail loudly instead of hanging the UI', async () => {
   const f = makeFixture();
   try {
     await assert.rejects(() => f.handler('doesNotExist', {}), /unsupported engine method/);
+  } finally {
+    f.close();
+  }
+});
+
+/**
+ * The import path used by the web UI's "add a local library" button.
+ *
+ * Unlike `addLibrary`, which returns immediately and scans in the background, this
+ * must resolve only after every pass has finished — the UI blocks on it, so returning
+ * early would release the progress screen over a half-indexed library.
+ */
+test('addLibraryAndIndex runs every pass and reports what it skipped', async () => {
+  const f = makeFixture();
+  try {
+    const order: string[] = [];
+    const indexer = (f.engine as unknown as { indexer: Record<string, unknown> }).indexer;
+    indexer.runFastPass = async () => {
+      order.push('scan');
+      return { id: 'j1', state: 'done', done: 7, total: 7, failed: 0 };
+    };
+    indexer.runWaveformPass = async () => {
+      order.push('waveform');
+      return { id: 'j2', state: 'done', done: 7, total: 7, failed: 1 };
+    };
+    indexer.runEmbedPass = async () => {
+      order.push('embed');
+      return { id: 'j3', state: 'done', done: 7, total: 7, failed: 0 };
+    };
+
+    const result = (await f.handler('addLibraryAndIndex', { root: '/tmp/sfx', name: 'SFX' })) as {
+      library: { id: number; name: string; root: string } | null;
+      passes: Array<{ pass: string }>;
+      embedSkipped: boolean;
+      failed: number;
+    };
+
+    assert.deepEqual(order, ['scan', 'waveform'], 'with no model loaded the embed pass is skipped');
+    assert.deepEqual(
+      result.passes.map((p) => p.pass),
+      ['scan', 'waveform'],
+    );
+    assert.equal(result.embedSkipped, true, 'the response must admit the fingerprints were not computed');
+    assert.equal(result.failed, 1, 'failed counts are summed across passes');
+    assert.equal(result.library?.name, 'SFX');
+    assert.ok(result.library?.id, 'the new library must come back with an id');
+  } finally {
+    f.close();
+  }
+});
+
+test('addLibraryAndIndex requires a root and refuses an empty one', async () => {
+  const f = makeFixture();
+  try {
+    await assert.rejects(() => f.handler('addLibraryAndIndex', {}), /root is required/);
+    await assert.rejects(() => f.handler('addLibraryAndIndex', { root: '' }), /root is required/);
+  } finally {
+    f.close();
+  }
+});
+
+test('addLibraryAndIndex names the library after the folder when no name is given', async () => {
+  const f = makeFixture();
+  try {
+    const indexer = (f.engine as unknown as { indexer: Record<string, unknown> }).indexer;
+    indexer.runFastPass = async () => ({ id: 'j', state: 'done', done: 0, total: 0, failed: 0 });
+    indexer.runWaveformPass = async () => ({ id: 'j2', state: 'done', done: 0, total: 0, failed: 0 });
+
+    const result = (await f.handler('addLibraryAndIndex', { root: 'D:\\SFX\\Doors' })) as {
+      library: { name: string } | null;
+    };
+    assert.equal(result.library?.name, 'Doors');
   } finally {
     f.close();
   }

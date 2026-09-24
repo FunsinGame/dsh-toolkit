@@ -9,6 +9,7 @@ import { MixerPane } from './components/MixerPane.tsx';
 import { ResultsPane } from './components/ResultsPane.tsx';
 import { SearchBar } from './components/SearchBar.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
+import { ImportOverlay } from './components/ImportOverlay.tsx';
 import { Transport } from './components/Transport.tsx';
 import { store } from './state/store.ts';
 import { useAppState } from './state/useAppState.ts';
@@ -106,6 +107,12 @@ export function App({ bootError }: { bootError: string | null }): React.JSX.Elem
 
   return (
     <div className="app">
+      {/*
+        The import overlay is a sibling of the whole workbench and renders on top of
+        it. It blocks the UI while a library is indexing because a half-indexed
+        catalogue makes every count, category and result on screen wrong.
+      */}
+      <ImportOverlay />
       <SearchBar />
       <div className="body">
         <Sidebar />

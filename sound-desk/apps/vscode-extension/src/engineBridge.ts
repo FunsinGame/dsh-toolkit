@@ -48,6 +48,8 @@ export interface EngineLike {
   classifier: App['classifier'];
   searchService: App['searchService'];
   indexer: App['indexer'];
+  /** needed to decide whether the fingerprint pass is worth running at all */
+  embedder: App['embedder'];
   dataDir: string;
 }
 
@@ -161,6 +163,56 @@ export function createHandler(engine: EngineLike): Handler {
       // Index in the background; the UI follows progress over the event channel.
       void engine.indexer.runFastPass(id, root).catch(() => undefined);
       return catalog.getLibrary(id);
+    },
+
+    /**
+     * Add a library and index it to completion.
+     *
+     * Awaited, unlike `addLibrary`, because the UI wants to hold the user at a
+     * progress screen until the library is actually usable: browsing a half-indexed
+     * library shows counts and categories that are about to change, which is worse
+     * than a short wait.
+     *
+     * The three passes run in sequence rather than in parallel — they have a real
+     * ordering (a file must exist in the catalogue before it can have a waveform, and
+     * must have a waveform before its fingerprint is worth computing) and the
+     * indexer's stage ladder assumes it. Progress reaches the UI through the normal
+     * job event channel, so no progress reporting is duplicated here.
+     *
+     * The embed pass is skipped when no model is loaded: it would otherwise report a
+     * job that immediately "succeeds" while doing nothing, which reads as a bug.
+     */
+    addLibraryAndIndex: async (params) => {
+      const { root, name } = asParams<AddLibraryParams>(params);
+      if (!root) throw new Error('root is required');
+      const trimmed = name?.trim();
+      const label = trimmed && trimmed.length > 0 ? trimmed : root.split(/[\\/]/).filter(Boolean).pop() || 'library';
+
+      const id = catalog.addLibrary(label, root, 'local');
+      // Only the fields the response needs, so this does not depend on the engine
+      // exporting its internal `JobState` type.
+      const passes: Array<{ pass: string; job: { id: string; total: number; done: number; failed: number } }> = [];
+
+      const fast = await engine.indexer.runFastPass(id, root);
+      passes.push({ pass: 'scan', job: fast });
+
+      const waveform = await engine.indexer.runWaveformPass(id);
+      passes.push({ pass: 'waveform', job: waveform });
+
+      if (engine.embedder && engine.embedder.ready) {
+        const embed = await engine.indexer.runEmbedPass(id);
+        passes.push({ pass: 'embed', job: embed });
+      }
+
+      const library = catalog.getLibrary(id);
+      return {
+        library,
+        passes,
+        // Reported so the UI can be honest about what it did NOT do, rather than
+        // claiming a complete import when semantic search is still unavailable.
+        embedSkipped: !(engine.embedder && engine.embedder.ready),
+        failed: passes.reduce((sum, entry) => sum + entry.job.failed, 0),
+      };
     },
 
     removeLibrary: (params) => {

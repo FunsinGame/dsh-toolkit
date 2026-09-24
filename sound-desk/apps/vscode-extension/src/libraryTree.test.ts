@@ -40,11 +40,27 @@ test('libraries, playlists and recent searches render with their real counts', (
     }),
   );
 
-  // Fixed top-level order, with 索引任务 absent because nothing is running.
+  // 引擎状态 first (it replaced the bottom status bar), then the actions, then the
+  // content sections. 索引任务 is absent because nothing is running.
   assert.deepEqual(
     tree.map((node) => node.id),
-    ['section:libraries', 'section:playlists', 'section:searches', 'engine:info'],
+    [
+      'engine:info',
+      'action:open',
+      'action:addLibrary',
+      'action:refresh',
+      'section:libraries',
+      'section:playlists',
+      'section:searches',
+    ],
   );
+
+  // The engine row carries what the status bar used to: count, fingerprint coverage,
+  // ffmpeg availability.
+  const info = nodeById(tree, 'engine:info');
+  assert.ok(info);
+  assert.equal(info.label, '引擎状态');
+  assert.equal(info.description, '15 条素材 · 指纹 9 · ffmpeg 可用');
 
   const libraries = nodeById(tree, 'section:libraries');
   assert.ok(libraries);
@@ -71,10 +87,26 @@ test('libraries, playlists and recent searches render with their real counts', (
   );
   // The query travels with the node so the command can re-run it.
   assert.equal(searches.children[0]?.query, '门 关闭');
+});
 
-  const info = nodeById(tree, 'engine:info');
-  assert.ok(info);
-  assert.equal(info.description, '15 条素材 · 2 个素材库 · 420 个 UCS CatID · ffmpeg 可用');
+test('the sidebar always offers opening the tool and adding a library', () => {
+  // With the status bar hidden by default, these actions have to live somewhere
+  // discoverable; the sidebar is now the control surface.
+  const tree = buildLibraryTree(emptySnapshot());
+  const open = nodeById(tree, 'action:open');
+  const add = nodeById(tree, 'action:addLibrary');
+  const refresh = nodeById(tree, 'action:refresh');
+
+  assert.equal(open?.command, 'soundDesk.open');
+  assert.equal(add?.command, 'soundDesk.indexFolder');
+  assert.equal(refresh?.command, 'soundDesk.refreshLibrary');
+  assert.equal(open?.kind, 'action');
+
+  // They must also be present when the engine failed, or a broken engine would leave
+  // no way to retry or to add a library.
+  const broken = buildLibraryTree(emptySnapshot({ engineError: '端口被占用' }));
+  assert.ok(nodeById(broken, 'action:open'), 'open must survive an engine failure');
+  assert.ok(nodeById(broken, 'action:addLibrary'), 'add-library must survive an engine failure');
 });
 
 test('a section with no content is omitted', () => {
@@ -82,23 +114,23 @@ test('a section with no content is omitted', () => {
   assert.doesNotThrow(() => buildLibraryTree(emptySnapshot()));
 
   const tree = buildLibraryTree(emptySnapshot());
-  // No libraries, no playlists, no history, no jobs — only the engine summary.
+  // No libraries, no playlists, no history, no jobs - only the engine row and the
+  // three actions.
   assert.deepEqual(
     tree.map((node) => node.id),
-    ['engine:info'],
+    ['engine:info', 'action:open', 'action:addLibrary', 'action:refresh'],
   );
-  assert.equal(tree[0]?.kind, 'engineInfo');
-  assert.equal(tree[0]?.description, '0 条素材 · 0 个素材库 · 0 个 UCS CatID · ffmpeg 不可用');
+  assert.equal(tree[0]?.description, '0 条素材 · 指纹 0 · ffmpeg 不可用');
 
   // A section disappears as soon as it empties, not just when everything is empty.
   const onlyPlaylists = buildLibraryTree(emptySnapshot({ playlists: [{ id: 1, name: 'A', count: 0 }] }));
   assert.deepEqual(
     onlyPlaylists.map((node) => node.id),
-    ['section:playlists', 'engine:info'],
+    ['engine:info', 'action:open', 'action:addLibrary', 'action:refresh', 'section:playlists'],
   );
 });
 
-test('a running job renders done/total, and the section hides once nothing runs', () => {
+test('a running job is shown directly under the engine row', () => {
   const tree = buildLibraryTree(
     emptySnapshot({
       jobs: [
@@ -108,18 +140,23 @@ test('a running job renders done/total, and the section hides once nothing runs'
     }),
   );
 
+  // Live progress sits where the status bar used to be, so an import is watchable
+  // without expanding anything.
+  assert.equal(tree[1]?.id, 'job:current');
+  assert.equal(tree[1]?.label, '扫描文件');
+  assert.equal(tree[1]?.description, '42/100');
+  assert.equal(tree[1]?.icon, 'sync~spin');
+
   const jobs = nodeById(tree, 'section:jobs');
-  assert.ok(jobs);
-  // The finished job is no longer "正在索引".
-  assert.equal(jobs.children?.length, 1);
-  assert.equal(jobs.children[0]?.label, '扫描文件');
-  assert.equal(jobs.children[0]?.description, '42/100 · 进行中');
-  assert.equal(jobs.children[0]?.jobId, 'j1');
+  // The running job is not repeated in the list section.
+  assert.equal(jobs, undefined, 'a single running job is shown once, not twice');
 
   const quiet = buildLibraryTree(
     emptySnapshot({ jobs: [{ id: 'j2', kind: 'embed', state: 'done', done: 5, total: 5 }] }),
   );
-  assert.equal(nodeById(quiet, 'section:jobs'), undefined);
+  assert.equal(nodeById(quiet, 'job:current'), undefined, 'a finished job is not "current"');
+  // Past jobs leave a visible trace rather than vanishing.
+  assert.ok(nodeById(quiet, 'section:jobs'));
 });
 
 test('the status bar text reflects the engine state and the asset count', () => {
@@ -218,12 +255,15 @@ test('the status tooltip reflects ffmpeg availability and embedder readiness', (
   assert.doesNotMatch(failed, /素材：/);
 });
 
-test('an unreachable engine produces a single, actionable node', () => {
+test('an unreachable engine produces an actionable node plus the actions', () => {
   const tree = buildLibraryTree(emptySnapshot({ engineError: '引擎启动超时' }));
-  assert.equal(tree.length, 1);
-  assert.equal(tree[0]?.kind, 'engineOffline');
-  assert.equal(tree[0]?.label, '引擎未启动');
-  assert.equal(tree[0]?.tooltip, '引擎启动超时');
+  const offline = nodeById(tree, 'engine:offline');
+  assert.ok(offline);
+  assert.equal(offline.kind, 'engineOffline');
+  assert.equal(offline.label, '引擎未启动');
+  assert.equal(offline.tooltip, '引擎启动超时');
+  // The actions stay, so a failed engine still leaves a way to retry.
+  assert.equal(tree.length, 4);
 });
 
 test('recent queries are trimmed, de-duplicated and capped', () => {

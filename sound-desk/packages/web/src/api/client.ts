@@ -112,6 +112,26 @@ export interface EngineClient {
   /** live job progress; returns an unsubscribe function */
   subscribe(onEvent: (event: EngineEvent) => void): () => void;
   /**
+   * Ask the host for a directory to index, or `null` if the user cancelled.
+   *
+   * Optional because only the VSCode host can provide it: a browser has no way to
+   * turn a folder the user picks into a filesystem path, so the browser client simply
+   * does not implement it and the UI offers the CLI instruction instead of a button
+   * that could never work.
+   */
+  pickFolder?(title?: string): Promise<string | null>;
+  /**
+   * Add a library and index it to completion.
+   *
+   * Unlike `addLibrary`, which kicks off a scan in the background, this resolves only
+   * once the library is actually usable, so the UI can hold the user at a progress
+   * screen instead of showing counts that are about to change.
+   *
+   * Optional: the browser host has no equivalent, and the import UI is only offered
+   * where the host can support it.
+   */
+  importLibrary?(root: string, name?: string): Promise<LibraryImportResult>;
+  /**
    * What the engine can and cannot do.
    *
    * Currently this carries ffmpeg availability, which the UI has to know: without
@@ -119,6 +139,16 @@ export interface EngineClient {
    * "no waveform" with no explanation looks like a bug.
    */
   session(): Promise<SessionInfo>;
+}
+
+export interface LibraryImportResult {
+  library: { id?: number; name?: string; root?: string; assetCount?: number } | null;
+  /** totals per pass, in the order they ran */
+  passes?: Array<{ pass: string; job: { total: number; done: number; failed: number } }>;
+  /** true when no embedding model was loaded, so no fingerprints were computed */
+  embedSkipped?: boolean;
+  /** files that could not be indexed, summed across passes */
+  failed?: number;
 }
 
 export interface SessionInfo {
@@ -752,6 +782,16 @@ class VscodeEngineClient implements EngineClient {
     number,
     { resolve: () => void; reject: (error: Error) => void }
   >();
+  /**
+   * Folder picks are tracked separately because their answer is a path rather than
+   * just success/failure. A `null` result means the user cancelled, which is not an
+   * error and must not surface as one.
+   */
+  private readonly pendingFolderPicks = new Map<
+    number,
+    { resolve: (path: string | null) => void; reject: (error: Error) => void }
+  >();
+  private nextFolderPickId = 1;
   private nextHostActionId = 1;
   private nextId = 1;
   private listeners = new Set<(event: EngineEvent) => void>();
@@ -784,6 +824,14 @@ class VscodeEngineClient implements EngineClient {
       this.pendingHostActions.delete(reply.requestId);
       if (reply.ok) entry.resolve();
       else entry.reject(new Error(reply.error ?? '宿主操作失败'));
+    }
+    if (msg.type === 'webview.pickFolderReply' && typeof (msg as { requestId?: number }).requestId === 'number') {
+      const reply = msg as { requestId: number; path?: string; error?: string };
+      const entry = this.pendingFolderPicks.get(reply.requestId);
+      if (!entry) return;
+      this.pendingFolderPicks.delete(reply.requestId);
+      if (reply.error) entry.reject(new Error(reply.error));
+      else entry.resolve(reply.path ?? null);
     }
   }
 
@@ -825,6 +873,16 @@ class VscodeEngineClient implements EngineClient {
 
   addLibrary(root: string, name?: string): Promise<Library> {
     return this.call('addLibrary', { root, name });
+  }
+
+  /**
+   * Index a library to completion.
+   *
+   * The extension host runs the passes in sequence and resolves when they are done;
+   * progress arrives on the job event channel.
+   */
+  importLibrary(root: string, name?: string): Promise<LibraryImportResult> {
+    return this.call('addLibraryAndIndex', { root, name });
   }
 
   async removeLibrary(id: number): Promise<void> {
@@ -1042,6 +1100,26 @@ class VscodeEngineClient implements EngineClient {
         this.pendingHostActions.delete(requestId);
         reject(new Error('宿主没有响应，请重试'));
       }, 10_000);
+    });
+  }
+
+  /**
+   * Ask the host for a directory to index.
+   *
+   * The dialog lives in the extension host because a webview cannot produce a real
+   * filesystem path; only the host can. Returns `null` when the user cancels.
+   */
+  pickFolder(title?: string): Promise<string | null> {
+    const requestId = this.nextFolderPickId++;
+    return new Promise<string | null>((resolve, reject) => {
+      this.pendingFolderPicks.set(requestId, { resolve, reject });
+      this.vscode.postMessage({ type: 'webview.pickFolder', requestId, ...(title ? { title } : {}) });
+      window.setTimeout(() => {
+        const entry = this.pendingFolderPicks.get(requestId);
+        if (!entry) return;
+        this.pendingFolderPicks.delete(requestId);
+        reject(new Error('宿主没有响应，请重试'));
+      }, 60_000);
     });
   }
 

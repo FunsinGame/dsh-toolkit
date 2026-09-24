@@ -75,19 +75,51 @@ export interface HostActionReply {
   error?: string;
 }
 
+/**
+ * Ask the host to show a folder picker.
+ *
+ * A webview cannot obtain a real directory path — `<input type="file" webkitdirectory>`
+ * yields `File` objects with no filesystem path, and the engine needs a path it can
+ * hand to `chokidar`. So the *host* owns the dialog and the resulting path is the
+ * only way this information can exist at all.
+ *
+ * This is the one message that legitimately sends a path *from* the webview (as the
+ * chosen root) rather than resolving one on the host side; see the handler in
+ * `webviewSession.ts` for why that is an acceptable trust boundary here.
+ */
+export interface PickFolderMessage {
+  type: 'webview.pickFolder';
+  /** correlation id */
+  requestId: number;
+  /** shown as the dialog title, e.g. "选择要索引的素材库目录" */
+  title?: string;
+}
+
+/** Answer to {@link PickFolderMessage}. */
+export interface PickFolderReply {
+  type: 'webview.pickFolderReply';
+  requestId: number;
+  /** absent when the user cancelled */
+  path?: string;
+  /** present when the dialog itself failed */
+  error?: string;
+}
+
 export type WebviewToHost =
   | EngineRequestBody
   | WebviewReadyMessage
   | OpenExternalMessage
   | RevealMessage
-  | HostActionMessage;
+  | HostActionMessage
+  | PickFolderMessage;
 
 export type HostToWebview =
   | EngineReadyMessage
   | EngineErrorMessage
   | { type: 'engine.response'; id: number; result?: unknown; error?: string }
   | { type: 'engine.event'; job?: unknown }
-  | HostActionReply;
+  | HostActionReply
+  | PickFolderReply;
 
 // -- params shapes -----------------------------------------------------------
 

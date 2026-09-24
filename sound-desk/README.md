@@ -119,9 +119,13 @@ iXML + DSP   中文改写      + 元数据
 ```bash
 cd apps/vscode-extension
 npm run build        # 打包 + 复制 Web UI 与 UCS 数据集
+npm run pack:vsix    # → dist/sound-desk-vscode.vsix
+code --install-extension dist/sound-desk-vscode.vsix --force
 ```
 
-然后在仓库根按 <kbd>F5</kbd> 启动扩展开发宿主。命令、设置与实现说明见 [`apps/vscode-extension/README.md`](apps/vscode-extension/README.md)。
+然后在仓库根按 <kbd>F5</kbd> 启动扩展开发宿主。命令、设置、侧边栏与打包说明见 [`apps/vscode-extension/README.md`](apps/vscode-extension/README.md)。
+
+插件的侧边栏是这个工具的控制面板：**引擎状态**（素材数 / 指纹覆盖 / ffmpeg）、正在跑的**索引进度**、以及「打开工具页面」「添加本地素材库」「刷新」三个按钮。**底部状态栏默认关闭**，那些信息都搬到了侧边栏里。在工具页面里加素材库时会显示**全屏进度条并锁定工作台**，直到索引完成——半索引状态下屏幕上的每个计数和分类都是错的。
 
 引擎**在扩展宿主进程内**运行（不 spawn 子进程）：没有孤儿进程，也不需要解析 stdout 找端口。UI 仍通过 `http://127.0.0.1:<随机端口>` 访问，因为 webview 需要真实 URL 才能播放音频、加载波形。
 

@@ -1070,3 +1070,121 @@ select:focus {
   background: var(--border-strong);
   border-radius: 5px;
 }
+
+/* ---------------------------------------------------------------- import ---
+   Full-screen import progress. It covers the workbench on purpose: while a
+   library is indexing, every count, category and search result underneath is
+   mid-flight, so leaving them clickable would invite acting on stale numbers. */
+
+.import-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  /* Opaque rather than translucent: a blurred view of half-correct numbers is
+     still a view of half-correct numbers. */
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(3px);
+}
+
+.import-card {
+  width: min(520px, 100%);
+  padding: 22px 24px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 35%);
+}
+
+.import-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.import-phase {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.import-bar {
+  position: relative;
+  overflow: hidden;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-inset);
+}
+
+.import-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.2s linear;
+}
+
+/* No total yet — the scanner has to walk the tree before it can count anything, and
+   a 0% bar at that point looks stuck rather than busy. */
+.import-bar.indeterminate .import-bar-fill {
+  width: 35%;
+  animation: import-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes import-slide {
+  0% { margin-left: -35%; }
+  100% { margin-left: 100%; }
+}
+
+.import-meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.import-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.import-warn {
+  color: #d29922;
+}
+
+.import-note {
+  margin-top: 12px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+.import-note code {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--bg-inset);
+}
+
+.import-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+/* Respect a reduced-motion preference: the animation is decoration, not information. */
+@media (prefers-reduced-motion: reduce) {
+  .import-bar.indeterminate .import-bar-fill {
+    animation: none;
+    width: 100%;
+    opacity: 0.4;
+  }
+}
+
