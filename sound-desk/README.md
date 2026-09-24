@@ -109,7 +109,7 @@ iXML + DSP   中文改写      + 元数据
 |---|---|---|
 | `@sounddesk/core` | 领域类型、查询语言解析、FTS5 生成、RRF/MMR 融合 | 无 |
 | `@sounddesk/audio-wav` | WAV/BWF/iXML/INFO 解析、PCM 解码、DSP 特征、峰值金字塔 | 无 |
-| `@sounddesk/ucs` | UCS 数据集（178 CatID 种子）、中文查询改写词典、UCS 文件名解析 | 无 |
+| `@sounddesk/ucs` | 官方 UCS 8.2.1 数据集（753 子类 / 82 大类，源文件按 SHA-256 钉住）、中文查询改写词典、UCS 文件名解析 | 无 |
 | `@sounddesk/engine` | SQLite、分级索引、混合检索、HTTP/WS 服务、模型接入 | fastify, ws, chokidar, transformers |
 | `@sounddesk/web` | 工作台 UI（浏览器 + VSCode webview 双宿主） | react, react-dom |
 | `apps/vscode-extension` | VSCode 插件：在扩展宿主内跑引擎，面板 + 音频自定义编辑器 | esbuild（打包时） |
@@ -371,8 +371,8 @@ node packages/engine/dist/cli.js --data-dir ~/.sounddesk --add "D:/SFX"   # 省�
 ## 已知限制
 
 - **非 RIFF 格式需要 ffmpeg**（FLAC/MP3/AIFF/OGG/M4A）。装了就完整可用：时长、声学特征、波形、声音指纹都正常；没装则这些文件只能按文件名检索，UI 底部会显示「未装 ffmpeg（仅 RIFF 可分析）」。检测顺序：`SOUNDDESK_FFMPEG` 环境变量 → 系统 PATH → 可选的 `ffmpeg-static`（约 80MB，随 optionalDependencies 安装）。
-- **UCS 数据集是 178 条种子子集**（`complete: false`），不是官方 8.2.1 全量。`packages/ucs/scripts/build-ucs.mjs` 可从官方导出覆盖，但需要手工拿到该文件。种子中多数 CatID 拼写未对官方核对。
-- **中文分类名是社区译法**，非官方翻译。
+- **UCS 数据集已是官方 8.2.1 全量**（753 子类 / 82 大类，`complete: true`）。源文件 `packages/ucs/data/ucs_v8.2.1.csv` 按 SHA-256 钉在 `scripts/build-ucs.mjs` 的 `PINNED` 里，哈希不符时构建直接失败；`pnpm --filter @sounddesk/ucs check:ucs` 可随时校验产物与源一致。来源、许可与升级步骤见 `packages/ucs/data/PROVENANCE.md`。**8.2.1 的 CatID 已与旧的手写种子完全不同**：旧的 178 条里只有 `DOORWood` 是真的，其余 177 条已丢弃。
+- **中文分类名是社区译法**，非官方翻译。中文覆盖：82/82 个大类名 + 145/753 个子类（其余子类用官方英文 `subCategory` 展示，分类本身不受影响）。
 - **向量检索是线性扫描**；超过约 5 万文件需要考虑 ANN 索引。
 - **CLAP 真实模型的检索质量已在合成声上验证**（4/6 rank-1，分值分离良好），但尚未在真实录音素材上做大规模评测。合成演示库的分数会明显偏低且挤在一起——那是演示素材不具代表性，不是检索管道的问题。
 - **语义搜索模型下载默认走 `hf-mirror.com`**（`huggingface.co` 在本机不可达）；用 `SOUNDDESK_HF_HOST` 覆盖。

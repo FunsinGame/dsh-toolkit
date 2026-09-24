@@ -92,7 +92,7 @@ sound-desk/
 │  │   └─ src/http/         #   routes/*.ts、auth.ts、ws.ts
 │  ├─ web/                  # React 应用（一份代码，两种运行宿主）
 │  │   └─ src/platform/     #   adapter.browser.ts / adapter.vscode.ts / adapter.desktop.ts
-│  └─ ucs/                  # UCS 数据集构建产物（categories.json、synonyms、zh-Hans 映射）
+│  └─ ucs/                  # 官方 UCS 8.2.1 数据集（753 子类/82 大类，按 SHA-256 钉住源文件）、中文映射
 ├─ apps/
 │  ├─ desktop/              # Tauri 壳（P2）
 │  └─ vscode-extension/     # VSCode 插件（P1）
@@ -241,7 +241,7 @@ export interface Embedder {
 
 ### 3.3 中文支持的第二条腿：UCS 词表做"零样本分类器"
 
-CLAP 的零样本分类能力可以**顺手**用来做检索先验：把 UCS 的 22 个主类 + 800+ 子类的规范名（及其中/英同义词）拼成 prompt 模板：
+CLAP 的零样本分类能力可以**顺手**用来做检索先验：把 UCS 的 82 个主类 + 753 个子类的规范名（及其中/英同义词）拼成 prompt 模板：
 
 ```
 "a sound effect of {UCS_SubCategory}, {synonyms}"
@@ -316,38 +316,58 @@ Stage 4  TAG（可与 Stage 3 同一批次完成）
 
 ### 5.1 UCS 是什么（必须先固化数据）
 
-**Universal Category System** —— 音效行业公共领域分类标准（Tim Nielsen 等发起），当前 **8.2.1**（2024-01）。约 **29 个主 Category / 800+ SubCategory**，主类包括 AIR、AMBIENCE、ANIMALS、BELLS、BOATS、CROWD、DESIGNED、DOORS、ELECTRONIC、EMOTIONS、EQUIPMENT、FIRE、FOLEY、GUNS、HORNS、HUMAN、IMPACTS、MACHINES、MAGIC、MEDICAL、MOVEMENT、MUSICAL、NATURE、OFFICE、SCIFI、SPORTS、TOOLS、VEHICLES、WATER、WEAPONS、WHOOSHES 等。
->
-> ⚠️ 主类数量与完整清单**必须在实现时从官方数据源解析生成**（`resources.universalcategorysystem.com` 的 Dropbox 资源库），不要手抄本文档的列表——本文档只用于说明结构，不是权威清单。
+> ✅ **已按本节要求落地**：官方 8.2.1 列表已导入（`packages/ucs/data/ucs_v8.2.1.csv`，
+> 按 SHA-256 钉住），生成 **82 个 Category / 753 个 SubCategory** 的
+> `data/categories.generated.json`。数据来源、许可与校验方式见
+> `packages/ucs/data/PROVENANCE.md`。
 
-**CatID 命名规则**：SubCategory 的紧凑形式，如 `DOORWood`、`IMPACTMetal`、`WATERRiver`、`WOODHndl`（注意 8.2.1 修正了此缩写）。文件命名规范：`CatID_Description_Vendor_Creator_Source_...`，即 UCS 同时约束**分类**与**文件名结构**。
+**Universal Category System** —— 音效行业公共领域分类标准（Tim Nielsen / Justin Drury 发起），当前 **8.2.1**（2024-01，官方称最终版），**82 个 Category / 753 个 SubCategory**，公共领域、可自由使用。
 
-**数据落地**（`packages/ucs/`）：
+> ⚠️ 本节原先手抄的「约 29 主类 / 800+ 子类」及主类清单**是错的**（29 与 800 都不是真实数字，且清单里的 `IMPACTS`、`ELECTRONIC`、`EMOTIONS`、`NATURE`、`MEDICAL`、`OFFICE`、`CROWD`、`WHOOSHES` 都不是官方大类名——官方对应的是 `METAL`/`PAPER`/`ROCKS`、`BEEPS`/`ELECTRICITY`、`VOICES`/`HUMAN`、`WATER`/`RAIN`/`WIND`、`OBJECTS`/`MACHINES`、`OBJECTS`/`AMBIENCE`、`CROWDS`、`SWOOSHES`）。**权威清单只以生成的数据集为准**，本文档不再复述。
+
+**CatID 命名规则**：`CatShort` + 子类名的压缩形式，如 `DOORWood`、`METLImpt`、`WATRUndwtr`、`WOODHndl`（8.2.1 修正了此缩写）。`CatShort` 恒为 CatID 的前缀，但**不是**类别名的简单截断（`AIRCRAFT`→`AERO`、`WATER`→`WATR`，也有 `FOOTSTEPS`→`FEET`、`WEATHER`→`HAIL` 这种语义码）。文件命名规范：`CatID_Description_Vendor_Creator_Source_...`，即 UCS 同时约束**分类**与**文件名结构**。
+
+**数据落地**（`packages/ucs/`，实际形态）：
 ```
-categories.json     # 主类 / 子类：{ catId, category, subCategory, synonymsEn[], synonymsZh[], excludes[] }
-synonyms.json       # 每个 catId 的同义词、排除词（UCS 8.2.1 大幅扩充了同义词表）
-zh-Hans.json        # 官方中文译名 + 我们补充的俗名（"太鼓"→MUSICDrumTaiko）
-build.mjs           # 从 UCS Dropbox 资源解析 → 固化版本号
+data/ucs_v8.2.1.csv            # 官方列表原文，SHA-256 钉在 scripts/build-ucs.mjs 的 PINNED
+data/categories.generated.json # 运行时真正加载的数据集（753 条，complete:true）
+data/curated-zh.json           # 手写中文译名 + 俗名，按官方 CatID 键控（82/82 大类，145 条子类）
+data/official-catalog.json     # 官方分类树速查表
+data/categories.seed.json      # 已废弃：官方数据发布前的手写稿（CatID 为虚构，见下）
+scripts/build-ucs.mjs          # 构建 + 校验（--check / --print-hash / --list）
+scripts/migrate-seed-zh.mjs    # 一次性：把旧 seed 的中文内容迁移到真实 CatID
 ```
 
 具体形状（真实字段名以官方表为准，这里是我们的内部模型）：
 ```jsonc
-// categories.json
+// data/categories.generated.json
 {
   "version": "8.2.1",
-  "source": "https://resources.universalcategorysystem.com/",
-  "fetchedAt": "2026-05-01T00:00:00Z",
+  "complete": true,                    // 行数/类别数与钉住值精确相符才为 true
+  "source": "ucs_v8.2.1.csv",
+  "sourceSha256": "aebc8bf4…",
+  "sourceRows": 753,
+  "officialCategories": 82,
   "categories": [
-    { "catId": "DOORWood",  "category": "DOORS",     "subCategory": "Wood",
-      "synonymsEn": ["wooden door", "creaky door", "door wood open close"],
-      "synonymsZh": ["木门", "木门吱呀", "开门", "关门"], "excludes": ["metal", "car"] },
-    { "catId": "IMPACTMetal", "category": "IMPACTS", "subCategory": "Metal",
-      "synonymsEn": ["metal impact", "clang", "metal hit", "sheet metal"],
-      "synonymsZh": ["金属撞击", "金属敲击", "哐当"], "excludes": ["glass", "wood"] }
+    { "catId": "DOORWood", "category": "DOORS", "subCategory": "Wood", "code": "DOOR",
+      "synonymsEn": ["Wood", "Apartment", "Armoires", …],   // 子类名优先，便于查询改写取前几个
+      "synonymsZh": ["木门", "木门吱呀", "木门开", "木门关"], "excludes": [],
+      "explanation": "Doors that are made of wood. …" },
+    { "catId": "METLImpt", "category": "METAL", "subCategory": "Impact", "code": "METL",
+      "synonymsEn": ["Impact", "Aluminum", "Bang", …],
+      "synonymsZh": ["金属撞击", "金属撞击声", "钢铁碰撞", "金属敲击"], "excludes": [] }
   ]
 }
 ```
-> ⚠️ 一定要**固化版本号并留存原始快照**（如 `ucs-8.2.1.snapshot.json`），否则上游改动会静默改变分类结果。
+
+> ⚠️ **已废弃的 `categories.seed.json` 是反面教材**：它手写了 178 条 CatID，其中**只有
+> `DOORWood` 一个是真实 UCS 标识**，其余（`AIRCRAFTCabin`、`AMBDesignedDark`、
+> `IMPACTMetal`…）都是拼得出来但标准里不存在。若把它并入数据集，就会把假 CatID 提供给
+> 用户并写进文件名，因此生成器**丢弃**这些条目（在输出里记为 `droppedSeedCatIds: 177`），
+> 同时把其中真正有价值的中文同义词迁移到真实 CatID 上。这正是本节警告的具体代价。
+
+> ⚠️ 一定要**固化版本号并留存原始快照**：`data/ucs_v8.2.1.csv` 就是快照，`PINNED.sha256`
+> 是它的指纹，`build:ucs` 在哈希不符时拒绝构建，否则上游改动会静默改变分类结果。
 
 ### 5.2 五级分类决策流水线
 
@@ -371,7 +391,7 @@ build.mjs           # 从 UCS Dropbox 资源解析 → 固化版本号
                   ┌───────────────────▼──────────────────────────┐
                   │ L2  CLAP 零样本分类（主武器）                   │
                   │  对每个候选 catId（先用 L1/关键词缩小到 Top-40  │
-                  │  候选，不要真的对 800 类全算）计算：            │
+                  │  候选，不要真的对 753 类全算）计算：            │
                   │     s = cos(audio_emb, text_emb(catId))       │
                   │  取 softmax(s / τ)，τ≈0.07 → 概率分布         │
                   │  输出 Top-3 + 概率 + margin                    │
@@ -397,29 +417,35 @@ build.mjs           # 从 UCS Dropbox 资源解析 → 固化版本号
                   └──────────────────────────────────────────────┘
 ```
 
-### 5.3 L2 的关键工程优化：**分层剪枝，而不是 800 类暴力 softmax**
+### 5.3 L2 的关键工程优化：**分层剪枝，而不是 753 类暴力 softmax**
 
-朴素实现会对 800 个 catId 各算一次文本 embedding 再比较——虽然文本 embedding 可**预计算并缓存**，但 top-k 比较仍是 800×512 点积（可忽略），真正的成本在**首次构建缓存**。做法：
+朴素实现会对 753 个 catId 各算一次文本 embedding 再比较——虽然文本 embedding 可**预计算并缓存**，但 top-k 比较仍是 753×512 点积（可忽略），真正的成本在**首次构建缓存**。做法：
 
-1. **离线预计算**：构建时把全部 800+ catId（含同义词扩展 prompt，每个 catId 生成 3–5 条 prompt 取平均向量）编码一次 → `ucs_prompts` 表。这是**一次性成本**，约 1–2 分钟。
+1. **离线预计算**：构建时把全部 753 个 catId（含同义词扩展 prompt，每个 catId 生成 3–5 条 prompt 取平均向量）编码一次 → `ucs_prompts` 表。这是**一次性成本**，约 1–2 分钟。
 2. **两段式**：先只看 **22 个主类**（coarse，向量更可分）→ 取 Top-3 主类；再只在其中**展开子类**（fine）。准确率与全量接近，候选计算量降 ~90%。
-3. **多标签而非单标签**：一个素材可同时是 `IMPACTMetal` + `DESIGNEDRiser`。对主类做 **sigmoid 多标签**（阈值 0.35），对选中的每个主类再取一个最优子类，最多保留 2 个子类（UCS 单值主分类 + 我们的附加标签）。
-4. **可训练增强（P5，可选）**：积累 ≥2 万条"人工订正后的分类"后，在 CLAP 音频 embedding 上训练一个 **线性/MLP 探针（probe）**（512→800，多标签 BCE，几分钟训完）。这是成本最低、收益最大的一步：**音频 embedding 冻结，只训一个小头**。线上把 CLAP 零样本分与 probe 分加权融合。
+3. **多标签而非单标签**：一个素材可同时是 `METLImpt` + `DSGNRise`。对主类做 **sigmoid 多标签**（阈值 0.35），对选中的每个主类再取一个最优子类，最多保留 2 个子类（UCS 单值主分类 + 我们的附加标签）。
+4. **可训练增强（P5，可选）**：积累 ≥2 万条"人工订正后的分类"后，在 CLAP 音频 embedding 上训练一个 **线性/MLP 探针（probe）**（512→753，多标签 BCE，几分钟训完）。这是成本最低、收益最大的一步：**音频 embedding 冻结，只训一个小头**。线上把 CLAP 零样本分与 probe 分加权融合。
 
 ### 5.4 UCS 的可见能力（对齐 SoundSeeker）
 
 | 能力 | 实现 |
 |---|---|
-| 左侧按 UCS 树浏览 + 计数 | `SELECT ucs_cat_id, COUNT(*) FROM assets WHERE status='ready' GROUP BY 1`，树结构来自 `categories.json`，**计数实时缓存 5s** |
-| 分类名多语言即时切换 | 分类显示名**不进 DB**，只存 `catId`；前端从 `zh-Hans.json` / `synonyms.json` 渲染。切换语言 = 换渲染字典，**零点数据迁移**（对应其"切完同步更新、自动记住"） |
-| 过滤框即时定位 | 前端对 catId + 多语言名做模糊匹配（几十条，纯前端） |
+| 左侧按 UCS 树浏览 + 计数 | `SELECT ucs_cat_id, COUNT(*) FROM assets GROUP BY 1`（与 `ucs_categories` LEFT JOIN 得到大类计数），树结构来自 `data/categories.generated.json` |
+| 分类名多语言即时切换 | 分类显示名**不进 DB**，只存 `catId`；前端从 `data/curated-zh.json`（中文，82/82 大类）+ 官方 `subCategory` 渲染。切换语言 = 换渲染字典，**零点数据迁移**（对应其"切完同步更新、自动记住"） |
+| 过滤框即时定位 | 前端对 catId + 多语言名做模糊匹配（753 条，纯前端）；后端有 `/api/ucs/lookup` 做同义词/别名解析 |
 | 手动订正 | 写 `assets.ucs_cat_id` + `ucs_source='manual'`，**永不被自动管线覆盖**（这是必须的优先级规则）；记录到 `feedback` 表供 §5.3(4) 训练 |
 | AI 识别类别做筛选条件 | 分类 + `tags` 表统一进筛选 DSL |
+
+**已实现**：`/api/ucs/tree`（大类 → 子类带计数）、`/api/ucs/lookup?q=`（中文/别名 → CatID，
+`expandQueryZh` 与 UCS 同义词表共用一个入口）。分类显示名的两个已知坑点：
+`AIR`/`RAIN`/`HAIL`/`WIND`/`STORM`/`WTHR`/`MIX` 既是类别码又是裸 CatID，此时中文名取
+**大类名**而非某个子类的描述；`subCategory` 只用于展示，**不能**由 CatID 反推
+（`AIRBrst` 的后缀是 `Brst` 而展示名是 `Burst`）。
 
 ### 5.5 与文件名规范化联动（顺手做一个"命名器"）
 
 因为 UCS 同时定义文件名格式，我们可以提供一个差异化功能：**批量重命名为 UCS 规范名**——
-`IMPACTMetal_Door Slam Heavy_MyLibrary_Zhang_20260501_01.wav`
+`METLImpt_Door Slam Heavy_MyLibrary_Zhang_20260501_01.wav`
 由 L0–L2 的结果 + `Description` 自动拼装，预览后批量执行（**先复制/先出 CSV 映射，再改名，永不静默覆盖**）。
 
 ---
@@ -616,7 +642,7 @@ const csp = [
 
 | 阶段 | 交付物 | 关键验收标准 | 预估 |
 |---|---|---|---|
-| **P0-1 骨架** | monorepo、`core` 类型与 UCS 数据构建、Fastify 服务、SQLite schema + 迁移 | `pnpm dev` 起服务，`/api/ucs/tree` 返回 22 主类 | 3–4 天 |
+| **P0-1 骨架** | monorepo、`core` 类型与 UCS 数据构建、Fastify 服务、SQLite schema + 迁移 | `pnpm dev` 起服务，`/api/ucs/tree` 返回 82 主类 | 3–4 天 |
 | **P0-2 入库与浏览** | chokidar 扫描、Stage1 元数据、峰值、Range 流、UCS 树浏览 UI、虚拟列表、试听 | 拖入 1 万文件 → 3 分钟内可浏览/可播/可 FTS 搜 | 1 周 |
 | **P0-3 向量与语义搜索** | ONNX 接入、CLAP 文本/音频塔、`ucs_prompts` 预计算、query 改写词典、RRF 融合、搜索 UI（多路分数可视化） | 中文"金属门重重关上，空仓库"Top-5 主观命中；端到端 <150ms | 1.5 周 |
 | **P0-4 UCS 自动分类** | L0–L3 流水线、证据链展示、手动订正与优先级规则、"待确认"队列 | 抽检 200 条，L0+L2 命中率 ≥75%，可解释 | 1 周 |
@@ -671,9 +697,11 @@ const csp = [
 
 ```bash
 # 1) 初始化 monorepo
-pnpm init && pnpm add -Dw typescript vitest esbuild
-# 2) 固化 UCS 数据（关键前置，别跳过）
-node packages/ucs/build.mjs --version 8.2.1   # → categories.json / synonyms.json / zh-Hans.json
+pnpm init && pnpm add -Dw typescript esbuild
+# 2) 固化 UCS 数据（关键前置，别跳过）—— 已完成
+#    官方 CSV 已随包提供并钉住哈希；重建/校验：
+pnpm --filter @sounddesk/ucs build:ucs    # → data/categories.generated.json（753 条 / 82 大类）
+pnpm --filter @sounddesk/ucs check:ucs    # 校验产物与源一致，不一致则 exit 1
 # 3) 拉模型并导出 ONNX
 node scripts/build-models.mjs --models clap-text,clap-audio,panns --quantize int8
 # 4) 起最小引擎，验证"入库 → FTS 搜 → Range 播放"闭环
