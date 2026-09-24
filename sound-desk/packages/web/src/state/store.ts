@@ -871,6 +871,16 @@ class Store {
   }
 
   /**
+   * M3U8 URL for a playlist.
+   *
+   * A real download rather than generated client-side: the engine owns the file
+   * paths, and every DAW and media player reads M3U.
+   */
+  playlistM3uUrl(id: number): string {
+    return this.getClient().playlistM3uUrl(id);
+  }
+
+  /**
    * Read a backup file and work out what importing it would do — without doing it.
    *
    * Deliberately two steps. Import rewrites annotations across a library, so the

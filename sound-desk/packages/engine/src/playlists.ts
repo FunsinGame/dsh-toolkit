@@ -249,3 +249,52 @@ export function removeFromPlaylist(store: PlaylistStore, playlistId: number, ass
   store.setItemIds(playlistId, next);
   return next;
 }
+
+// ---------------------------------------------------------------------------
+// M3U export
+// ---------------------------------------------------------------------------
+
+export interface M3uEntry {
+  /** absolute path to the audio file */
+  path: string;
+  /** seconds, for the #EXTINF line */
+  durationSeconds: number | null;
+  /** shown to the player; falls back to the file name */
+  title: string;
+}
+
+/**
+ * Render a playlist as M3U8.
+ *
+ * The portable way to hand an ordered list to a DAW or a media player: every one of
+ * them reads M3U, and it references the files in place rather than copying them —
+ * the same principle as the playlist itself.
+ *
+ * Written as **M3U8** (UTF-8) rather than plain M3U, with an explicit BOM-less
+ * `#EXTM3U` header, because these libraries are full of Chinese and accented names
+ * and a legacy player assuming the system codepage would mangle them. Paths are
+ * emitted with the local separator, which is what a local player expects.
+ */
+export function toM3u(entries: M3uEntry[], playlistName: string): string {
+  const lines: string[] = ['#EXTM3U'];
+  for (const entry of entries) {
+    const seconds = entry.durationSeconds === null ? -1 : Math.round(entry.durationSeconds);
+    // A newline inside a title would break the format, so collapse whitespace.
+    const title = (entry.title || entry.path).replace(/[\r\n]+/g, ' ').trim();
+    lines.push(`#EXTINF:${seconds},${title}`);
+    lines.push(entry.path);
+  }
+  // A trailing newline, because some players ignore the last line without one.
+  void playlistName;
+  return `${lines.join('\n')}\n`;
+}
+
+/** Strip characters a file name cannot contain, for a download name. */
+export function safePlaylistFileName(name: string): string {
+  const cleaned = name
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .replace(/\s+/g, ' ')
+    .replace(/[. ]+$/, '')
+    .trim();
+  return `${cleaned.length > 0 ? cleaned : 'playlist'}.m3u8`;
+}

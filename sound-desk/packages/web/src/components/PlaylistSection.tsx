@@ -116,6 +116,11 @@ export function PlaylistSection(): React.JSX.Element {
             >
               加入选中素材
             </button>
+            {/* M3U references the files in place, which is how you hand an ordered
+                list to a DAW without copying anything. */}
+            <a href={store.playlistM3uUrl(open.id)} download title="导出 M3U8，可拖进 DAW 或播放器">
+              导出 M3U
+            </a>
             <span className="count">{open.items.length} 项</span>
           </div>
 

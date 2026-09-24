@@ -43,6 +43,8 @@ import {
   addToPlaylist,
   moveWithinOrder,
   removeFromPlaylist,
+  safePlaylistFileName,
+  toM3u,
 } from './playlists.js';
 import { BackupError, applyImport, buildBackup, parseBackup, planImport, type ImportPlan } from './sidecar.js';
 
@@ -850,6 +852,41 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
         sendJson(res, playlists.remove(id) ? 200 : 404, { ok: true });
         return;
       }
+    }
+
+    const playlistExportMatch = /^\/api\/playlists\/(\d+)\/m3u8$/.exec(pathname);
+    if (playlistExportMatch && method === 'GET') {
+      const id = Number(playlistExportMatch[1]);
+      const playlist = playlists.get(id);
+      if (!playlist) {
+        sendJson(res, 404, { error: '播放列表不存在' });
+        return;
+      }
+      // Resolve each item to its file path. `items()` already joins the asset row,
+      // so one pass is enough; the path comes from the row, never the request.
+      const rows = opts.catalog.db
+        .prepare(
+          `SELECT a.path AS path, a.filename AS filename, a.durationMs AS durationMs
+           FROM playlist_items i JOIN assets a ON a.id = i.assetId
+           WHERE i.playlistId = ? ORDER BY i.position, i.assetId`,
+        )
+        .all(id) as Array<{ path: string; filename: string; durationMs: number | null }>;
+
+      const text = toM3u(
+        rows.map((row) => ({
+          path: String(row.path),
+          durationSeconds: row.durationMs === null ? null : row.durationMs / 1000,
+          title: String(row.filename),
+        })),
+        playlist.name,
+      );
+      res.writeHead(200, {
+        'content-type': 'audio/x-mpegurl; charset=utf-8',
+        'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(safePlaylistFileName(playlist.name))}`,
+        'cache-control': 'no-store',
+      });
+      res.end(text);
+      return;
     }
 
     const playlistItemsMatch = /^\/api\/playlists\/(\d+)\/items$/.exec(pathname);

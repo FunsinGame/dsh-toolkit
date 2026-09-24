@@ -25,6 +25,7 @@ import {
   type LibraryBackup,
   type MatchCandidate,
 } from './sidecar.ts';
+import { safePlaylistFileName, toM3u } from './playlists.ts';
 
 function candidate(patch: Partial<MatchCandidate> & { assetId: number }): MatchCandidate {
   return {
@@ -334,4 +335,61 @@ test('an empty backup plans a no-op', () => {
   assert.deepEqual(plan.unmatched, []);
   assert.deepEqual(plan.ambiguous, []);
   assert.deepEqual(plan.byMethod, { hash: 0, path: 0, 'name-size': 0 });
+});
+
+// ---------------------------------------------------------------------------
+// M3U export
+// ---------------------------------------------------------------------------
+
+test('toM3u writes a valid M3U8 a player can read', () => {
+  const text = toM3u(
+    [
+      { path: 'C:\\lib\\Doors\\a.wav', durationSeconds: 1.234, title: 'a.wav' },
+      { path: 'C:\\lib\\Doors\\b.wav', durationSeconds: 60, title: 'b.wav' },
+    ],
+    '我的列表',
+  );
+
+  const lines = text.split('\n');
+  assert.equal(lines[0], '#EXTM3U', 'the header is required');
+  // seconds are rounded, which is what #EXTINF specifies
+  assert.equal(lines[1], '#EXTINF:1,a.wav');
+  assert.equal(lines[2], 'C:\\lib\\Doors\\a.wav');
+  assert.equal(lines[3], '#EXTINF:60,b.wav');
+  assert.equal(lines[4], 'C:\\lib\\Doors\\b.wav');
+  assert.equal(text.endsWith('\n'), true, 'some players ignore a final line without a newline');
+});
+
+test('toM3u marks an unknown duration the way the format expects', () => {
+  const text = toM3u([{ path: '/x/a.wav', durationSeconds: null, title: 'a' }], 'p');
+  // -1 is the conventional "unknown" value
+  assert.ok(text.includes('#EXTINF:-1,a'), text);
+});
+
+test('toM3u keeps non-ASCII names intact and cannot be broken by a newline in a title', () => {
+  const text = toM3u([{ path: '/x/金属门.wav', durationSeconds: 2, title: '金属门\n第二行' }], 'p');
+  assert.ok(text.includes('金属门'), 'a Chinese name must survive');
+  // A raw newline would be read as the path line, silently corrupting the entry.
+  assert.equal(text.split('\n').filter((line) => line.includes('第二行')).length, 1);
+  assert.ok(text.includes('金属门 第二行'), 'the newline is collapsed into a space');
+});
+
+test('toM3u handles an empty playlist and the last line has no stray separator', () => {
+  const text = toM3u([], 'empty');
+  assert.equal(text, '#EXTM3U\n');
+});
+
+test('toM3u titles fall back to the path when a name is missing', () => {
+  const text = toM3u([{ path: '/x/a.wav', durationSeconds: 1, title: '' }], 'p');
+  assert.ok(text.includes('#EXTINF:1,/x/a.wav'), text);
+});
+
+test('safePlaylistFileName produces a writable name', () => {
+  assert.equal(safePlaylistFileName('My List'), 'My List.m3u8');
+  // path separators and the characters Windows forbids are replaced
+  assert.equal(safePlaylistFileName('a/b:c*d?'), 'a_b_c_d_.m3u8');
+  assert.equal(safePlaylistFileName('  trailing.  '), 'trailing.m3u8');
+  // never empty, so a download always has a usable name
+  assert.equal(safePlaylistFileName('   '), 'playlist.m3u8');
+  assert.ok(safePlaylistFileName('金属/门').startsWith('金属'), 'non-ASCII names are kept');
 });

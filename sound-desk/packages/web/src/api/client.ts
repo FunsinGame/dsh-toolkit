@@ -90,6 +90,8 @@ export interface EngineClient {
   addToPlaylist(id: number, assetIds: number[]): Promise<number>;
   removeFromPlaylist(id: number, assetIds: number[]): Promise<number>;
   reorderPlaylist(id: number, assetId: number, toIndex: number): Promise<void>;
+  /** URL for a playlist as M3U8, for handing the list to a DAW or a player */
+  playlistM3uUrl(id: number): string;
   /** URL for a sidecar backup download; the engine sets the filename */
   backupUrl(libraryId?: number, includeHistory?: boolean): string;
   /** what an import would do, without doing it */
@@ -536,6 +538,10 @@ class HttpEngineClient implements EngineClient {
     });
   }
 
+  playlistM3uUrl(id: number): string {
+    return `${this.base}/api/playlists/${id}/m3u8?token=${encodeURIComponent(this.token)}`;
+  }
+
   // -- sidecar backup / import -------------------------------------------
 
   backupUrl(libraryId?: number, includeHistory = true): string {
@@ -840,6 +846,11 @@ class VscodeEngineClient implements EngineClient {
 
   async reorderPlaylist(id: number, assetId: number, toIndex: number): Promise<void> {
     await this.call('reorderPlaylist', { id, assetId, toIndex });
+  }
+
+  playlistM3uUrl(id: number): string {
+    // The extension host runs the same HTTP engine, so a real download URL works.
+    return `${this.base}/api/playlists/${id}/m3u8?token=${encodeURIComponent(this.token)}`;
   }
 
   // -- sidecar backup / import -------------------------------------------
