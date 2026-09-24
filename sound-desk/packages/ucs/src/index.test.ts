@@ -34,16 +34,29 @@ const AUDIO_RE = /\.(wav|aif|aiff|flac|mp3|ogg)$/i;
 /* 1. Dataset integrity                                                       */
 /* -------------------------------------------------------------------------- */
 
-test('dataset loads with a version and at least 120 entries', () => {
+test('dataset loads with a version and the full official UCS list', () => {
   const ds: UcsDataset = dataset;
   assert.equal(typeof ds.version, 'string');
   assert.match(ds.version, /^\d+\.\d+/);
   assert.equal(typeof ds.complete, 'boolean');
-  assert.ok(ds.complete === false, 'the curated seed must not claim completeness');
+  assert.equal(ds.complete, true, 'the generated official dataset must claim completeness');
+  assert.equal(ds.version, '8.2.1');
   assert.ok(Array.isArray(ds.categories));
-  assert.ok(ds.categories.length >= 120, `expected >= 120 entries, got ${ds.categories.length}`);
-  assert.ok(ds.categories.length <= 220, `expected <= 220 entries, got ${ds.categories.length}`);
+  // The official UCS v8.2.1 list is exactly 753 subcategories across 82 categories.
+  assert.equal(ds.categories.length, 753, `expected the official 753 entries, got ${ds.categories.length}`);
+  assert.equal(new Set(ds.categories.map((c) => c.category)).size, 82);
   assert.ok(typeof ds.note === 'string' && ds.note.length > 0);
+});
+
+test('every CatID is a real official UCS ID, not a hand-invented one', () => {
+  // Regression guard: the seed shipped CatIDs like AIRCRAFTCabin and
+  // AMBDesignedDark that do not exist in UCS. Only DOORWood was real.
+  for (const bogus of ['AIRCRAFTCabin', 'AMBDesignedDark', 'FOLEYFootstepsBoots', 'IMPACTMetal']) {
+    assert.equal(isKnownCatId(bogus), false, `${bogus} is not a real UCS CatID`);
+  }
+  assert.equal(isKnownCatId('DOORWood'), true);
+  assert.equal(isKnownCatId('WATRUndwtr'), true);
+  assert.equal(isKnownCatId('DSGNRmbl'), true);
 });
 
 test('every catId is unique and matches /^[A-Za-z]+$/', () => {
@@ -55,23 +68,29 @@ test('every catId is unique and matches /^[A-Za-z]+$/', () => {
   }
 });
 
-test('every entry has a non-empty category/subCategory and >=1 en / >=1 zh synonym', () => {
+test('every entry has a non-empty category/subCategory and >=1 en synonym', () => {
+  let withZh = 0;
   for (const entry of dataset.categories) {
     assert.ok(entry.category.length > 0, `${entry.catId}: empty category`);
-    assert.match(entry.category, /^[A-Z]+$/, `${entry.catId}: category not an uppercase code`);
+    assert.match(entry.category, /^[A-Z][A-Z &0-9]*$/, `${entry.catId}: category not an uppercase code`);
     assert.ok(entry.subCategory.length > 0, `${entry.catId}: empty subCategory`);
     assert.ok(entry.synonymsEn.length >= 1, `${entry.catId}: no English synonyms`);
-    assert.ok(entry.synonymsZh.length >= 1, `${entry.catId}: no Chinese synonyms`);
     assert.ok(Array.isArray(entry.excludes), `${entry.catId}: excludes is not an array`);
     for (const synonym of entry.synonymsEn) {
       assert.equal(typeof synonym, 'string');
       assert.ok(synonym.trim().length > 0, `${entry.catId}: blank English synonym`);
     }
-    for (const synonym of entry.synonymsZh) {
-      assert.equal(typeof synonym, 'string');
-      assert.ok(/[\u4e00-\u9fff]/.test(synonym), `${entry.catId}: Chinese synonym without Han chars: ${synonym}`);
+    // Chinese synonyms are curated for a subset of the official list, never for
+    // all of it, so a missing list is fine but a present one must be Chinese.
+    if (entry.synonymsZh.length > 0) {
+      withZh += 1;
+      for (const synonym of entry.synonymsZh) {
+        assert.equal(typeof synonym, 'string');
+        assert.ok(/[\u4e00-\u9fff]/.test(synonym), `${entry.catId}: Chinese synonym without Han chars: ${synonym}`);
+      }
     }
   }
+  assert.ok(withZh >= 145, `expected the curated Chinese overlay on >= 145 entries, got ${withZh}`);
 });
 
 test('catId always starts with its category code', () => {
@@ -81,8 +100,10 @@ test('catId always starts with its category code', () => {
       entry.catId.startsWith(code),
       `${entry.catId} does not start with ${code} (category ${entry.category})`,
     );
-    assert.ok(entry.catId.length > code.length, `${entry.catId}: no subcategory part`);
-    assert.equal(entry.catId, `${code}${entry.subCategory}`, `${entry.catId}: code + subCategory mismatch`);
+    // CatShort is always a prefix of CatID, but the official compression means
+    // the remainder is NOT the readable subcategory (AIRBrst -> "Brst" vs
+    // "Burst"), so only the prefix relation is asserted.
+    assert.ok(entry.catId.length >= code.length, `${entry.catId}: shorter than its code ${code}`);
   }
 });
 
@@ -90,16 +111,78 @@ test('abbreviated categories carry an explicit code (AMB, DOOR, MACHINE, ...)', 
   const abbreviated = dataset.categories.filter((c) => c.code !== undefined && c.code !== c.category);
   assert.ok(abbreviated.length > 0, 'expected at least one category whose CatID prefix differs from its name');
   const codes = new Set(abbreviated.map((c) => c.code));
-  for (const expected of ['AMB', 'DOOR', 'IMPACT', 'MACHINE', 'MOVE']) {
+  for (const expected of ['AMB', 'DOOR', 'MACH', 'MOVE', 'WATR', 'AERO']) {
     assert.ok(codes.has(expected), `expected an entry with code ${expected}`);
   }
-  // every abbreviation really is a leading abbreviation of the category name
+  // Every abbreviation is short and upper-case.
   for (const entry of abbreviated) {
+    assert.match(entry.code as string, /^[A-Z0-9]{2,5}$/, `${entry.code} is not a UCS-style code`);
+  }
+  // Most codes are a vowel-elided form of the category name, where the code's
+  // letters appear in order inside the name (WATER -> WATR, ALARMS -> ALRM,
+  // CROWDS -> CRWD). The rest are semantic: the CatShort names the group rather
+  // than the parent category. That set is enumerated below and the assertion is
+  // bidirectional, so a code that stops being elided without being registered
+  // here fails the test.
+  const isElided = (category: string, code: string) => {
+    const name = category.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (name.charAt(0) !== code.charAt(0)) return false;
+    // (a) the code's letters appear in order somewhere in the name
+    //     (WATER -> WATR, ALARMS -> ALRM, CROWDS -> CRWD, SWOOSHES -> SWSH)
+    let at = 0;
+    let inOrder = true;
+    for (const ch of code) {
+      at = name.indexOf(ch, at);
+      if (at === -1) {
+        inOrder = false;
+        break;
+      }
+      at += 1;
+    }
+    if (inOrder) return true;
+    // (b) the code is an initialism of the name's words (USER INTERFACE -> UI)
+    const initials = category
+      .split(/[^A-Za-z0-9]+/)
+      .filter(Boolean)
+      .map((word) => word.charAt(0).toUpperCase())
+      .join('');
+    return initials === code;
+  };
+
+  // ARCHIVED is special: its CatIDs are the bare CatShort (ADR, MIX, RAW, WIP,
+  // WTF), so no code relates to the name "ARCHIVED" at all.
+  const ARCHIVED_CODES = new Set([
+    'ADR', 'ASSET', 'BNCE', 'IR', 'LPGRP', 'MIX', 'PFX', 'PROD', 'RAW', 'REF', 'SCNE', 'TEST', 'TMARK', 'WIP', 'WTF',
+  ]);
+  const SEMANTIC_CODES: Record<string, string[]> = {
+    AIRCRAFT: ['AERO'],
+    CARTOON: ['TOON'],
+    FOOTSTEPS: ['FEET'],
+    SWOOSHES: ['WHSH'],
+    VOICES: ['VOX'],
+    // WEATHER is four one-off members, each carrying its own CatShort.
+    WEATHER: ['HAIL', 'STORM', 'THUN'],
+  };
+  const semanticCodes = new Set(Object.values(SEMANTIC_CODES).flat());
+
+  const observedSemantic = new Set<string>();
+  for (const entry of abbreviated) {
+    const code = entry.code as string;
+    if (isElided(entry.category, code)) continue;
+    if (entry.category === 'ARCHIVED' && ARCHIVED_CODES.has(code)) continue;
+    observedSemantic.add(code);
     assert.ok(
-      entry.category.startsWith(entry.code as string),
-      `${entry.code} is not a prefix of ${entry.category}`,
+      semanticCodes.has(code),
+      `${code} for ${entry.category} is not a vowel-elided form of the name; add it to SEMANTIC_CODES with a reason`,
     );
-    assert.ok((entry.code as string).length < entry.category.length);
+  }
+  for (const code of semanticCodes) {
+    assert.ok(observedSemantic.has(code), `${code} is listed in SEMANTIC_CODES but is no longer in the dataset`);
+  }
+
+  // every ARCHIVED CatID is exactly its code
+  for (const entry of dataset.categories.filter((c) => c.category === 'ARCHIVED')) {
+    assert.equal(entry.catId, entry.code, `ARCHIVED entry ${entry.catId} should be its bare CatShort`);
   }
   // entries whose CatID prefix equals their category name still expose a code
   for (const entry of dataset.categories) {
@@ -160,13 +243,20 @@ test('labels resolve in both languages', () => {
   assert.equal(labelFor('doorwood'), 'Wood', 'labelFor should be case-insensitive');
   assert.equal(labelFor(''), '');
   assert.equal(labelFor('NOPE'), 'NOPE', 'unknown codes pass through');
-  // zh labels exist for every category and every subcategory
+  // Every UCS category has a curated Chinese name.
   for (const category of listCategories()) {
     assert.notEqual(labelFor(category.code, 'zh-Hans'), category.code, `${category.code} has no zh label`);
-    for (const sub of listSubCategories(category.code)) {
-      assert.notEqual(labelFor(sub.catId, 'zh-Hans'), sub.catId, `${sub.catId} has no zh label`);
-    }
   }
+});
+
+test('a category code that is also a CatID resolves to the category name, not a subcategory', () => {
+  // AIR, RAIN, HAIL, WIND, STORM, WTHR and MIX are both a category code and a
+  // bare CatID. The CatID-level Chinese label describes one subcategory
+  // ("雨声户外"), so the category name must win.
+  assert.equal(labelFor('RAIN', 'zh-Hans'), '雨');
+  assert.equal(labelFor('AIR', 'zh-Hans'), '气流');
+  assert.equal(labelFor('WIND', 'zh-Hans'), '风');
+  assert.equal(labelFor('RAIN'), 'General', 'the English label still comes from the CatID');
 });
 
 /* -------------------------------------------------------------------------- */
@@ -336,8 +426,12 @@ test('sniffFilename still yields tokens for a non-UCS name', () => {
   assert.equal(ucs?.catId, 'DOORWood');
   assert.deepEqual(ucs?.tokens, ['DOORWood', 'Wooden', 'Door', 'Close', 'Mylib', '01']);
 
-  const lower = sniffFilename('impactmetal_hit.wav');
-  assert.equal(lower?.catId, 'IMPACTMetal', 'sniffFilename should match CatIDs case-insensitively');
+  const lower = sniffFilename('doorwood_hit.wav');
+  assert.equal(lower?.catId, 'DOORWood', 'sniffFilename should match CatIDs case-insensitively');
+
+  // IMPACTMetal is not a real UCS CatID; the metal impact is METLImpt.
+  assert.equal(sniffFilename('impactmetal_hit.wav')?.catId, undefined);
+  assert.equal(sniffFilename('metlimpt_hit.wav')?.catId, 'METLImpt');
 
   assert.equal(sniffFilename(''), null);
   assert.equal(sniffFilename('   '), null);
@@ -397,7 +491,10 @@ test("expandQueryZh('太鼓') resolves through the UCS synonym path", () => {
   assert.equal(result.matched[0]?.term, '太鼓');
   assert.equal(result.matched[0]?.source, 'ucs-synonym');
   assert.ok((result.matched[0]?.en.length ?? 0) >= 1);
-  assert.match(result.rewritten.toLowerCase(), /taiko/);
+  // 太鼓 is a percussion drum; the official UCS synonym list for
+  // MUSICAL/PERCUSSION does not contain "taiko" at all, so the rewrite leads
+  // with the subcategory's own word.
+  assert.match(result.rewritten.toLowerCase(), /percussion|drum/);
   assert.deepEqual(result.unmatched, []);
   assert.ok(result.captions.includes('太鼓'));
 });

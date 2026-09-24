@@ -169,6 +169,7 @@ function dataFile(name: string): URL {
 const seedFile = dataFile('categories.seed.json');
 const generatedFile = dataFile('categories.generated.json');
 const zhFile = dataFile('zh-Hans.json');
+const curatedFile = dataFile('curated-zh.json');
 const dictFile = dataFile('query-dict.zh-en.json');
 
 function readJson<T>(url: URL): T {
@@ -220,7 +221,52 @@ function loadDataset(): UcsDataset {
 /** The active UCS dataset (generated if `scripts/build-ucs.mjs` has been run, else the seed). */
 export const dataset: UcsDataset = loadDataset();
 
-const zhNames = readJson<Record<string, string>>(zhFile);
+/**
+ * Chinese display names, kept in two namespaces.
+ *
+ * The curated table (`curated-zh.json`) is authoritative: `categoryNames` maps
+ * official UCS category codes to their Chinese name and `catIdNames` maps
+ * official CatIDs to theirs, merged into the generated dataset by
+ * scripts/build-ucs.mjs.
+ *
+ * `legacyNames` is the older seed-era table (`zh-Hans.json`). Its keys are a mix
+ * of legacy category codes and legacy CatIDs which deliberately must NOT share a
+ * namespace with the curated codes: the legacy file has a CatID literally called
+ * `RAIN`, and letting that land in `categoryNames` would shadow the curated
+ * category label "雨". It is consulted only as a last resort, for a checkout
+ * that still ships the curated seed instead of the generated dataset.
+ */
+function loadZhNames(): {
+  categoryNames: Record<string, string>;
+  catIdNames: Record<string, string>;
+  legacyNames: Record<string, string>;
+} {
+  const categoryNames: Record<string, string> = {};
+  const catIdNames: Record<string, string> = {};
+  const legacyNames: Record<string, string> = {};
+
+  const legacy = readJson<Record<string, unknown>>(zhFile);
+  for (const [key, value] of Object.entries(legacy)) {
+    if (key.startsWith('_')) continue;
+    if (typeof value === 'string') legacyNames[key] = value;
+  }
+
+  if (existsSync(fileURLToPath(curatedFile))) {
+    const curated = readJson<{ categories?: Record<string, string>; catIds?: Record<string, { label?: string }> }>(
+      curatedFile,
+    );
+    for (const [code, label] of Object.entries(curated.categories ?? {})) {
+      if (typeof label === 'string' && label.length > 0) categoryNames[code] = label;
+    }
+    for (const [catId, value] of Object.entries(curated.catIds ?? {})) {
+      const label = value?.label;
+      if (typeof label === 'string' && label.length > 0) catIdNames[catId] = label;
+    }
+  }
+  return { categoryNames, catIdNames, legacyNames };
+}
+
+const { categoryNames, catIdNames, legacyNames } = loadZhNames();
 const rawDict = readJson<Record<string, unknown>>(dictFile);
 const queryDict: Record<string, string[]> = {};
 for (const [key, value] of Object.entries(rawDict)) {
@@ -266,18 +312,26 @@ for (const entry of dataset.categories) {
   subCategoryCounts.set(entry.catId, (subCategoryCounts.get(entry.catId) ?? 0) + 1);
 }
 
-/** Chinese lookup table: dictionary entries first, then UCS synonyms (dictionary wins). */
+/**
+ * Chinese lookup table: dictionary entries first, then UCS synonyms (dictionary wins).
+ *
+ * `zhLookup` keeps a short English slice per Chinese term because it feeds the
+ * caption rewriter, which must stay readable. The curated synonyms are sorted
+ * first by scripts/build-ucs.mjs, so the slice favours hand-written terms over
+ * the official list's alphabetical ones.
+ */
+const ZH_SYNONYM_SLICE = 8;
 const zhLookup = new Map<string, DictEntry>();
 for (const entry of dataset.categories) {
   for (const zh of entry.synonymsZh) {
     const key = zh.trim();
     if (key.length > 0 && !zhLookup.has(key)) {
-      zhLookup.set(key, { en: entry.synonymsEn.slice(0, 4), source: 'ucs-synonym' });
+      zhLookup.set(key, { en: entry.synonymsEn.slice(0, ZH_SYNONYM_SLICE), source: 'ucs-synonym' });
     }
   }
 }
 for (const [key, en] of Object.entries(queryDict)) {
-  zhLookup.set(key, { en: en.slice(0, 4), source: 'query-dict' });
+  zhLookup.set(key, { en: en.slice(0, ZH_SYNONYM_SLICE), source: 'query-dict' });
 }
 
 /** All Chinese/reference terms sorted longest-first for greedy longest-match segmentation. */
@@ -361,20 +415,60 @@ export function labelFor(catIdOrCode: string, lang?: Lang): string {
   const raw = String(catIdOrCode ?? '').trim();
   if (raw.length === 0) return '';
 
+  // Chinese display names are keyed by `CATEGORY/SubCategory`, by category code
+  // and by CatID. Several UCS categories use the same string for the code and a
+  // bare CatID (`AIR`, `RAIN`, `HAIL`, `WIND`, `STORM`, `WTHR`, `MIX`), and the
+  // CatID label there is a subcategory phrase ("雨声户外"), so a pure code wins
+  // over the CatID. Consult this explicit curation first — but only for the
+  // Chinese language, so English labels keep coming from the dataset.
+  if (resolved === 'zh-Hans') {
+    const entry0 = byCatId.get(raw) ?? byCatIdLower.get(raw.toLowerCase());
+    if (entry0) {
+      const categoryLabel = categoryNames[entry0.category];
+      // An exact CatID ("DOORWood") is normally unambiguous: its own label wins.
+      if (entry0.catId === raw) {
+        // But when the CatID IS the category code (RAIN, MIX, ...) the semantic
+        // unit is the category, not this one subcategory, so the category name
+        // wins.
+        if (entry0.catId === entry0.category && categoryLabel) return categoryLabel;
+        const own = catIdNames[entry0.catId] ?? legacyNames[`${entry0.category}/${entry0.subCategory}`];
+        if (own) return own;
+        return categoryLabel ?? entry0.subCategory;
+      }
+      // Otherwise this is a category code. Several UCS categories use the same
+      // string for the code and a bare CatID (AIR, RAIN, HAIL, WIND, STORM,
+      // WTHR, MIX); there the CatID-level Chinese label describes only one
+      // subcategory ("雨声户外" for a category that also covers rain on glass,
+      // cloth, metal, vegetation and wood), so the category name wins.
+      if (categoryCounts.has(entry0.category) && categoryLabel) return categoryLabel;
+      const curated =
+        catIdNames[entry0.catId] ??
+        legacyNames[`${entry0.category}/${entry0.subCategory}`] ??
+        legacyNames[entry0.catId];
+      if (typeof curated === 'string' && curated.length > 0) return curated;
+    } else {
+      const upper = raw.toUpperCase();
+      const byCode = categoryNames[upper] ?? legacyNames[upper];
+      if (byCode) return byCode;
+    }
+  }
+
   const entry = byCatId.get(raw) ?? byCatIdLower.get(raw.toLowerCase());
   if (entry) {
-    const key = `${entry.category}/${entry.subCategory}`;
-    if (resolved === 'zh-Hans') return zhNames[key] ?? zhNames[entry.catId] ?? entry.subCategory;
+    if (resolved === 'zh-Hans') {
+      return (
+        catIdNames[entry.catId] ?? legacyNames[`${entry.category}/${entry.subCategory}`] ?? entry.subCategory
+      );
+    }
     return entry.subCategory;
   }
 
   const code = raw.toUpperCase();
   if (categoryCounts.has(code)) {
-    if (resolved === 'zh-Hans') return zhNames[code] ?? code;
+    if (resolved === 'zh-Hans') return categoryNames[code] ?? legacyNames[code] ?? code;
     return code;
   }
 
-  if (resolved === 'zh-Hans' && zhNames[raw]) return zhNames[raw];
   return raw;
 }
 
@@ -410,6 +504,26 @@ function scoreEntry(entry: UcsCategory, needle: string, lang: Lang): number {
     if (tokens.some((t) => primary.has(t))) return 25;
     if (tokens.some((t) => secondary.has(t))) return 24;
     if (tokens.some((t) => catId === t || sub === t)) return 22;
+
+    // A query like "wooden door" matches neither the synonym "Wood" nor the
+    // exact substring "wooden", and the official synonym list is short. Score
+    // every token against the CatID / subCategory by 4-character prefix, then
+    // order by how much of the query was actually consumed: DOORWood beats
+    // BELLDoor on "wooden door" because its stem is longer.
+    let matched = 0;
+    let stemChars = 0;
+    for (const token of tokens) {
+      const stem = token.slice(0, 4);
+      const hay = `${catId} ${sub}`;
+      if (hay.includes(token)) {
+        matched += 1;
+        stemChars += token.length;
+      } else if (hay.includes(stem)) {
+        matched += 1;
+        stemChars += stem.length;
+      }
+    }
+    if (matched > 0) return matched * 10 + stemChars;
     if (tokens.some((t) => preferred.some((s) => normalizeText(s).includes(t)))) return 15;
     if (tokens.some((t) => other.some((s) => normalizeText(s).includes(t)))) return 14;
   }

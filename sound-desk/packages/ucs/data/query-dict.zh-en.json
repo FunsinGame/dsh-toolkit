@@ -1,0 +1,2037 @@
+{
+  "_note": "Chinese → English query-rewriting dictionary for CLAP-friendly caption generation. Keys are Chinese surface forms (objects, materials, qualities, spaces, actions and domain terms); values are 1-4 lowercase natural English renderings — NOT literal word-for-word translations. Community/best-effort, zero runtime dependencies.",
+  "_generatedAt": "2026-09-23T11:11:51.185Z",
+  "金属门": [
+    "metal door",
+    "steel door"
+  ],
+  "玻璃": [
+    "glass",
+    "glass pane",
+    "glass surface"
+  ],
+  "木地板": [
+    "wooden floor",
+    "wood floor",
+    "hardwood floor"
+  ],
+  "石头": [
+    "stone",
+    "rock",
+    "stone surface"
+  ],
+  "混凝土": [
+    "concrete",
+    "cement",
+    "concrete surface"
+  ],
+  "塑料": [
+    "plastic",
+    "plastic surface"
+  ],
+  "橡胶": [
+    "rubber",
+    "rubber surface"
+  ],
+  "布料": [
+    "cloth",
+    "fabric",
+    "textile"
+  ],
+  "纸张": [
+    "paper",
+    "sheet of paper"
+  ],
+  "陶瓷": [
+    "ceramic",
+    "porcelain",
+    "china"
+  ],
+  "冰块": [
+    "ice",
+    "ice block",
+    "frozen ice"
+  ],
+  "沙子": [
+    "sand",
+    "gritty sand"
+  ],
+  "泥土": [
+    "mud",
+    "dirt",
+    "wet soil"
+  ],
+  "水": [
+    "water",
+    "water sound"
+  ],
+  "小提琴": [
+    "violin",
+    "fiddle"
+  ],
+  "大提琴": [
+    "cello"
+  ],
+  "钢琴": [
+    "piano",
+    "grand piano"
+  ],
+  "吉他": [
+    "guitar",
+    "acoustic guitar"
+  ],
+  "电吉他": [
+    "electric guitar",
+    "distorted electric guitar"
+  ],
+  "贝斯": [
+    "bass guitar",
+    "bass"
+  ],
+  "架子鼓": [
+    "drum kit",
+    "acoustic drum kit"
+  ],
+  "鼓": [
+    "drum",
+    "drum hit"
+  ],
+  "小号": [
+    "trumpet",
+    "brass trumpet"
+  ],
+  "萨克斯": [
+    "saxophone",
+    "sax"
+  ],
+  "长笛": [
+    "flute"
+  ],
+  "二胡": [
+    "erhu",
+    "chinese bowed string"
+  ],
+  "古筝": [
+    "guzheng",
+    "chinese zither"
+  ],
+  "琵琶": [
+    "pipa",
+    "chinese lute"
+  ],
+  "笛子": [
+    "chinese flute",
+    "bamboo flute",
+    "dizi"
+  ],
+  "唢呐": [
+    "suona",
+    "chinese shawm"
+  ],
+  "锣": [
+    "gong",
+    "large gong"
+  ],
+  "镲": [
+    "cymbal",
+    "crash cymbal"
+  ],
+  "手鼓": [
+    "hand drum",
+    "frame drum"
+  ],
+  "三角铁": [
+    "triangle",
+    "triangle chime"
+  ],
+  "口琴": [
+    "harmonica",
+    "mouth organ"
+  ],
+  "手风琴": [
+    "accordion"
+  ],
+  "风琴": [
+    "organ",
+    "pipe organ"
+  ],
+  "弦乐": [
+    "string section",
+    "orchestral strings"
+  ],
+  "管弦乐": [
+    "orchestra",
+    "orchestral"
+  ],
+  "合唱": [
+    "choir",
+    "choral voices"
+  ],
+  "口哨": [
+    "whistle",
+    "whistling"
+  ],
+  "枪声": [
+    "gunshot",
+    "gun fire"
+  ],
+  "手枪": [
+    "handgun",
+    "pistol"
+  ],
+  "步枪": [
+    "rifle",
+    "rifle shot"
+  ],
+  "霰弹枪": [
+    "shotgun",
+    "shotgun blast"
+  ],
+  "机枪": [
+    "machine gun",
+    "machine gun fire"
+  ],
+  "狙击枪": [
+    "sniper rifle",
+    "sniper shot"
+  ],
+  "消音枪": [
+    "silenced gun",
+    "suppressed pistol"
+  ],
+  "大炮": [
+    "cannon",
+    "artillery fire"
+  ],
+  "爆炸": [
+    "explosion",
+    "blast",
+    "detonation"
+  ],
+  "手榴弹": [
+    "grenade",
+    "grenade explosion"
+  ],
+  "直升机": [
+    "helicopter",
+    "chopper"
+  ],
+  "飞机": [
+    "airplane",
+    "aircraft"
+  ],
+  "喷气机": [
+    "jet plane",
+    "jet aircraft"
+  ],
+  "螺旋桨飞机": [
+    "propeller plane",
+    "prop plane"
+  ],
+  "无人机": [
+    "drone",
+    "quadcopter"
+  ],
+  "滑翔机": [
+    "glider",
+    "sailplane"
+  ],
+  "雷声": [
+    "thunder",
+    "thunder clap",
+    "thunder rumble"
+  ],
+  "雨": [
+    "rain",
+    "rainfall",
+    "rain sound"
+  ],
+  "大雨": [
+    "heavy rain",
+    "downpour"
+  ],
+  "小雨": [
+    "light rain",
+    "drizzle"
+  ],
+  "暴风雨": [
+    "storm",
+    "thunderstorm"
+  ],
+  "风": [
+    "wind",
+    "wind blowing"
+  ],
+  "大风": [
+    "strong wind",
+    "gale",
+    "howling wind"
+  ],
+  "龙卷风": [
+    "tornado",
+    "twister"
+  ],
+  "火": [
+    "fire",
+    "flames"
+  ],
+  "篝火": [
+    "campfire",
+    "bonfire"
+  ],
+  "火焰": [
+    "flames",
+    "blazing fire"
+  ],
+  "火灾": [
+    "fire",
+    "building fire"
+  ],
+  "烟花": [
+    "fireworks",
+    "firework burst"
+  ],
+  "火柴": [
+    "match",
+    "striking a match"
+  ],
+  "打火机": [
+    "lighter",
+    "cigarette lighter"
+  ],
+  "水龙头": [
+    "tap",
+    "faucet running"
+  ],
+  "海浪": [
+    "ocean waves",
+    "sea waves",
+    "surf"
+  ],
+  "瀑布": [
+    "waterfall",
+    "waterfall roar"
+  ],
+  "溪流": [
+    "stream",
+    "creek",
+    "flowing stream"
+  ],
+  "河流": [
+    "river",
+    "river water"
+  ],
+  "雨滴": [
+    "water drip",
+    "dripping"
+  ],
+  "沸腾": [
+    "boiling",
+    "boiling water",
+    "bubbling"
+  ],
+  "倒水": [
+    "pouring water",
+    "water poured"
+  ],
+  "汽车": [
+    "car",
+    "automobile"
+  ],
+  "跑车": [
+    "sports car",
+    "sports car engine"
+  ],
+  "卡车": [
+    "truck",
+    "lorry"
+  ],
+  "公交车": [
+    "bus",
+    "city bus"
+  ],
+  "火车": [
+    "train",
+    "railway train"
+  ],
+  "蒸汽火车": [
+    "steam train",
+    "steam locomotive"
+  ],
+  "地铁": [
+    "subway",
+    "metro train"
+  ],
+  "摩托车": [
+    "motorcycle",
+    "motorbike"
+  ],
+  "自行车": [
+    "bicycle",
+    "bike"
+  ],
+  "赛车": [
+    "race car",
+    "racing car"
+  ],
+  "警车": [
+    "police car",
+    "police siren"
+  ],
+  "救护车": [
+    "ambulance",
+    "ambulance siren"
+  ],
+  "消防车": [
+    "fire truck",
+    "fire engine siren"
+  ],
+  "坦克": [
+    "tank",
+    "military tank"
+  ],
+  "拖拉机": [
+    "tractor",
+    "farm tractor"
+  ],
+  "挖掘机": [
+    "excavator",
+    "digger"
+  ],
+  "推土机": [
+    "bulldozer"
+  ],
+  "起重机": [
+    "crane",
+    "construction crane"
+  ],
+  "引擎": [
+    "engine",
+    "engine running"
+  ],
+  "发动机": [
+    "engine",
+    "motor"
+  ],
+  "喇叭": [
+    "horn",
+    "car horn"
+  ],
+  "汽笛": [
+    "steam whistle",
+    "ship horn"
+  ],
+  "轮胎": [
+    "tire",
+    "tyre"
+  ],
+  "刹车": [
+    "brake",
+    "braking",
+    "brake squeal"
+  ],
+  "时钟": [
+    "clock",
+    "clock ticking"
+  ],
+  "闹钟": [
+    "alarm clock",
+    "alarm clock ringing"
+  ],
+  "秒针": [
+    "second hand",
+    "clock ticking"
+  ],
+  "钟表": [
+    "watch",
+    "wristwatch ticking"
+  ],
+  "键盘": [
+    "keyboard",
+    "keyboard typing",
+    "typing"
+  ],
+  "鼠标": [
+    "mouse",
+    "computer mouse click"
+  ],
+  "相机快门": [
+    "camera shutter",
+    "shutter click"
+  ],
+  "硬币": [
+    "coins",
+    "coin drop"
+  ],
+  "打印机": [
+    "printer",
+    "office printer"
+  ],
+  "扫描仪": [
+    "scanner",
+    "document scanner"
+  ],
+  "复印机": [
+    "copier",
+    "photocopier"
+  ],
+  "传真机": [
+    "fax machine",
+    "fax"
+  ],
+  "电话": [
+    "telephone",
+    "phone ringing"
+  ],
+  "手机": [
+    "mobile phone",
+    "cell phone"
+  ],
+  "门铃": [
+    "doorbell",
+    "door chime"
+  ],
+  "警报": [
+    "alarm",
+    "siren"
+  ],
+  "心跳": [
+    "heartbeat",
+    "heart beating"
+  ],
+  "呼吸": [
+    "breathing",
+    "breath"
+  ],
+  "咳嗽": [
+    "cough",
+    "coughing"
+  ],
+  "笑声": [
+    "laughter",
+    "laughing",
+    "giggling"
+  ],
+  "哭声": [
+    "crying",
+    "sobbing",
+    "weeping"
+  ],
+  "尖叫": [
+    "scream",
+    "screaming",
+    "shriek"
+  ],
+  "喊叫": [
+    "shout",
+    "yelling"
+  ],
+  "低语": [
+    "whisper",
+    "whispering"
+  ],
+  "叹气": [
+    "sigh",
+    "sighing"
+  ],
+  "打鼾": [
+    "snoring",
+    "snore"
+  ],
+  "喷嚏": [
+    "sneeze",
+    "sneezing"
+  ],
+  "吞咽": [
+    "swallowing",
+    "gulp"
+  ],
+  "咀嚼": [
+    "chewing",
+    "chewing food"
+  ],
+  "人群": [
+    "crowd",
+    "crowd walla"
+  ],
+  "掌声": [
+    "applause",
+    "clapping",
+    "applause and cheers"
+  ],
+  "脚步声": [
+    "footsteps",
+    "footsteps walking",
+    "walking steps"
+  ],
+  "敲门": [
+    "knocking",
+    "knock on door",
+    "door knock"
+  ],
+  "开门": [
+    "door open"
+  ],
+  "关门": [
+    "door close",
+    "door shut"
+  ],
+  "走路": [
+    "walking",
+    "walking sound"
+  ],
+  "跑步": [
+    "running",
+    "running footsteps"
+  ],
+  "跳跃": [
+    "jumping",
+    "jump"
+  ],
+  "落地": [
+    "landing",
+    "landing thud"
+  ],
+  "拖拽": [
+    "dragging",
+    "drag across floor"
+  ],
+  "滚动": [
+    "rolling",
+    "rolling along"
+  ],
+  "摩擦": [
+    "friction",
+    "rubbing"
+  ],
+  "敲击": [
+    "knocking",
+    "tapping",
+    "hitting"
+  ],
+  "拍打": [
+    "slapping",
+    "patting"
+  ],
+  "鞭打": [
+    "whipping",
+    "whip crack"
+  ],
+  "投掷": [
+    "throwing",
+    "toss"
+  ],
+  "抛掷": [
+    "tossing",
+    "flipping"
+  ],
+  "挥舞": [
+    "swinging",
+    "swing"
+  ],
+  "刀": [
+    "knife",
+    "blade"
+  ],
+  "剑": [
+    "sword",
+    "blade"
+  ],
+  "弓": [
+    "bow",
+    "bow and arrow"
+  ],
+  "箭": [
+    "arrow",
+    "arrow flyby"
+  ],
+  "斧头": [
+    "axe",
+    "axe chop"
+  ],
+  "锤子": [
+    "hammer",
+    "hammer strike"
+  ],
+  "电锯": [
+    "chainsaw",
+    "power saw"
+  ],
+  "电钻": [
+    "power drill",
+    "electric drill"
+  ],
+  "扳手": [
+    "wrench",
+    "spanner"
+  ],
+  "螺丝刀": [
+    "screwdriver"
+  ],
+  "起重机马达": [
+    "hoist motor",
+    "crane motor"
+  ],
+  "开关": [
+    "switch",
+    "light switch"
+  ],
+  "按钮": [
+    "button",
+    "button press"
+  ],
+  "抽屉": [
+    "drawer",
+    "drawer opening"
+  ],
+  "拉链": [
+    "zipper",
+    "zipper closing"
+  ],
+  "钥匙": [
+    "keys",
+    "key jingle"
+  ],
+  "铰链": [
+    "hinge",
+    "door hinge creak"
+  ],
+  "木头": [
+    "wood",
+    "wooden"
+  ],
+  "玻璃杯": [
+    "glass",
+    "drinking glass"
+  ],
+  "瓶子": [
+    "bottle",
+    "glass bottle"
+  ],
+  "金属": [
+    "metal",
+    "metallic"
+  ],
+  "钢铁": [
+    "steel",
+    "iron"
+  ],
+  "黄铜": [
+    "brass",
+    "brass metal"
+  ],
+  "铝": [
+    "aluminium",
+    "aluminum"
+  ],
+  "铜": [
+    "copper",
+    "copper metal"
+  ],
+  "骨头": [
+    "bone",
+    "bones"
+  ],
+  "拳头": [
+    "fist",
+    "fist punch"
+  ],
+  "大便": [
+    "feces",
+    "squishy organic"
+  ],
+  "树叶": [
+    "leaves",
+    "foliage"
+  ],
+  "草": [
+    "grass",
+    "grassy"
+  ],
+  "地毯": [
+    "carpet",
+    "rug"
+  ],
+  "雪": [
+    "snow",
+    "snowy"
+  ],
+  "鹅卵石": [
+    "pebbles",
+    "pebble stones"
+  ],
+  "沥青": [
+    "asphalt",
+    "tarmac"
+  ],
+  "砖块": [
+    "brick",
+    "bricks"
+  ],
+  "瓦片": [
+    "roof tile",
+    "tiles"
+  ],
+  "皮革": [
+    "leather",
+    "leathery"
+  ],
+  "天鹅绒": [
+    "velvet",
+    "soft velvet"
+  ],
+  "丝绸": [
+    "silk",
+    "silky"
+  ],
+  "麻布": [
+    "burlap",
+    "hessian"
+  ],
+  "帆布": [
+    "canvas",
+    "heavy canvas"
+  ],
+  "泡沫": [
+    "foam",
+    "styrofoam"
+  ],
+  "海绵": [
+    "sponge",
+    "squishy foam"
+  ],
+  "橡胶轮胎": [
+    "rubber tire",
+    "rubber tyre"
+  ],
+  "玻璃碎片": [
+    "broken glass",
+    "shards of glass"
+  ],
+  "纸箱": [
+    "cardboard box",
+    "cardboard"
+  ],
+  "锡纸": [
+    "foil",
+    "aluminium foil"
+  ],
+  "砂纸": [
+    "sandpaper",
+    "abrasive"
+  ],
+  "粉笔": [
+    "chalk",
+    "chalk on board"
+  ],
+  "马克笔": [
+    "marker pen",
+    "felt tip pen"
+  ],
+  "铅笔画": [
+    "pencil",
+    "pencil writing"
+  ],
+  "钢笔": [
+    "pen",
+    "fountain pen"
+  ],
+  "毛笔": [
+    "brush",
+    "chinese ink brush"
+  ],
+  "沙滩": [
+    "beach sand",
+    "sandy beach"
+  ],
+  "碎石": [
+    "gravel",
+    "crushed stones"
+  ],
+  "水泥地": [
+    "cement floor",
+    "concrete floor"
+  ],
+  "石板": [
+    "stone slab",
+    "flagstone"
+  ],
+  "大理石": [
+    "marble",
+    "marble surface"
+  ],
+  "花岗岩": [
+    "granite",
+    "granite stone"
+  ],
+  "冰块碰撞": [
+    "ice cubes",
+    "clinking ice"
+  ],
+  "霜": [
+    "frost",
+    "frosty"
+  ],
+  "泥土湿": [
+    "wet mud",
+    "muddy ground"
+  ],
+  "黏土": [
+    "clay",
+    "sticky clay"
+  ],
+  "苔藓": [
+    "moss",
+    "mossy surface"
+  ],
+  "藤条": [
+    "rattan",
+    "wicker"
+  ],
+  "竹子": [
+    "bamboo",
+    "bamboo stick"
+  ],
+  "稻草": [
+    "straw",
+    "hay"
+  ],
+  "麦秆": [
+    "wheat straw",
+    "dry straw"
+  ],
+  "羽毛": [
+    "feather",
+    "feathers"
+  ],
+  "毛皮": [
+    "fur",
+    "furry"
+  ],
+  "羊毛": [
+    "wool",
+    "woolly"
+  ],
+  "棉布": [
+    "cotton",
+    "cotton fabric"
+  ],
+  "尼龙": [
+    "nylon",
+    "synthetic fabric"
+  ],
+  "聚酯纤维": [
+    "polyester",
+    "synthetic fibre"
+  ],
+  "乳胶": [
+    "latex",
+    "rubber latex"
+  ],
+  "硅胶": [
+    "silicone",
+    "silicone rubber"
+  ],
+  "亚克力": [
+    "acrylic",
+    "acrylic sheet"
+  ],
+  "聚碳酸酯": [
+    "polycarbonate",
+    "plastic sheet"
+  ],
+  "碳纤维": [
+    "carbon fibre",
+    "carbon fiber"
+  ],
+  "石墨": [
+    "graphite",
+    "graphite stick"
+  ],
+  "水银": [
+    "mercury",
+    "liquid metal"
+  ],
+  "液态": [
+    "liquid",
+    "fluid"
+  ],
+  "气体": [
+    "gas",
+    "gaseous"
+  ],
+  "蒸汽": [
+    "steam",
+    "steam hiss"
+  ],
+  "冰块碎裂": [
+    "ice cracking",
+    "cracking ice"
+  ],
+  "沉闷": [
+    "dull",
+    "muffled",
+    "thuddy"
+  ],
+  "清脆": [
+    "crisp",
+    "bright and crisp",
+    "crispy"
+  ],
+  "低沉": [
+    "low pitched",
+    "deep",
+    "low"
+  ],
+  "尖锐": [
+    "sharp",
+    "piercing",
+    "shrill"
+  ],
+  "明亮": [
+    "bright",
+    "brilliant"
+  ],
+  "温暖": [
+    "warm",
+    "warm toned"
+  ],
+  "冰冷": [
+    "cold",
+    "icy",
+    "cold toned"
+  ],
+  "粗糙": [
+    "rough",
+    "coarse",
+    "gritty"
+  ],
+  "平滑": [
+    "smooth",
+    "sleek"
+  ],
+  "厚重": [
+    "heavy",
+    "thick",
+    "weighty"
+  ],
+  "轻盈": [
+    "light",
+    "airy",
+    "delicate"
+  ],
+  "空灵": [
+    "ethereal",
+    "airy and spacious",
+    "otherworldly"
+  ],
+  "机械": [
+    "mechanical",
+    "machine like"
+  ],
+  "有机": [
+    "organic",
+    "natural sounding"
+  ],
+  "电子": [
+    "electronic",
+    "digital"
+  ],
+  "复古": [
+    "retro",
+    "vintage",
+    "oldschool"
+  ],
+  "失真": [
+    "distorted",
+    "distortion"
+  ],
+  "柔和": [
+    "soft",
+    "gentle",
+    "mellow"
+  ],
+  "刺耳": [
+    "harsh",
+    "grating",
+    "ear piercing"
+  ],
+  "巨大": [
+    "huge",
+    "massive",
+    "enormous"
+  ],
+  "微小": [
+    "tiny",
+    "subtle",
+    "very small"
+  ],
+  "缓慢": [
+    "slow",
+    "slowly"
+  ],
+  "快速": [
+    "fast",
+    "rapid",
+    "quick"
+  ],
+  "连续": [
+    "continuous",
+    "looping",
+    "ongoing"
+  ],
+  "断续": [
+    "intermittent",
+    "stuttering",
+    "choppy"
+  ],
+  "模糊": [
+    "blurry",
+    "diffuse"
+  ],
+  "干净": [
+    "clean",
+    "clear"
+  ],
+  "脏": [
+    "dirty",
+    "gritty and dirty"
+  ],
+  "空旷": [
+    "open and spacious",
+    "vast open space"
+  ],
+  "狭窄": [
+    "narrow",
+    "tight"
+  ],
+  "干燥": [
+    "dry",
+    "arid"
+  ],
+  "潮湿": [
+    "wet",
+    "damp",
+    "humid"
+  ],
+  "闪亮": [
+    "shiny",
+    "glossy"
+  ],
+  "哑光": [
+    "matte",
+    "dull finish"
+  ],
+  "透明": [
+    "transparent",
+    "clear"
+  ],
+  "黑暗": [
+    "dark",
+    "murky"
+  ],
+  "阴暗": [
+    "gloomy",
+    "sinister"
+  ],
+  "恐怖": [
+    "scary",
+    "terrifying",
+    "horror"
+  ],
+  "温柔": [
+    "tender",
+    "soft and tender"
+  ],
+  "暴力": [
+    "violent",
+    "brutal"
+  ],
+  "优雅": [
+    "elegant",
+    "graceful"
+  ],
+  "笨重": [
+    "clumsy",
+    "heavy and awkward"
+  ],
+  "紧张": [
+    "tense",
+    "suspenseful"
+  ],
+  "放松": [
+    "relaxing",
+    "calm and relaxed"
+  ],
+  "悲伤": [
+    "sad",
+    "melancholic"
+  ],
+  "欢快": [
+    "cheerful",
+    "upbeat",
+    "joyful"
+  ],
+  "神秘": [
+    "mysterious",
+    "enigmatic"
+  ],
+  "庄严": [
+    "solemn",
+    "majestic"
+  ],
+  "梦幻": [
+    "dreamy",
+    "ethereal dream"
+  ],
+  "未来": [
+    "futuristic",
+    "sci-fi"
+  ],
+  "复古感": [
+    "retro",
+    "vintage vibe"
+  ],
+  "黏稠": [
+    "viscous",
+    "gooey",
+    "sludgy"
+  ],
+  "松散": [
+    "loose",
+    "slack"
+  ],
+  "紧密": [
+    "tight",
+    "compact"
+  ],
+  "锐利": [
+    "sharp edged",
+    "biting"
+  ],
+  "钝": [
+    "blunt",
+    "dull edged"
+  ],
+  "巨大冲击": [
+    "massive impact",
+    "huge slam"
+  ],
+  "带点混响": [
+    "with reverb",
+    "reverberant"
+  ],
+  "大教堂混响": [
+    "cathedral reverb",
+    "huge church reverb"
+  ],
+  "小房间": [
+    "small room",
+    "tight room acoustics"
+  ],
+  "户外": [
+    "outdoor",
+    "outdoors"
+  ],
+  "室内": [
+    "indoor",
+    "indoors"
+  ],
+  "隧道": [
+    "tunnel",
+    "tunnel reverb"
+  ],
+  "仓库": [
+    "warehouse",
+    "large empty warehouse"
+  ],
+  "近距离": [
+    "close up",
+    "up close",
+    "near"
+  ],
+  "远处": [
+    "distant",
+    "far away",
+    "in the distance"
+  ],
+  "山谷": [
+    "valley",
+    "mountain valley echo"
+  ],
+  "洞穴": [
+    "cave",
+    "caven",
+    "cavernous"
+  ],
+  "厕所": [
+    "bathroom",
+    "toilet",
+    "restroom"
+  ],
+  "走廊": [
+    "hallway",
+    "corridor"
+  ],
+  "地下室": [
+    "basement",
+    "cellar"
+  ],
+  "停车场": [
+    "parking garage",
+    "car park"
+  ],
+  "教堂": [
+    "church",
+    "chapel"
+  ],
+  "体育馆": [
+    "gymnasium",
+    "sports hall"
+  ],
+  "机场": [
+    "airport",
+    "terminal"
+  ],
+  "火车站": [
+    "train station",
+    "railway station"
+  ],
+  "地铁站": [
+    "subway station",
+    "metro station"
+  ],
+  "商场": [
+    "shopping mall",
+    "department store"
+  ],
+  "学校": [
+    "school",
+    "classroom"
+  ],
+  "办公室": [
+    "office",
+    "office interior"
+  ],
+  "厨房": [
+    "kitchen"
+  ],
+  "浴室": [
+    "bathroom",
+    "shower room"
+  ],
+  "卧室": [
+    "bedroom"
+  ],
+  "客厅": [
+    "living room"
+  ],
+  "街道": [
+    "street",
+    "city street"
+  ],
+  "广场": [
+    "square",
+    "plaza",
+    "public square"
+  ],
+  "森林": [
+    "forest",
+    "woods"
+  ],
+  "海边": [
+    "seaside",
+    "beach"
+  ],
+  "水下": [
+    "underwater",
+    "submerged"
+  ],
+  "太空": [
+    "space",
+    "outer space"
+  ],
+  "外太空": [
+    "deep space",
+    "outer space"
+  ],
+  "金属管道": [
+    "metal pipe",
+    "metal duct"
+  ],
+  "隧道内": [
+    "inside a tunnel",
+    "tunnel interior"
+  ],
+  "撞击": [
+    "impact",
+    "hit",
+    "collision"
+  ],
+  "敲击声": [
+    "tapping",
+    "knocking sound"
+  ],
+  "敲打": [
+    "beating",
+    "pounding"
+  ],
+  "摩擦声": [
+    "rubbing",
+    "friction sound"
+  ],
+  "刮擦": [
+    "scraping",
+    "scrape",
+    "scuff"
+  ],
+  "撕裂": [
+    "tearing",
+    "rip"
+  ],
+  "爆炸声": [
+    "explosion",
+    "blast"
+  ],
+  "破碎": [
+    "breaking",
+    "shatter",
+    "smash"
+  ],
+  "玻璃破碎": [
+    "glass breaking",
+    "shattering glass",
+    "glass shatter"
+  ],
+  "折叠": [
+    "folding",
+    "folding up"
+  ],
+  "摇晃": [
+    "shaking",
+    "rattle",
+    "rattling"
+  ],
+  "旋转": [
+    "rotating",
+    "spinning",
+    "whirling"
+  ],
+  "落下": [
+    "falling",
+    "dropping"
+  ],
+  "滑动": [
+    "sliding",
+    "slide"
+  ],
+  "弹跳": [
+    "bouncing",
+    "bounce"
+  ],
+  "嘶嘶声": [
+    "hissing",
+    "hiss"
+  ],
+  "嗡嗡声": [
+    "buzzing",
+    "humming",
+    "hum"
+  ],
+  "咔嗒声": [
+    "click",
+    "clicking",
+    "clack"
+  ],
+  "咔哒": [
+    "clack",
+    "clicking sound"
+  ],
+  "转动": [
+    "turning",
+    "rotating"
+  ],
+  "挤压": [
+    "squeezing",
+    "squish"
+  ],
+  "拉扯": [
+    "pulling",
+    "tugging"
+  ],
+  "戳": [
+    "poking",
+    "prodding"
+  ],
+  "切割": [
+    "cutting",
+    "chopping",
+    "slicing"
+  ],
+  "磨": [
+    "grinding",
+    "sharpening"
+  ],
+  "锯": [
+    "sawing",
+    "saw cut"
+  ],
+  "钻": [
+    "drilling",
+    "boring a hole"
+  ],
+  "倒": [
+    "pouring",
+    "emptying"
+  ],
+  "洒": [
+    "spilling",
+    "splash out"
+  ],
+  "喷": [
+    "spraying",
+    "spray",
+    "squirt"
+  ],
+  "吹": [
+    "blowing",
+    "blow"
+  ],
+  "吸": [
+    "sucking",
+    "suction"
+  ],
+  "咬": [
+    "biting",
+    "bite"
+  ],
+  "抓": [
+    "grabbing",
+    "clutching"
+  ],
+  "拍手": [
+    "clapping hands",
+    "clap"
+  ],
+  "踢": [
+    "kicking",
+    "kick"
+  ],
+  "推": [
+    "pushing",
+    "shove"
+  ],
+  "拉": [
+    "pulling",
+    "tug"
+  ],
+  "举": [
+    "lifting",
+    "raising"
+  ],
+  "扔": [
+    "throwing",
+    "toss"
+  ],
+  "接": [
+    "catch",
+    "caught object"
+  ],
+  "打开": [
+    "opening",
+    "open"
+  ],
+  "关闭": [
+    "closing",
+    "shut"
+  ],
+  "启动": [
+    "starting up",
+    "start up"
+  ],
+  "停止": [
+    "stopping",
+    "stop"
+  ],
+  "加速": [
+    "accelerating",
+    "speeding up"
+  ],
+  "减速": [
+    "decelerating",
+    "slowing down"
+  ],
+  "转弯": [
+    "turning",
+    "cornering"
+  ],
+  "倒车": [
+    "reversing",
+    "backing up"
+  ],
+  "碰撞": [
+    "crash",
+    "collision",
+    "impact"
+  ],
+  "追尾": [
+    "rear end crash",
+    "car crash"
+  ],
+  "打滑": [
+    "skidding",
+    "slipping"
+  ],
+  "陷住": [
+    "stuck",
+    "getting stuck"
+  ],
+  "拟音": [
+    "foley",
+    "foley sound",
+    "foley recording"
+  ],
+  "环境音": [
+    "ambience",
+    "ambient sound",
+    "atmosphere"
+  ],
+  "上升音": [
+    "riser",
+    "rising sound",
+    "build up"
+  ],
+  "冲击": [
+    "impact",
+    "hit",
+    "slam"
+  ],
+  "横扫声": [
+    "whoosh",
+    "swish",
+    "swoosh"
+  ],
+  "转换音": [
+    "transition",
+    "transition effect"
+  ],
+  "氛围": [
+    "atmosphere",
+    "ambience"
+  ],
+  "循环": [
+    "loop",
+    "looping"
+  ],
+  "音效库": [
+    "sound library",
+    "sound effects library"
+  ],
+  "采样率": [
+    "sample rate"
+  ],
+  "音效": [
+    "sound effect",
+    "sfx"
+  ],
+  "配乐": [
+    "score",
+    "soundtrack"
+  ],
+  "声音设计": [
+    "sound design",
+    "sound design element"
+  ],
+  "混响": [
+    "reverb",
+    "reverberation"
+  ],
+  "回声": [
+    "echo",
+    "echoing"
+  ],
+  "低频": [
+    "low frequency",
+    "bass heavy"
+  ],
+  "高频": [
+    "high frequency",
+    "bright highs"
+  ],
+  "中频": [
+    "mid frequency",
+    "midrange"
+  ],
+  "噪声": [
+    "noise",
+    "noisy texture"
+  ],
+  "白噪声": [
+    "white noise"
+  ],
+  "爆音": [
+    "pop",
+    "clipping pop"
+  ],
+  "杂音": [
+    "static",
+    "interference noise"
+  ],
+  "滴答": [
+    "ticking",
+    "tick tock"
+  ],
+  "嘟嘟声": [
+    "beep",
+    "beeping"
+  ],
+  "铃声": [
+    "ringtone",
+    "ringing bell"
+  ],
+  "提示音": [
+    "notification",
+    "alert tone"
+  ],
+  "小碎块": [
+    "small fragments",
+    "tiny shards"
+  ],
+  "玻璃渣": [
+    "glass shards",
+    "broken glass pieces"
+  ],
+  "鸟叫": [
+    "bird call",
+    "birds chirping",
+    "bird song"
+  ],
+  "鸟鸣": [
+    "bird song",
+    "birds singing"
+  ],
+  "鸟": [
+    "bird",
+    "birds"
+  ],
+  "小鸟": [
+    "small bird",
+    "bird chirp"
+  ],
+  "虫鸣": [
+    "insect chirp",
+    "crickets"
+  ],
+  "空仓库": [
+    "empty warehouse",
+    "abandoned warehouse"
+  ],
+  "掠过": [
+    "pass by",
+    "sweep past"
+  ],
+  "沉重": [
+    "heavy",
+    "weighty"
+  ],
+  "清脆的": [
+    "crisp",
+    "bright"
+  ],
+  "碎块": [
+    "fragments",
+    "shards"
+  ],
+  "紧张感": [
+    "tension",
+    "tense atmosphere"
+  ],
+  "怪物": [
+    "monster",
+    "creature"
+  ],
+  "野兽": [
+    "beast",
+    "wild animal"
+  ],
+  "低吼": [
+    "low growl",
+    "growl"
+  ],
+  "咆哮": [
+    "roar",
+    "bellow"
+  ],
+  "嘶吼": [
+    "snarl",
+    "hiss roar"
+  ],
+  "嚎叫": [
+    "howl",
+    "wail"
+  ],
+  "叫声": [
+    "call",
+    "vocalization"
+  ],
+  "怒吼": [
+    "angry roar",
+    "bellow"
+  ],
+  "呻吟": [
+    "groan",
+    "moan"
+  ],
+  "喘息": [
+    "breathing",
+    "panting"
+  ],
+  "骷髅": [
+    "skeleton",
+    "bones rattle"
+  ],
+  "亡灵": [
+    "undead",
+    "ghostly"
+  ],
+  "恶魔": [
+    "demon",
+    "demonic"
+  ],
+  "虫子": [
+    "insect",
+    "bug"
+  ],
+  "蝙蝠": [
+    "bat",
+    "bat wings"
+  ],
+  "狼": [
+    "wolf",
+    "wolves"
+  ],
+  "猪": [
+    "pig",
+    "swine"
+  ],
+  "狗": [
+    "dog",
+    "bark"
+  ],
+  "猫": [
+    "cat",
+    "meow"
+  ],
+  "马": [
+    "horse",
+    "hooves"
+  ],
+  "挥砍": [
+    "swing",
+    "slash"
+  ],
+  "劈砍": [
+    "chop",
+    "cleave"
+  ],
+  "砍": [
+    "chop",
+    "slash"
+  ],
+  "刺": [
+    "stab",
+    "thrust"
+  ],
+  "斩": [
+    "slash",
+    "cut"
+  ],
+  "击中": [
+    "hit",
+    "strike"
+  ],
+  "命中": [
+    "hit",
+    "impact"
+  ],
+  "落空": [
+    "miss",
+    "whiff"
+  ],
+  "格挡": [
+    "block",
+    "parry"
+  ],
+  "盾": [
+    "shield",
+    "shield block"
+  ],
+  "拉弓": [
+    "bow draw",
+    "drawstring"
+  ],
+  "射箭": [
+    "arrow shot",
+    "bow release"
+  ],
+  "法术": [
+    "spell",
+    "magic cast"
+  ],
+  "施法": [
+    "casting spell",
+    "incantation"
+  ],
+  "诅咒": [
+    "curse",
+    "hex"
+  ],
+  "治疗": [
+    "heal",
+    "healing"
+  ],
+  "中毒": [
+    "poison",
+    "toxic"
+  ],
+  "粉碎": [
+    "shatter",
+    "crush"
+  ],
+  "金币": [
+    "coins",
+    "gold coins"
+  ],
+  "硬币掉落": [
+    "coins dropping",
+    "coin drop"
+  ],
+  "掉落": [
+    "dropping",
+    "falling"
+  ],
+  "拾取": [
+    "pick up",
+    "collect"
+  ],
+  "钱袋": [
+    "coin pouch",
+    "money bag"
+  ],
+  "宝箱": [
+    "treasure chest",
+    "chest open"
+  ],
+  "书本": [
+    "book",
+    "pages turning"
+  ],
+  "锁": [
+    "lock",
+    "lock click"
+  ],
+  "门闩": [
+    "latch",
+    "bolt slide"
+  ],
+  "拉杆": [
+    "lever pull",
+    "switch"
+  ],
+  "旗帜": [
+    "flag",
+    "banner flutter"
+  ],
+  "燃烧": [
+    "burning",
+    "combust"
+  ],
+  "火把": [
+    "torch",
+    "torch flame"
+  ],
+  "余烬": [
+    "embers",
+    "smoldering"
+  ],
+  "雷": [
+    "thunder",
+    "thunderclap"
+  ],
+  "闪电": [
+    "lightning",
+    "lightning strike"
+  ],
+  "风声": [
+    "wind",
+    "wind blowing"
+  ],
+  "暴风": [
+    "storm",
+    "tempest"
+  ],
+  "地牢": [
+    "dungeon",
+    "underground"
+  ],
+  "酒馆": [
+    "tavern",
+    "pub"
+  ],
+  "城镇": [
+    "town",
+    "village"
+  ],
+  "沼泽": [
+    "swamp",
+    "marsh"
+  ],
+  "水面": [
+    "water surface",
+    "water"
+  ],
+  "水滴": [
+    "water drop",
+    "drip"
+  ],
+  "血肉": [
+    "flesh",
+    "gore"
+  ],
+  "阴森": [
+    "eerie",
+    "sinister"
+  ],
+  "诡异": [
+    "uncanny",
+    "weird"
+  ],
+  "轻柔": [
+    "soft",
+    "gentle"
+  ],
+  "猛烈": [
+    "violent",
+    "fierce"
+  ],
+  "微弱": [
+    "faint",
+    "weak"
+  ],
+  "悠长": [
+    "long sustained",
+    "drawn out"
+  ],
+  "短促": [
+    "short",
+    "abrupt"
+  ],
+  "嘈杂": [
+    "noisy",
+    "chaotic"
+  ],
+  "安静": [
+    "quiet",
+    "hushed"
+  ]
+}

@@ -17,6 +17,9 @@
     },
     "./data/categories.seed.json": "./data/categories.seed.json",
     "./data/categories.generated.json": "./data/categories.generated.json",
+    "./data/curated-zh.json": "./data/curated-zh.json",
+    "./data/official-catalog.json": "./data/official-catalog.json",
+    "./data/ucs_v8.2.1.csv": "./data/ucs_v8.2.1.csv",
     "./data/zh-Hans.json": "./data/zh-Hans.json",
     "./data/query-dict.zh-en.json": "./data/query-dict.zh-en.json"
   },
@@ -32,6 +35,10 @@
     "test": "node --test --experimental-strip-types src/*.test.ts",
     "test:direct": "node --experimental-strip-types src/index.test.ts",
     "build:ucs": "node scripts/build-ucs.mjs",
+    "check:ucs": "node scripts/build-ucs.mjs --check",
+    "list:ucs": "node scripts/build-ucs.mjs --list",
+    "catalog:ucs": "node scripts/build-catalog.mjs",
+    "migrate:zh": "node scripts/migrate-seed-zh.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {

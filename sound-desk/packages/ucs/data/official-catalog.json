@@ -1,0 +1,1175 @@
+{
+  "version": "8.2.1",
+  "sourceSha256": "aebc8bf4f8b0dd7cafc1231c25b6664250087ab1acb8d4e6ed18ef8bf9d47986",
+  "generatedBy": "packages/ucs/scripts/build-catalog.mjs",
+  "note": "Quick-reference index of the official UCS v8.2.1 category tree, derived from data/ucs_v8.2.1.csv. The dataset actually consumed at runtime is data/categories.generated.json; this file exists so a human can grep the official vocabulary without parsing the CSV.",
+  "totals": {
+    "categories": 82,
+    "subCategories": 753
+  },
+  "tree": {
+    "AIR": {
+      "code": "AIR",
+      "subCategories": [
+        "BLOW (AIRBlow)",
+        "BURST (AIRBrst)",
+        "HISS (AIRHiss)",
+        "MISC (AIRMisc)",
+        "SUCTION (AIRSuck)"
+      ]
+    },
+    "AIRCRAFT": {
+      "code": "AERO",
+      "subCategories": [
+        "DOOR (AERODoor)",
+        "HELICOPTER (AEROHeli)",
+        "INTERIOR (AEROInt)",
+        "JET (AEROJet)",
+        "MECHANISM (AEROMech)",
+        "MILITARY (AEROMil)",
+        "MISC (AEROMisc)",
+        "PROP (AEROProp)",
+        "RADIO CONTROLLED (AERORadio)",
+        "ROCKET (AERORckt)"
+      ]
+    },
+    "ALARMS": {
+      "code": "ALRM",
+      "subCategories": [
+        "BELL (ALRMBell)",
+        "BUZZER (ALRMBuzr)",
+        "CLOCK (ALRMClok)",
+        "ELECTRONIC (ALRMElec)",
+        "MISC (ALRMMisc)",
+        "SIREN (ALRMSirn)"
+      ]
+    },
+    "AMBIENCE": {
+      "code": "AMB",
+      "subCategories": [
+        "AIR (AMBAir)",
+        "ALPINE (AMBAlpn)",
+        "AMUSEMENT (AMBAmus)",
+        "BIRDSONG (AMBBird)",
+        "CELEBRATION (AMBCele)",
+        "CONSTRUCTION (AMBCnst)",
+        "DESERT (AMBDsrt)",
+        "DESIGNED (AMBDsgn)",
+        "EMERGENCY (AMBEmrg)",
+        "FANTASY (AMBFant)",
+        "FARM (AMBFarm)",
+        "FOREST (AMBForst)",
+        "GRASSLAND (AMBGras)",
+        "HISTORICAL (AMBHist)",
+        "HITECH (AMBTech)",
+        "HOSPITAL (AMBHosp)",
+        "INDUSTRIAL (AMBInd)",
+        "INSECT (AMBInsc)",
+        "LAKESIDE (AMBLake)",
+        "MARKET (AMBMrkt)",
+        "MISC (AMBMisc)",
+        "NAUTICAL (AMBNaut)",
+        "OFFICE (AMBOffc)",
+        "PARK (AMBPark)",
+        "PRISON (AMBPrisn)",
+        "PROTEST (AMBPrtst)",
+        "PUBLIC PLACE (AMBPubl)",
+        "RELIGIOUS (AMBRlgn)",
+        "RESIDENTIAL (AMBHome)",
+        "RESTAURANT & BAR (AMBRest)",
+        "ROOM TONE (AMBRoom)",
+        "RURAL (AMBRurl)",
+        "SCHOOL (AMBSchl)",
+        "SCIFI (AMBSci)",
+        "SEASIDE (AMBSea)",
+        "SPORT (AMBSprt)",
+        "SUBURBAN (AMBSubn)",
+        "SWAMP (AMBSwmp)",
+        "TOWN (AMBTown)",
+        "TRAFFIC (AMBTraf)",
+        "TRANSPORTATION (AMBTran)",
+        "TROPICAL (AMBTrop)",
+        "TUNDRA (AMBTndra)",
+        "UNDERGROUND (AMBUndr)",
+        "UNDERWATER (AMBUndwtr)",
+        "URBAN (AMBUrbn)",
+        "WARFARE (AMBWar)"
+      ]
+    },
+    "ANIMALS": {
+      "code": "ANML",
+      "subCategories": [
+        "AMPHIBIAN (ANMLAmph)",
+        "AQUATIC (ANMLAqua)",
+        "BAT (ANMLBat)",
+        "CAT DOMESTIC (ANMLCat)",
+        "CAT WILD (ANMLWcat)",
+        "DOG (ANMLDog)",
+        "DOG WILD (ANMLWdog)",
+        "FARM (ANMLFarm)",
+        "HORSE (ANMLHors)",
+        "INSECT (ANMLInsc)",
+        "MISC (ANMLMisc)",
+        "PRIMATE (ANMLPrim)",
+        "REPTILE (ANMLRept)",
+        "RODENT (ANMLRdnt)",
+        "WILD (ANMLWild)"
+      ]
+    },
+    "ARCHIVED": {
+      "code": "ADR",
+      "subCategories": [
+        "ADR (ADR)",
+        "ASSET (ASSET)",
+        "BOUNCE (BNCE)",
+        "IMPULSE RESPONSE (IR)",
+        "LOOP GROUP (LPGRP)",
+        "MIX (MIX)",
+        "PFX (PFX)",
+        "PRODUCTION (PROD)",
+        "RAW (RAW)",
+        "REFERENCE (REF)",
+        "SCENE (SCNE)",
+        "TEST TONE (TEST)",
+        "TRADEMARKED (TMARK)",
+        "WORK IN PROGRESS (WIP)",
+        "WTF (WTF)"
+      ]
+    },
+    "BEEPS": {
+      "code": "BEEP",
+      "subCategories": [
+        "APPLIANCE (BEEPAppl)",
+        "GENERAL (BEEP)",
+        "LOFI (BEEPLofi)",
+        "MEDICAL (BEEPMed)",
+        "TIMER (BEEPTimer)",
+        "VEHICLE (BEEPVeh)"
+      ]
+    },
+    "BELLS": {
+      "code": "BELL",
+      "subCategories": [
+        "ANIMAL (BELLAnml)",
+        "DOORBELL (BELLDoor)",
+        "GONG (BELLGong)",
+        "HANDBELL (BELLHand)",
+        "LARGE (BELLLrg)",
+        "MISC (BELLMisc)"
+      ]
+    },
+    "BIRDS": {
+      "code": "BIRD",
+      "subCategories": [
+        "BIRD OF PREY (BIRDPrey)",
+        "CROW (BIRDCrow)",
+        "FOWL (BIRDFowl)",
+        "MISC (BIRDMisc)",
+        "SEA (BIRDSea)",
+        "SONGBIRD (BIRDSong)",
+        "TROPICAL (BIRDTrop)",
+        "WADING (BIRDWade)"
+      ]
+    },
+    "BOATS": {
+      "code": "BOAT",
+      "subCategories": [
+        "AIR BOAT (BOATAir)",
+        "BOW WASH (BOATWash)",
+        "DOOR (BOATDoor)",
+        "ELECTRIC (BOATElec)",
+        "FISHING (BOATFish)",
+        "HORN (BOATHorn)",
+        "INTERIOR (BOATInt)",
+        "MECHANISM (BOATMech)",
+        "MILITARY (BOATMil)",
+        "MISC (BOATMisc)",
+        "MOTORBOAT (BOATMotr)",
+        "RACING (BOATRace)",
+        "ROWBOAT (BOATRow)",
+        "SAILBOAT (BOATSail)",
+        "SHIP (BOATShip)",
+        "STEAM (BOATStm)",
+        "SUBMARINE (BOATSub)",
+        "UNDERWATER (BOATUndwtr)"
+      ]
+    },
+    "BULLETS": {
+      "code": "BLLT",
+      "subCategories": [
+        "BY (BLLTBy)",
+        "IMPACT (BLLTImpt)",
+        "MISC (BLLTMisc)",
+        "RICOCHET (BLLTRico)",
+        "SHELL (BLLTShel)"
+      ]
+    },
+    "CARTOON": {
+      "code": "TOON",
+      "subCategories": [
+        "ANIMAL (TOONAnml)",
+        "BOING (TOONBoing)",
+        "CLANG (TOONClang)",
+        "CREAK (TOONCreak)",
+        "HORN (TOONHorn)",
+        "IMPACT (TOONImpt)",
+        "MACHINE (TOONMach)",
+        "MISC (TOONMisc)",
+        "MUSICAL (TOONMx)",
+        "PLUCK (TOONPluk)",
+        "POP (TOONPop)",
+        "SHAKE (TOONShake)",
+        "SPLAT (TOONSplt)",
+        "SQUEAK (TOONSqk)",
+        "STRETCH (TOONStrch)",
+        "SWISH (TOONSwsh)",
+        "TWANG (TOONTwang)",
+        "VEHICLE (TOONVeh)",
+        "VOCAL (TOONVox)",
+        "WARBLE (TOONWarb)",
+        "WHISTLE (TOONWhis)",
+        "ZIP (TOONZip)"
+      ]
+    },
+    "CERAMICS": {
+      "code": "CERM",
+      "subCategories": [
+        "BREAK (CERMBrk)",
+        "CRASH & DEBRIS (CERMCrsh)",
+        "FRICTION (CERMFric)",
+        "HANDLE (CERMHndl)",
+        "IMPACT (CERMImpt)",
+        "MISC (CERMMisc)",
+        "MOVEMENT (CERMMvmt)",
+        "TONAL (CERMTonl)"
+      ]
+    },
+    "CHAINS": {
+      "code": "CHAIN",
+      "subCategories": [
+        "BREAK (CHAINBrk)",
+        "HANDLE (CHAINHndl)",
+        "IMPACT (CHAINImpt)",
+        "MISC (CHAINMisc)",
+        "MOVEMENT (CHAINMvmt)"
+      ]
+    },
+    "CHEMICALS": {
+      "code": "CHEM",
+      "subCategories": [
+        "ACID (CHEMAcid)",
+        "MISC (CHEMMisc)",
+        "REACTION (CHEMReac)"
+      ]
+    },
+    "CLOCKS": {
+      "code": "CLOCK",
+      "subCategories": [
+        "CHIME (CLOCKChim)",
+        "MECHANICS (CLOCKMech)",
+        "MISC (CLOCKMisc)",
+        "TICK (CLOCKTick)"
+      ]
+    },
+    "CLOTH": {
+      "code": "CLOTH",
+      "subCategories": [
+        "FLAP (CLOTHFlp)",
+        "HANDLE (CLOTHHndl)",
+        "IMPACT (CLOTHImpt)",
+        "MISC (CLOTHMisc)",
+        "MOVEMENT (CLOTHMvmt)",
+        "RIP (CLOTHRip)"
+      ]
+    },
+    "COMMUNICATIONS": {
+      "code": "COM",
+      "subCategories": [
+        "AUDIO VISUAL (COMAv)",
+        "CAMERA (COMCam)",
+        "CELLPHONE (COMCell)",
+        "MICROPHONE (COMMic)",
+        "MISC (COMMisc)",
+        "PHONOGRAPH (COMPhono)",
+        "RADIO (COMRadio)",
+        "STATIC (COMStatic)",
+        "TELEMETRY (COMTelm)",
+        "TELEPHONE (COMTelph)",
+        "TELEVISION (COMTv)",
+        "TRANSCEIVER (COMTran)",
+        "TYPEWRITER (COMType)"
+      ]
+    },
+    "COMPUTERS": {
+      "code": "CMPT",
+      "subCategories": [
+        "HARD DRIVE (CMPTDriv)",
+        "KEYBOARD & MOUSE (CMPTKey)",
+        "MISC (CMPTMisc)"
+      ]
+    },
+    "CREATURES": {
+      "code": "CREA",
+      "subCategories": [
+        "AQUATIC (CREAAqua)",
+        "AVIAN (CREAAvian)",
+        "BEAST (CREABeast)",
+        "BLOB (CREABlob)",
+        "DINOSAUR (CREADino)",
+        "DRAGON (CREADrgn)",
+        "ELEMENTAL (CREAElem)",
+        "ETHEREAL (CREAEthr)",
+        "HUMANOID (CREAHmn)",
+        "INSECTOID (CREAInsc)",
+        "MISC (CREAMisc)",
+        "MONSTER (CREAMnstr)",
+        "REPTILIAN (CREARept)",
+        "SMALL (CREASmall)",
+        "SOURCE (CREASrce)"
+      ]
+    },
+    "CROWDS": {
+      "code": "CRWD",
+      "subCategories": [
+        "ANGRY (CRWDAngr)",
+        "APPLAUSE (CRWDApls)",
+        "BATTLE (CRWDBatl)",
+        "CELEBRATION (CRWDCele)",
+        "CHEERING (CRWDCheer)",
+        "CHILDREN (CRWDChld)",
+        "CONVERSATION (CRWDConv)",
+        "LAUGHTER (CRWDLaff)",
+        "LOOP GROUP (CRWDLoop)",
+        "MISC (CRWDMisc)",
+        "PANIC (CRWDPanic)",
+        "QUIET (CRWDQuiet)",
+        "REACTION (CRWDReac)",
+        "SINGING (CRWDSing)",
+        "SPORT (CRWDSprt)",
+        "WALLA (CRWDWalla)"
+      ]
+    },
+    "DESIGNED": {
+      "code": "DSGN",
+      "subCategories": [
+        "BASS DIVE (DSGNBass)",
+        "BOOM (DSGNBoom)",
+        "BRAAM (DSGNBram)",
+        "DISTORTION (DSGNDist)",
+        "DRONE (DSGNDron)",
+        "EERIE (DSGNErie)",
+        "ETHEREAL (DSGNEthr)",
+        "GRANULAR (DSGNGran)",
+        "IMPACT (DSGNImpt)",
+        "MISC (DSGNMisc)",
+        "MORPH (DSGNMorph)",
+        "RISER (DSGNRise)",
+        "RUMBLE (DSGNRmbl)",
+        "RHYTHMIC (DSGNRythm)",
+        "SOURCE (DSGNSrce)",
+        "STINGER (DSGNStngr)",
+        "SYNTHETIC (DSGNSynth)",
+        "TONAL (DSGNTonl)",
+        "VOCAL (DSGNVocl)",
+        "WHOOSH (DSGNWhsh)"
+      ]
+    },
+    "DESTRUCTION": {
+      "code": "DESTR",
+      "subCategories": [
+        "COLLAPSE (DESTRClpse)",
+        "CRASH & DEBRIS (DESTRCrsh)",
+        "MISC (DESTRMisc)"
+      ]
+    },
+    "DIRT & SAND": {
+      "code": "DIRT",
+      "subCategories": [
+        "CRASH & DEBRIS (DIRTCrsh)",
+        "DUST (DIRTDust)",
+        "HANDLE (DIRTHndl)",
+        "IMPACT (DIRTImpt)",
+        "MISC (DIRTMisc)",
+        "MOVEMENT (DIRTMvmt)",
+        "TONAL (DIRTTonl)"
+      ]
+    },
+    "DOORS": {
+      "code": "DOOR",
+      "subCategories": [
+        "ANTIQUE (DOORAntq)",
+        "APPLIANCE (DOORAppl)",
+        "CABINET (DOORCab)",
+        "COMPOSITE (DOORComp)",
+        "CREAK (DOORCreak)",
+        "DUNGEON (DOORDungn)",
+        "ELECTRIC (DOORElec)",
+        "GATE (DOORGate)",
+        "GLASS (DOORGlas)",
+        "HARDWARE (DOORHdwr)",
+        "HITECH (DOORTech)",
+        "HYDRAULIC & PNEUMATIC (DOORHydr)",
+        "KNOCK (DOORKnck)",
+        "METAL (DOORMetl)",
+        "MISC (DOORMisc)",
+        "PLASTIC (DOORPlas)",
+        "PRISON (DOORPrisn)",
+        "REVOLVING (DOORRevl)",
+        "SLIDING (DOORSlid)",
+        "STONE (DOORSton)",
+        "SWINGING (DOORSwng)",
+        "WOOD (DOORWood)"
+      ]
+    },
+    "DRAWERS": {
+      "code": "DRWR",
+      "subCategories": [
+        "METAL (DRWRMetl)",
+        "MISC (DRWRMisc)",
+        "PLASTIC (DRWRPlas)",
+        "WOOD (DRWRWood)"
+      ]
+    },
+    "ELECTRICITY": {
+      "code": "ELEC",
+      "subCategories": [
+        "ARC (ELECArc)",
+        "BUZZ & HUM (ELECBuzz)",
+        "ELECTROMAGNETIC (ELECEmf)",
+        "MISC (ELECMisc)",
+        "SPARKS (ELECSprk)",
+        "ZAP (ELECZap)"
+      ]
+    },
+    "EQUIPMENT": {
+      "code": "EQUIP",
+      "subCategories": [
+        "BRIDLE & TACK (EQUIPBridle)",
+        "HITECH (EQUIPTech)",
+        "MISC (EQUIPMisc)",
+        "RECREATIONAL (EQUIPRec)",
+        "SPORT (EQUIPSprt)",
+        "TACTICAL (EQUIPTact)"
+      ]
+    },
+    "EXPLOSIONS": {
+      "code": "EXPL",
+      "subCategories": [
+        "DESIGNED (EXPLDsgn)",
+        "MISC (EXPLMisc)",
+        "REAL (EXPLReal)"
+      ]
+    },
+    "FARTS": {
+      "code": "FART",
+      "subCategories": [
+        "DESIGNED (FARTDsgn)",
+        "MISC (FARTMisc)",
+        "REAL (FARTReal)"
+      ]
+    },
+    "FIGHT": {
+      "code": "FGHT",
+      "subCategories": [
+        "BODYFALL (FGHTBf)",
+        "CLOTH (FGHTClth)",
+        "GRAB (FGHTGrab)",
+        "IMPACT (FGHTImpt)",
+        "MISC (FGHTMisc)"
+      ]
+    },
+    "FIRE": {
+      "code": "FIRE",
+      "subCategories": [
+        "BURNING (FIREBurn)",
+        "BURST (FIREBrst)",
+        "CRACKLE (FIRECrkl)",
+        "GAS (FIREGas)",
+        "IGNITE (FIREIgn)",
+        "MISC (FIREMisc)",
+        "SIZZLE (FIRESizz)",
+        "TORCH (FIRETrch)",
+        "TURBULENT (FIRETurb)",
+        "WHOOSH (FIREWhsh)"
+      ]
+    },
+    "FIREWORKS": {
+      "code": "FRWK",
+      "subCategories": [
+        "COMMERCIAL (FRWKComr)",
+        "MISC (FRWKMisc)",
+        "RECREATIONAL (FRWKRec)"
+      ]
+    },
+    "FOLEY": {
+      "code": "FOLY",
+      "subCategories": [
+        "CLOTH (FOLYClth)",
+        "FEET (FOLYFeet)",
+        "HANDS (FOLYHand)",
+        "MISC (FOLYMisc)",
+        "PROP (FOLYProp)"
+      ]
+    },
+    "FOOD & DRINK": {
+      "code": "FOOD",
+      "subCategories": [
+        "COOKING (FOODCook)",
+        "DRINKING (FOODDrnk)",
+        "EATING (FOODEat)",
+        "GLASSWARE (FOODGware)",
+        "INGREDIENTS (FOODIngr)",
+        "KITCHENWARE (FOODKware)",
+        "MISC (FOODMisc)",
+        "POUR (FOODPour)",
+        "TABLEWARE (FOODTware)"
+      ]
+    },
+    "FOOTSTEPS": {
+      "code": "FEET",
+      "subCategories": [
+        "ANIMAL (FEETAnml)",
+        "CREATURE (FEETCrea)",
+        "HORSE (FEETHors)",
+        "HUMAN (FEETHmn)",
+        "MISC (FEETMisc)"
+      ]
+    },
+    "GAMES": {
+      "code": "GAME",
+      "subCategories": [
+        "ARCADE (GAMEArcd)",
+        "BOARD (GAMEBoard)",
+        "CASINO (GAMECas)",
+        "MISC (GAMEMisc)",
+        "VIDEO (GAMEVideo)"
+      ]
+    },
+    "GEOTHERMAL": {
+      "code": "GEO",
+      "subCategories": [
+        "FUMAROLE (GEOFuma)",
+        "GEYSER (GEOGeyser)",
+        "LAVA (GEOLava)",
+        "MISC (GEOMisc)",
+        "MUD POTS (GEOMudpot)"
+      ]
+    },
+    "GLASS": {
+      "code": "GLAS",
+      "subCategories": [
+        "BREAK (GLASBrk)",
+        "CRASH & DEBRIS (GLASCrsh)",
+        "FRICTION (GLASFric)",
+        "HANDLE (GLASHndl)",
+        "IMPACT (GLASImpt)",
+        "MISC (GLASMisc)",
+        "MOVEMENT (GLASMvmt)",
+        "TONAL (GLASTonl)"
+      ]
+    },
+    "GORE": {
+      "code": "GORE",
+      "subCategories": [
+        "BLOOD (GOREBlood)",
+        "BONE (GOREBone)",
+        "BURN (GOREBurn)",
+        "FLESH (GOREFlsh)",
+        "MISC (GOREMisc)",
+        "OOZE (GOREOoze)",
+        "SOURCE (GORESrce)",
+        "SPLAT (GORESplt)",
+        "SQUISH (GORESqsh)",
+        "STAB (GOREStab)"
+      ]
+    },
+    "GUNS": {
+      "code": "GUN",
+      "subCategories": [
+        "ANTIQUE (GUNAntq)",
+        "ARTILLERY (GUNArtl)",
+        "AUTOMATIC (GUNAuto)",
+        "CANNON (GUNCano)",
+        "HANDLE (GUNHndl)",
+        "HITECH (GUNTech)",
+        "MECHANISM (GUNMech)",
+        "MISC (GUNMisc)",
+        "PISTOL (GUNPis)",
+        "RIFLE (GUNRif)",
+        "SHOTGUN (GUNShotg)",
+        "SUPPRESSED (GUNSupr)"
+      ]
+    },
+    "HORNS": {
+      "code": "HORN",
+      "subCategories": [
+        "AIR POWERED (HORNAir)",
+        "CELEBRATION (HORNCele)",
+        "MISC (HORNMisc)",
+        "TRADITIONAL (HORNTrad)"
+      ]
+    },
+    "HUMAN": {
+      "code": "HMN",
+      "subCategories": [
+        "BLOW (HMNBlow)",
+        "BREATH (HMNBrth)",
+        "BURP (HMNBurp)",
+        "COUGH (HMNCough)",
+        "HEARTBEAT (HMNHart)",
+        "KISS (HMNKiss)",
+        "MISC (HMNMisc)",
+        "PEE (HMNPee)",
+        "SKIN (HMNSkin)",
+        "SNEEZE (HMNSneez)",
+        "SNIFF (HMNSniff)",
+        "SNORE (HMNSnor)",
+        "SPIT (HMNSpit)",
+        "VOMIT (HMNVomit)"
+      ]
+    },
+    "ICE": {
+      "code": "ICE",
+      "subCategories": [
+        "BREAK (ICEBrk)",
+        "CRASH & DEBRIS (ICECrsh)",
+        "FRICTION (ICEFric)",
+        "HANDLE (ICEHndl)",
+        "IMPACT (ICEImpt)",
+        "MISC (ICEMisc)",
+        "MOVEMENT (ICEMvmt)",
+        "TONAL (ICETonl)"
+      ]
+    },
+    "LASERS": {
+      "code": "LASR",
+      "subCategories": [
+        "BEAM (LASRBeam)",
+        "GUN (LASRGun)",
+        "IMPACT (LASRImpt)",
+        "MISC (LASRMisc)"
+      ]
+    },
+    "LEATHER": {
+      "code": "LETHR",
+      "subCategories": [
+        "CREAK (LETHRCreak)",
+        "HANDLE (LETHRHndl)",
+        "IMPACT (LETHRImpt)",
+        "MISC (LETHRMisc)",
+        "MOVEMENT (LETHRMvmt)"
+      ]
+    },
+    "LIQUID & MUD": {
+      "code": "LIQ",
+      "subCategories": [
+        "BUBBLES (LIQBubl)",
+        "IMPACT (LIQImpt)",
+        "MISC (LIQMisc)",
+        "MOVEMENT (LIQMvmt)",
+        "SUCTION (LIQSuct)"
+      ]
+    },
+    "MACHINES": {
+      "code": "MACH",
+      "subCategories": [
+        "AMUSEMENT (MACHAmus)",
+        "ANTIQUE (MACHAntq)",
+        "APPLIANCE (MACHAppl)",
+        "CONSTRUCTION (MACHCnst)",
+        "ELEVATOR (MACHElev)",
+        "ESCALATOR (MACHEscl)",
+        "FAN (MACHFan)",
+        "GARDEN (MACHGrdn)",
+        "GYM (MACHGym)",
+        "HITECH (MACHTech)",
+        "HVAC (MACHHvac)",
+        "INDUSTRIAL (MACHInd)",
+        "MECHANISM (MACHMech)",
+        "MEDICAL (MACHMed)",
+        "MISC (MACHMisc)",
+        "OFFICE (MACHOffc)",
+        "PUMP (MACHPump)"
+      ]
+    },
+    "MAGIC": {
+      "code": "MAG",
+      "subCategories": [
+        "ANGELIC (MAGAngl)",
+        "ELEMENTAL (MAGElem)",
+        "EVIL (MAGEvil)",
+        "MISC (MAGMisc)",
+        "POOF (MAGPoof)",
+        "SHIMMER (MAGShim)",
+        "SPELL (MAGSpel)"
+      ]
+    },
+    "MECHANICAL": {
+      "code": "MECH",
+      "subCategories": [
+        "CLICK (MECHClik)",
+        "GEARS (MECHGear)",
+        "HYDRAULIC & PNEUMATIC (MECHHydr)",
+        "LATCH (MECHLtch)",
+        "LEVER (MECHLvr)",
+        "LOCK (MECHLock)",
+        "MISC (MECHMisc)",
+        "PULLEY (MECHPuly)",
+        "RATCHET (MECHRtch)",
+        "RELAY (MECHRelay)",
+        "ROLLER (MECHRolr)",
+        "SWITCH (MECHSwtch)"
+      ]
+    },
+    "METAL": {
+      "code": "METL",
+      "subCategories": [
+        "BREAK (METLBrk)",
+        "CRASH & DEBRIS (METLCrsh)",
+        "FRICTION (METLFric)",
+        "HANDLE (METLHndl)",
+        "IMPACT (METLImpt)",
+        "MISC (METLMisc)",
+        "MOVEMENT (METLMvmt)",
+        "TONAL (METLTonl)"
+      ]
+    },
+    "MOTORS": {
+      "code": "MOTR",
+      "subCategories": [
+        "ANTIQUE (MOTRAntq)",
+        "COMBUSTION (MOTRComb)",
+        "ELECTRIC (MOTRElec)",
+        "MISC (MOTRMisc)",
+        "SERVO (MOTRSrvo)",
+        "TURBINE (MOTRTurb)"
+      ]
+    },
+    "MOVEMENT": {
+      "code": "MOVE",
+      "subCategories": [
+        "ACTIVITY (MOVEActv)",
+        "ANIMAL (MOVEAnml)",
+        "CREATURE (MOVECrea)",
+        "CROWD (MOVECrwd)",
+        "HUMAN (MOVEHmn)",
+        "INSECT (MOVEInsc)",
+        "MISC (MOVEMisc)",
+        "PRESENCE (MOVEPres)"
+      ]
+    },
+    "MUSICAL": {
+      "code": "MUSC",
+      "subCategories": [
+        "BELLS (MUSCBell)",
+        "BRASS (MUSCBrass)",
+        "CHIME (MUSCChim)",
+        "CHORAL (MUSCChor)",
+        "EXPERIMENTAL (MUSCExpr)",
+        "INSTRUMENT (MUSCInst)",
+        "KEYED (MUSCKeyd)",
+        "LOOP (MUSCLoop)",
+        "MISC (MUSCMisc)",
+        "PERCUSSION (MUSCPerc)",
+        "PERCUSSION TUNED (MUSCTnprc)",
+        "PERFORMANCE (MUSCPrfm)",
+        "PLUCKED (MUSCPluck)",
+        "SAMPLE (MUSCSmpl)",
+        "SHAKEN (MUSCShake)",
+        "SONG & PHRASE (MUSCSong)",
+        "STINGER (MUSCStngr)",
+        "STRINGED (MUSCStr)",
+        "SYNTHESIZED (MUSCSynth)",
+        "TOY (MUSCToy)",
+        "WOODWIND (MUSCWind)"
+      ]
+    },
+    "NATURAL DISASTER": {
+      "code": "NATD",
+      "subCategories": [
+        "AVALANCHE (NATDAval)",
+        "EARTHQUAKE (NATDQuak)",
+        "MISC (NATDMisc)",
+        "TORNADO (NATDTorn)",
+        "TSUNAMI (NATDTsun)",
+        "TYPHOON (NATDThyp)",
+        "VOLCANO (NATDVolc)"
+      ]
+    },
+    "OBJECTS": {
+      "code": "OBJ",
+      "subCategories": [
+        "BAG (OBJBag)",
+        "BOOK (OBJBook)",
+        "COIN (OBJCoin)",
+        "CONTAINER (OBJCont)",
+        "FASHION (OBJFash)",
+        "FURNITURE (OBJFurn)",
+        "GARDEN (OBJGrdn)",
+        "GYM (OBJGym)",
+        "HOUSEHOLD (OBJHsehld)",
+        "JEWELRY (OBJJewl)",
+        "KEYS (OBJKey)",
+        "LUGGAGE (OBJLug)",
+        "MEDICAL (OBJMed)",
+        "MISC (OBJMisc)",
+        "OFFICE (OBJOffc)",
+        "PACKAGING (OBJPack)",
+        "TAPE (OBJTape)",
+        "UMBRELLA (OBJUmbr)",
+        "WHEELED (OBJWhled)",
+        "WRITING (OBJWrite)",
+        "ZIPPER (OBJZipr)"
+      ]
+    },
+    "PAPER": {
+      "code": "PAPR",
+      "subCategories": [
+        "FLUTTER (PAPRFltr)",
+        "FRICTION (PAPRFric)",
+        "HANDLE (PAPRHndl)",
+        "IMPACT (PAPRImpt)",
+        "MISC (PAPRMisc)",
+        "RIP (PAPRRip)",
+        "TONAL (PAPRTonl)"
+      ]
+    },
+    "PLASTIC": {
+      "code": "PLAS",
+      "subCategories": [
+        "BREAK (PLASBrk)",
+        "CRASH & DEBRIS (PLASCrsh)",
+        "FRICTION (PLASFric)",
+        "HANDLE (PLASHndl)",
+        "IMPACT (PLASImpt)",
+        "MISC (PLASMisc)",
+        "MOVEMENT (PLASMvmt)",
+        "TONAL (PLASTonl)"
+      ]
+    },
+    "RAIN": {
+      "code": "RAIN",
+      "subCategories": [
+        "CLOTH (RAINClth)",
+        "CONCRETE (RAINConc)",
+        "GENERAL (RAIN)",
+        "GLASS (RAINGlas)",
+        "INTERIOR (RAINInt)",
+        "METAL (RAINMetl)",
+        "PLASTIC (RAINPlas)",
+        "VEGETATION (RAINVege)",
+        "WATER (RAINWatr)",
+        "WOOD (RAINWood)"
+      ]
+    },
+    "ROBOTS": {
+      "code": "ROBT",
+      "subCategories": [
+        "MISC (ROBTMisc)",
+        "MOVEMENT (ROBTMvmt)",
+        "VOCAL (ROBTVox)"
+      ]
+    },
+    "ROCKS": {
+      "code": "ROCK",
+      "subCategories": [
+        "BREAK (ROCKBrk)",
+        "CRASH & DEBRIS (ROCKCrsh)",
+        "FRICTION (ROCKFric)",
+        "HANDLE (ROCKHndl)",
+        "IMPACT (ROCKImpt)",
+        "MISC (ROCKMisc)",
+        "MOVEMENT (ROCKMvmt)",
+        "TONAL (ROCKTonl)"
+      ]
+    },
+    "ROPE": {
+      "code": "ROPE",
+      "subCategories": [
+        "CREAK (ROPECreak)",
+        "HANDLE (ROPEHndl)",
+        "IMPACT (ROPEImpt)",
+        "MISC (ROPEMisc)",
+        "MOVEMENT (ROPEMvmt)"
+      ]
+    },
+    "RUBBER": {
+      "code": "RUBR",
+      "subCategories": [
+        "CRASH & DEBRIS (RUBRCrsh)",
+        "FRICTION (RUBRFric)",
+        "HANDLE (RUBRHndl)",
+        "IMPACT (RUBRImpt)",
+        "MISC (RUBRMisc)",
+        "MOVEMENT (RUBRMvmt)",
+        "TONAL (RUBRTonl)"
+      ]
+    },
+    "SCIFI": {
+      "code": "SCI",
+      "subCategories": [
+        "ALARM (SCIAlrm)",
+        "COMPUTER (SCICmpt)",
+        "DOOR (SCIDoor)",
+        "ENERGY (SCIEnrg)",
+        "IMPACT (SCIImpt)",
+        "MACHINE (SCIMach)",
+        "MECHANISM (SCIMech)",
+        "MISC (SCIMisc)",
+        "RETRO (SCIRetro)",
+        "SPACESHIP (SCIShip)",
+        "VEHICLE (SCIVeh)",
+        "WEAPON (SCIWeap)"
+      ]
+    },
+    "SNOW": {
+      "code": "SNOW",
+      "subCategories": [
+        "CRASH & DEBRIS (SNOWCrsh)",
+        "FRICTION (SNOWFric)",
+        "HANDLE (SNOWHndl)",
+        "IMPACT (SNOWImpt)",
+        "MISC (SNOWMisc)",
+        "MOVEMENT (SNOWMvmt)"
+      ]
+    },
+    "SPORTS": {
+      "code": "SPRT",
+      "subCategories": [
+        "COURT (SPRTCourt)",
+        "FIELD (SPRTField)",
+        "GYM (SPRTGym)",
+        "INDOOR (SPRTIndor)",
+        "MISC (SPRTMisc)",
+        "SKATE (SPRTSkate)",
+        "TRACK & FIELD (SPRTTrck)",
+        "WATER (SPRTWatr)",
+        "WINTER (SPRTWntr)"
+      ]
+    },
+    "SWOOSHES": {
+      "code": "SWSH",
+      "subCategories": [
+        "SWISH (SWSH)",
+        "WHOOSH (WHSH)"
+      ]
+    },
+    "TOOLS": {
+      "code": "TOOL",
+      "subCategories": [
+        "GARDEN (TOOLGrdn)",
+        "HAND (TOOLHand)",
+        "MISC (TOOLMisc)",
+        "PNEUMATIC (TOOLPneu)",
+        "POWER (TOOLPowr)"
+      ]
+    },
+    "TOYS": {
+      "code": "TOY",
+      "subCategories": [
+        "ELECTRONIC (TOYElec)",
+        "MECHANICAL (TOYMech)",
+        "MISC (TOYMisc)"
+      ]
+    },
+    "TRAINS": {
+      "code": "TRN",
+      "subCategories": [
+        "BRAKE (TRNBrake)",
+        "CLACK (TRNClak)",
+        "DOOR (TRNDoor)",
+        "DIESEL (TRNDiesl)",
+        "ELECTRIC (TRNElec)",
+        "HIGH SPEED (TRNHspd)",
+        "HORN (TRNHorn)",
+        "INTERIOR (TRNInt)",
+        "MECHANISM (TRNMech)",
+        "MISC (TRNMisc)",
+        "STEAM (TRNSteam)",
+        "SUBWAY (TRNSbwy)",
+        "TRAM (TRNTram)"
+      ]
+    },
+    "USER INTERFACE": {
+      "code": "UI",
+      "subCategories": [
+        "ALERT (UIAlert)",
+        "BEEP (UIBeep)",
+        "CLICK (UIClick)",
+        "DATA (UIData)",
+        "GLITCH (UIGlitch)",
+        "MISC (UIMisc)",
+        "MOTION (UIMvmt)"
+      ]
+    },
+    "VEGETATION": {
+      "code": "VEGE",
+      "subCategories": [
+        "GRASS (VEGEGras)",
+        "LEAVES (VEGELeaf)",
+        "MISC (VEGEMisc)",
+        "TREE (VEGETree)"
+      ]
+    },
+    "VEHICLES": {
+      "code": "VEH",
+      "subCategories": [
+        "ALARM (VEHAlrm)",
+        "ANTIQUE (VEHAntq)",
+        "ATV (VEHAtv)",
+        "BICYCLE (VEHBike)",
+        "BRAKE (VEHBrake)",
+        "BUS (VEHBus)",
+        "CAR (VEHCar)",
+        "CONSTRUCTION (VEHCnst)",
+        "DOOR (VEHDoor)",
+        "ELECTRIC (VEHElec)",
+        "EMERGENCY (VEHEmrg)",
+        "FARM (VEHFarm)",
+        "FREIGHT (VEHFrght)",
+        "GENERIC BY (VEHBy)",
+        "HORN (VEHHorn)",
+        "INTERIOR (VEHInt)",
+        "JALOPY (VEHJalop)",
+        "MECHANISM (VEHMech)",
+        "MILITARY (VEHMil)",
+        "MISC (VEHMisc)",
+        "MOTORCYCLE (VEHMoto)",
+        "RACING (VEHRace)",
+        "SIREN (VEHSirn)",
+        "SKID (VEHSkid)",
+        "SUSPENSION (VEHSusp)",
+        "TIRE (VEHTire)",
+        "TRUCK VAN & SUV (VEHTruck)",
+        "UTILITY (VEHUtil)",
+        "WAGON (VEHWagn)",
+        "WINDOW (VEHWndw)"
+      ]
+    },
+    "VOICES": {
+      "code": "VOX",
+      "subCategories": [
+        "ALIEN (VOXAlien)",
+        "BABY (VOXBaby)",
+        "CHEER (VOXCheer)",
+        "CHILD (VOXChld)",
+        "CRYING (VOXCry)",
+        "EFFORTS (VOXEfrt)",
+        "FEMALE (VOXFem)",
+        "FUTZED (VOXFutz)",
+        "HISTORICAL (VOXHist)",
+        "LAUGH (VOXLaff)",
+        "MALE (VOXMale)",
+        "MISC (VOXMisc)",
+        "REACTION (VOXReac)",
+        "SCREAM (VOXScrm)",
+        "SINGING (VOXSing)",
+        "WHISPER (VOXWhsp)"
+      ]
+    },
+    "WATER": {
+      "code": "WATR",
+      "subCategories": [
+        "BUBBLES (WATRBubl)",
+        "DRAIN (WATRDran)",
+        "DRIP (WATRDrip)",
+        "FIZZ (WATRFizz)",
+        "FLOW (WATRFlow)",
+        "FOUNTAIN (WATRFoun)",
+        "IMPACT (WATRImpt)",
+        "LAP (WATRLap)",
+        "MISC (WATRMisc)",
+        "MOVEMENT (WATRMvmt)",
+        "PLUMBING (WATRPlmb)",
+        "POUR (WATRPour)",
+        "SPLASH (WATRSplsh)",
+        "SPRAY (WATRSpray)",
+        "STEAM (WATRStm)",
+        "SURF (WATRSurf)",
+        "TURBULENT (WATRTurb)",
+        "UNDERWATER (WATRUndwtr)",
+        "WATERFALL (WATRFall)",
+        "WAVE (WATRWave)"
+      ]
+    },
+    "WEAPONS": {
+      "code": "WEAP",
+      "subCategories": [
+        "ARMOR (WEAPArmr)",
+        "ARROW (WEAPArro)",
+        "AXE (WEAPAxe)",
+        "BLUNT (WEAPBlnt)",
+        "BOW (WEAPBow)",
+        "KNIFE (WEAPKnif)",
+        "MISC (WEAPMisc)",
+        "POLEARM (WEAPPole)",
+        "SIEGE (WEAPSiege)",
+        "SWORD (WEAPSwrd)",
+        "WHIP (WEAPWhip)"
+      ]
+    },
+    "WEATHER": {
+      "code": "HAIL",
+      "subCategories": [
+        "HAIL (HAIL)",
+        "MISC (WTHR)",
+        "STORM (STORM)",
+        "THUNDER (THUN)"
+      ]
+    },
+    "WHISTLES": {
+      "code": "WHST",
+      "subCategories": [
+        "HUMAN (WHSTHmn)",
+        "MECHANICAL (WHSTMech)",
+        "MISC (WHSTMisc)"
+      ]
+    },
+    "WIND": {
+      "code": "WIND",
+      "subCategories": [
+        "DESIGNED (WINDDsgn)",
+        "GENERAL (WIND)",
+        "GUST (WINDGust)",
+        "INTERIOR (WINDInt)",
+        "TONAL (WINDTonl)",
+        "TURBULENT (WINDTurb)",
+        "VEGETATION (WINDVege)"
+      ]
+    },
+    "WINDOWS": {
+      "code": "WNDW",
+      "subCategories": [
+        "COVERING (WNDWCover)",
+        "HARDWARE (WNDWHdwr)",
+        "KNOCK (WNDWKnck)",
+        "METAL (WNDWMetl)",
+        "MISC (WNDWMisc)",
+        "PLASTIC (WNDWPlas)",
+        "WOOD (WNDWWood)"
+      ]
+    },
+    "WINGS": {
+      "code": "WING",
+      "subCategories": [
+        "BIRD (WINGBird)",
+        "CREATURE (WINGCrea)",
+        "INSECT (WINGInsc)",
+        "MISC (WINGMisc)"
+      ]
+    },
+    "WOOD": {
+      "code": "WOOD",
+      "subCategories": [
+        "BREAK (WOODBrk)",
+        "CRASH & DEBRIS (WOODCrsh)",
+        "FRICTION (WOODFric)",
+        "HANDLE (WOODHndl)",
+        "IMPACT (WOODImpt)",
+        "MISC (WOODMisc)",
+        "MOVEMENT (WOODMvmt)",
+        "TONAL (WOODTonl)"
+      ]
+    }
+  }
+}

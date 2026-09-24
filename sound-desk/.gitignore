@@ -15,6 +15,15 @@ data/
 models/
 backups/
 
+# Exception: packages/ucs/data holds the *official* UCS source list and the
+# dataset built from it. These are versioned inputs/outputs, not user data, and
+# the build must be reproducible from a clean checkout — so the CSV and the
+# files generated from it are tracked. The legacy seed-era files, which are no
+# longer loaded, stay ignored.
+!packages/ucs/data/
+packages/ucs/data/categories.seed.json
+packages/ucs/data/zh-Hans.json
+
 # archify visual-check evidence (screenshots, contact sheet, receipt).
 # These are produced on demand by `archify visual-check` when auditing the
 # rendered diagram; the diagram source of truth is the .json beside it.

@@ -1,0 +1,2252 @@
+{
+  "_note": "Hand-curated Chinese display names and search synonyms, re-keyed onto OFFICIAL UCS v8.2.1 CatIDs by scripts/migrate-seed-zh.mjs. `categories` maps a UCS category code to its Chinese display name (all 82 covered); `catIds` maps an official CatID to its Chinese label plus extra search synonyms. Merged into the dataset by scripts/build-ucs.mjs — entries that are not in the official list are ignored, so this file can never invent a CatID.",
+  "_ordering": "Each `catIds` entry is written so the Chinese label comes first and the hand-written synonyms follow; build-ucs.mjs prepends this list to the official synonyms, which keeps the most searchable Chinese term inside the slice the Chinese query rewriter reads.",
+  "_source": "Migrated from data/categories.seed.json + data/zh-Hans.json (UCS v8.2.1 official list).",
+  "categories": {
+    "AIR": "气流",
+    "AIRCRAFT": "航空器",
+    "ALARMS": "警报",
+    "AMBIENCE": "环境音",
+    "ANIMALS": "动物",
+    "ARCHIVED": "归档素材",
+    "BEEPS": "哔声提示音",
+    "BELLS": "铃声",
+    "BIRDS": "鸟类",
+    "BOATS": "船只",
+    "BULLETS": "子弹",
+    "CARTOON": "卡通音效",
+    "CERAMICS": "陶瓷",
+    "CHAINS": "链条",
+    "CHEMICALS": "化学",
+    "CLOCKS": "时钟",
+    "CLOTH": "布料",
+    "COMMUNICATIONS": "通讯设备",
+    "COMPUTERS": "电脑",
+    "CREATURES": "生物",
+    "CROWDS": "人群",
+    "DESIGNED": "设计音效",
+    "DESTRUCTION": "破坏",
+    "DIRT & SAND": "泥土与沙",
+    "DOORS": "门",
+    "DRAWERS": "抽屉",
+    "ELECTRICITY": "电",
+    "EQUIPMENT": "装备",
+    "EXPLOSIONS": "爆炸",
+    "FARTS": "放屁",
+    "FIGHT": "打斗",
+    "FIRE": "火",
+    "FIREWORKS": "烟花",
+    "FOLEY": "拟音",
+    "FOOD & DRINK": "食物与饮品",
+    "FOOTSTEPS": "脚步",
+    "GAMES": "游戏",
+    "GEOTHERMAL": "地热",
+    "GLASS": "玻璃",
+    "GORE": "血腥",
+    "GUNS": "枪械",
+    "HORNS": "喇叭",
+    "HUMAN": "人体",
+    "ICE": "冰",
+    "LASERS": "激光",
+    "LEATHER": "皮革",
+    "LIQUID & MUD": "液体与泥浆",
+    "MACHINES": "机械",
+    "MAGIC": "魔法",
+    "MECHANICAL": "机械结构",
+    "METAL": "金属",
+    "MOTORS": "马达",
+    "MOVEMENT": "移动",
+    "MUSICAL": "乐器",
+    "NATURAL DISASTER": "自然灾害",
+    "OBJECTS": "物件",
+    "PAPER": "纸张",
+    "PLASTIC": "塑料",
+    "RAIN": "雨",
+    "ROBOTS": "机器人",
+    "ROCKS": "石头",
+    "ROPE": "绳索",
+    "RUBBER": "橡胶",
+    "SCIFI": "科幻",
+    "SNOW": "雪",
+    "SPORTS": "运动",
+    "SWOOSHES": "横扫声",
+    "TOOLS": "工具",
+    "TOYS": "玩具",
+    "TRAINS": "火车",
+    "USER INTERFACE": "界面交互",
+    "VEGETATION": "植被",
+    "VEHICLES": "车辆",
+    "VOICES": "人声表现",
+    "WATER": "水",
+    "WEAPONS": "冷兵器",
+    "WEATHER": "天气",
+    "WHISTLES": "哨声",
+    "WIND": "风",
+    "WINDOWS": "窗户",
+    "WINGS": "翅膀",
+    "WOOD": "木头"
+  },
+  "catIds": {
+    "AEROProp": {
+      "zh": [
+        "小飞机飞过",
+        "单引擎飞机",
+        "螺旋桨飞机起飞"
+      ],
+      "label": "螺旋桨飞机",
+      "excludes": [
+        "jet",
+        "helicopter",
+        "car"
+      ]
+    },
+    "AEROJet": {
+      "zh": [
+        "喷气式飞机",
+        "客机飞过",
+        "飞机起飞",
+        "客机轰鸣"
+      ],
+      "label": "喷气飞机",
+      "excludes": [
+        "propeller",
+        "helicopter",
+        "drone"
+      ]
+    },
+    "AEROHeli": {
+      "zh": [
+        "直升机飞过",
+        "螺旋桨直升机",
+        "直升机盘旋"
+      ],
+      "label": "直升机",
+      "excludes": [
+        "airplane",
+        "drone",
+        "fan"
+      ]
+    },
+    "AERORadio": {
+      "zh": [
+        "四轴飞行器",
+        "无人机嗡嗡",
+        "无人机飞过"
+      ],
+      "label": "无人机",
+      "excludes": [
+        "helicopter",
+        "airplane",
+        "bee"
+      ]
+    },
+    "AEROInt": {
+      "zh": [
+        "飞机舱内",
+        "飞行中舱内",
+        "客舱环境音"
+      ],
+      "label": "机舱内",
+      "excludes": [
+        "airport",
+        "bus",
+        "train"
+      ]
+    },
+    "ALRMElec": {
+      "zh": [
+        "防盗警报",
+        "住宅报警器",
+        "入侵警报",
+        "工厂警报",
+        "工业警报器",
+        "车间警报",
+        "设备警示音",
+        "电子警报",
+        "电子提示音",
+        "设备报警声",
+        "电子蜂鸣"
+      ],
+      "label": "家庭警报",
+      "excludes": [
+        "car",
+        "siren",
+        "clock",
+        "house",
+        "mechanical bell",
+        "music"
+      ]
+    },
+    "ALRMClok": {
+      "zh": [
+        "闹钟响",
+        "电子闹钟",
+        "起床闹铃"
+      ],
+      "label": "闹钟",
+      "excludes": [
+        "wall clock",
+        "timer",
+        "phone"
+      ]
+    },
+    "AMBInd": {
+      "zh": [
+        "工厂警报",
+        "工业警报器",
+        "车间警报",
+        "设备警示音",
+        "仓库环境音",
+        "空旷大房间",
+        "厂房混响环境",
+        "仓库室内底噪"
+      ],
+      "label": "工业警报",
+      "excludes": [
+        "house",
+        "car",
+        "clock",
+        "office",
+        "street",
+        "church"
+      ]
+    },
+    "AMBDsgn": {
+      "zh": [
+        "阴暗氛围",
+        "恐怖氛围",
+        "低沉氛围床",
+        "紧张氛围"
+      ],
+      "label": "设计阴暗氛围",
+      "excludes": [
+        "room tone",
+        "nature",
+        "city"
+      ]
+    },
+    "AMBSci": {
+      "zh": [
+        "科幻氛围",
+        "飞船环境音",
+        "未来感氛围",
+        "外星环境"
+      ],
+      "label": "设计科幻氛围",
+      "excludes": [
+        "horror",
+        "office",
+        "machine"
+      ]
+    },
+    "AMBTran": {
+      "zh": [
+        "机场环境音",
+        "机场航站楼",
+        "停机坪环境",
+        "室内门后环境音",
+        "门内房间氛围",
+        "走廊环境音",
+        "公寓室内底噪"
+      ],
+      "label": "机场户外",
+      "excludes": [
+        "aircraft",
+        "train",
+        "office",
+        "street",
+        "forest",
+        "door"
+      ]
+    },
+    "AMBUrbn": {
+      "zh": [
+        "城市环境音",
+        "街道氛围",
+        "市区背景音",
+        "城市噪音"
+      ],
+      "label": "城市户外",
+      "excludes": [
+        "forest",
+        "indoor",
+        "crowd"
+      ]
+    },
+    "AMBPubl": {
+      "zh": [
+        "人群环境音",
+        "人群嘈杂",
+        "人声背景",
+        "闹市人群"
+      ],
+      "label": "人群户外",
+      "excludes": [
+        "single voice",
+        "city traffic",
+        "office"
+      ]
+    },
+    "AMBForst": {
+      "zh": [
+        "森林环境音",
+        "树林氛围",
+        "森林鸟鸣背景",
+        "林地环境"
+      ],
+      "label": "森林户外",
+      "excludes": [
+        "city",
+        "ocean",
+        "indoor"
+      ]
+    },
+    "AMBTrop": {
+      "zh": [
+        "丛林环境音",
+        "热带雨林氛围",
+        "丛林虫鸣",
+        "雨林背景"
+      ],
+      "label": "丛林户外",
+      "excludes": [
+        "forest",
+        "desert",
+        "city"
+      ]
+    },
+    "AMBSea": {
+      "zh": [
+        "海洋环境音",
+        "海浪氛围",
+        "海边背景音",
+        "海岸环境",
+        "海滩",
+        "海浪拍岸",
+        "沙滩浪声",
+        "平静海滩"
+      ],
+      "label": "海洋户外",
+      "excludes": [
+        "river",
+        "rain",
+        "forest",
+        "underwater"
+      ]
+    },
+    "WATRSurf": {
+      "zh": [
+        "海洋环境音",
+        "海浪氛围",
+        "海边背景音",
+        "海岸环境"
+      ],
+      "label": "海洋户外",
+      "excludes": [
+        "river",
+        "rain",
+        "forest"
+      ]
+    },
+    "RAIN": {
+      "zh": [
+        "雨声环境",
+        "下雨氛围",
+        "雨天背景音",
+        "雨环境音"
+      ],
+      "label": "雨声户外",
+      "excludes": [
+        "thunder",
+        "water",
+        "indoor"
+      ]
+    },
+    "AMBTown": {
+      "zh": [
+        "街道环境音",
+        "小巷氛围",
+        "街区背景音"
+      ],
+      "label": "街道户外",
+      "excludes": [
+        "forest",
+        "indoor",
+        "crowd"
+      ]
+    },
+    "AMBTraf": {
+      "zh": [
+        "交通环境音",
+        "车流声",
+        "马路背景音",
+        "交通噪音"
+      ],
+      "label": "交通环境",
+      "excludes": [
+        "forest",
+        "indoor",
+        "single car"
+      ]
+    },
+    "AMBAir": {
+      "zh": [
+        "风声环境",
+        "大风氛围",
+        "狂风背景音",
+        "旷野风声"
+      ],
+      "label": "风声户外",
+      "excludes": [
+        "rain",
+        "indoor",
+        "fan"
+      ]
+    },
+    "AMBRlgn": {
+      "zh": [
+        "教堂环境音",
+        "教堂内部",
+        "石厅混响环境",
+        "礼拜堂氛围"
+      ],
+      "label": "教堂室内",
+      "excludes": [
+        "office",
+        "warehouse",
+        "street"
+      ]
+    },
+    "AMBHome": {
+      "zh": [
+        "住宅室内环境",
+        "客厅底噪",
+        "家里环境音",
+        "公寓室内氛围"
+      ],
+      "label": "住宅室内",
+      "excludes": [
+        "office",
+        "factory",
+        "street"
+      ]
+    },
+    "AMBOffc": {
+      "zh": [
+        "办公室环境音",
+        "办公区氛围",
+        "开放办公底噪",
+        "办公室背景音"
+      ],
+      "label": "办公室室内",
+      "excludes": [
+        "factory",
+        "house",
+        "street"
+      ]
+    },
+    "AMBRoom": {
+      "zh": [
+        "室内底噪",
+        "录音室底噪",
+        "房间环境音"
+      ],
+      "label": "房间底噪",
+      "excludes": [
+        "birds",
+        "street",
+        "music"
+      ]
+    },
+    "AMBUndwtr": {
+      "zh": [
+        "水下环境音",
+        "水中氛围",
+        "深水低鸣",
+        "水下气泡"
+      ],
+      "label": "水下环境",
+      "excludes": [
+        "ocean surface",
+        "rain",
+        "indoor"
+      ]
+    },
+    "ANMLWild": {
+      "zh": [
+        "鸟叫",
+        "鸟鸣",
+        "小鸟叫声",
+        "鸟飞走"
+      ],
+      "label": "鸟",
+      "excludes": [
+        "insect",
+        "crowd",
+        "forest ambience"
+      ]
+    },
+    "BIRDMisc": {
+      "zh": [
+        "鸟叫",
+        "鸟鸣",
+        "小鸟叫声",
+        "鸟飞走"
+      ],
+      "label": "鸟",
+      "excludes": [
+        "insect",
+        "crowd",
+        "forest ambience"
+      ]
+    },
+    "ANMLCat": {
+      "zh": [
+        "猫叫",
+        "猫咪喵喵",
+        "猫呼噜",
+        "猫叫春"
+      ],
+      "label": "猫",
+      "excludes": [
+        "dog",
+        "baby",
+        "bird"
+      ]
+    },
+    "ANMLDog": {
+      "zh": [
+        "狗叫",
+        "狗吠",
+        "小狗呜咽",
+        "狗低吼"
+      ],
+      "label": "狗",
+      "excludes": [
+        "cat",
+        "wolf",
+        "human"
+      ]
+    },
+    "ANMLHors": {
+      "zh": [
+        "马叫",
+        "马嘶鸣",
+        "马蹄声",
+        "马奔跑"
+      ],
+      "label": "马",
+      "excludes": [
+        "cow",
+        "dog",
+        "human footsteps"
+      ]
+    },
+    "ANMLInsc": {
+      "zh": [
+        "昆虫嗡嗡",
+        "蜜蜂嗡嗡",
+        "苍蝇嗡嗡",
+        "蟋蟀叫声"
+      ],
+      "label": "昆虫",
+      "excludes": [
+        "bird",
+        "drone",
+        "electrical hum"
+      ]
+    },
+    "BELLLrg": {
+      "zh": [
+        "教堂钟声",
+        "大钟敲响",
+        "钟楼钟声",
+        "教堂大钟"
+      ],
+      "label": "教堂钟",
+      "excludes": [
+        "small bell",
+        "gong",
+        "doorbell"
+      ]
+    },
+    "BELLGong": {
+      "zh": [
+        "教堂钟声",
+        "大钟敲响",
+        "钟楼钟声",
+        "教堂大钟",
+        "锣声",
+        "敲锣",
+        "大锣",
+        "寺庙锣声"
+      ],
+      "label": "教堂钟",
+      "excludes": [
+        "small bell",
+        "gong",
+        "doorbell",
+        "cymbal",
+        "bell",
+        "drum"
+      ]
+    },
+    "BELLDoor": {
+      "zh": [
+        "门铃声",
+        "叮咚门铃",
+        "按门铃"
+      ],
+      "label": "门铃",
+      "excludes": [
+        "church bell",
+        "telephone",
+        "alarm"
+      ]
+    },
+    "BOATSail": {
+      "zh": [
+        "帆船划过",
+        "帆布拍打",
+        "小帆船"
+      ],
+      "label": "帆船",
+      "excludes": [
+        "motorboat",
+        "ship",
+        "swimming"
+      ]
+    },
+    "BOATMotr": {
+      "zh": [
+        "摩托艇",
+        "摩托艇驶过",
+        "快艇划水"
+      ],
+      "label": "快艇",
+      "excludes": [
+        "sailboat",
+        "ship",
+        "car"
+      ]
+    },
+    "BOATShip": {
+      "zh": [
+        "大船",
+        "货轮",
+        "渡轮驶过",
+        "轮船引擎声"
+      ],
+      "label": "轮船",
+      "excludes": [
+        "speedboat",
+        "sailboat",
+        "aircraft"
+      ]
+    },
+    "CRWDApls": {
+      "zh": [
+        "鼓掌",
+        "观众掌声",
+        "人群鼓掌"
+      ],
+      "label": "掌声",
+      "excludes": [
+        "single clap",
+        "cheer",
+        "footsteps"
+      ]
+    },
+    "CRWDCheer": {
+      "zh": [
+        "人群欢呼",
+        "观众喝彩",
+        "加油呐喊"
+      ],
+      "label": "欢呼",
+      "excludes": [
+        "applause",
+        "boo",
+        "scream"
+      ]
+    },
+    "CRWDWalla": {
+      "zh": [
+        "街道人群",
+        "商业街人流",
+        "行人嘈杂声"
+      ],
+      "label": "城市人群",
+      "excludes": [
+        "forest",
+        "office",
+        "single voice"
+      ]
+    },
+    "CRWDAngr": {
+      "zh": [
+        "人群尖叫",
+        "恐慌人群",
+        "远处哭喊声",
+        "抗议人群",
+        "游行人群",
+        "示威人群",
+        "集会人群"
+      ],
+      "label": "人群哭喊",
+      "excludes": [
+        "applause",
+        "cheer",
+        "single scream",
+        "party",
+        "sports crowd"
+      ]
+    },
+    "AMBPrtst": {
+      "zh": [
+        "游行人群",
+        "示威人群",
+        "集会人群"
+      ],
+      "label": "抗议人群",
+      "excludes": [
+        "applause",
+        "party",
+        "sports crowd"
+      ]
+    },
+    "CRWDSprt": {
+      "zh": [
+        "球迷呐喊",
+        "球场观众",
+        "比赛人群声"
+      ],
+      "label": "体育场人群",
+      "excludes": [
+        "bar",
+        "protest",
+        "applause"
+      ]
+    },
+    "DSGNBram": {
+      "zh": [
+        "震撼低音",
+        "预告片轰鸣",
+        "史诗低鸣"
+      ],
+      "label": "电影轰鸣",
+      "excludes": [
+        "riser",
+        "impact",
+        "whoosh"
+      ]
+    },
+    "DSGNImpt": {
+      "zh": [
+        "设计撞击音",
+        "电影撞击",
+        "预告片撞击",
+        "低频冲击"
+      ],
+      "label": "设计撞击",
+      "excludes": [
+        "riser",
+        "whoosh",
+        "realistic impact"
+      ]
+    },
+    "DSGNRise": {
+      "zh": [
+        "上升音效",
+        "紧张上升音",
+        "渐强音"
+      ],
+      "label": "上升音",
+      "excludes": [
+        "downlifter",
+        "whoosh",
+        "drone"
+      ]
+    },
+    "DSGNMorph": {
+      "zh": [
+        "下落音效",
+        "下降过渡音",
+        "下坠音",
+        "转换音",
+        "转场音效",
+        "过渡音",
+        "切场音"
+      ],
+      "label": "下降音",
+      "excludes": [
+        "riser",
+        "impact",
+        "whoosh"
+      ]
+    },
+    "DSGNWhsh": {
+      "zh": [
+        "电影横扫声",
+        "快速掠过声",
+        "转场横扫",
+        "布料横扫声",
+        "布料挥动",
+        "披风挥动",
+        "衣服掠过声",
+        "掠过声",
+        "物体飞过",
+        "快速经过",
+        "近距离掠过",
+        "转场横扫声",
+        "切换横扫",
+        "快速转场",
+        "擦除转场"
+      ],
+      "label": "设计横扫声",
+      "excludes": [
+        "riser",
+        "wind",
+        "impact",
+        "cloth foley",
+        "air whoosh",
+        "paper",
+        "designed whoosh",
+        "aircraft"
+      ]
+    },
+    "DOORMetl": {
+      "zh": [
+        "车门关闭",
+        "车门打开",
+        "汽车门声",
+        "金属门",
+        "铁门关闭",
+        "钢门声",
+        "金属大门"
+      ],
+      "label": "车门",
+      "excludes": [
+        "house door",
+        "trunk",
+        "glass",
+        "wood",
+        "car"
+      ]
+    },
+    "VEHDoor": {
+      "zh": [
+        "车门关闭",
+        "车门打开",
+        "汽车门声"
+      ],
+      "label": "车门",
+      "excludes": [
+        "house door",
+        "trunk",
+        "glass"
+      ]
+    },
+    "DOORSlid": {
+      "zh": [
+        "电梯门开",
+        "电梯到达铃",
+        "电梯门关闭"
+      ],
+      "label": "电梯门",
+      "excludes": [
+        "house door",
+        "sliding door",
+        "car door"
+      ]
+    },
+    "DOORGlas": {
+      "zh": [
+        "玻璃门关闭",
+        "玻璃推拉门",
+        "商店玻璃门"
+      ],
+      "label": "玻璃门",
+      "excludes": [
+        "wood",
+        "metal",
+        "glass break"
+      ]
+    },
+    "DOORWood": {
+      "zh": [
+        "木门吱呀",
+        "木门开",
+        "木门关"
+      ],
+      "label": "木门",
+      "excludes": [
+        "metal",
+        "car",
+        "glass"
+      ]
+    },
+    "BEEP": {
+      "zh": [
+        "提示音",
+        "确认音",
+        "扫码枪哔声"
+      ],
+      "label": "电子哔声",
+      "excludes": [
+        "alarm",
+        "musical tone",
+        "click"
+      ]
+    },
+    "SCIMech": {
+      "zh": [
+        "电子故障声",
+        "数据损坏音",
+        "数字毛刺声",
+        "关机音",
+        "设备关闭",
+        "断电音",
+        "系统关闭声",
+        "开机音",
+        "设备启动",
+        "通电音",
+        "系统启动声"
+      ],
+      "label": "故障音",
+      "excludes": [
+        "static",
+        "hum",
+        "music",
+        "power up",
+        "beep",
+        "glitch",
+        "power down",
+        "riser"
+      ]
+    },
+    "ELECBuzz": {
+      "zh": [
+        "电流嗡嗡声",
+        "电器嗡鸣",
+        "变压器嗡声",
+        "电流声"
+      ],
+      "label": "电流嗡鸣",
+      "excludes": [
+        "glitch",
+        "machine",
+        "insect"
+      ]
+    },
+    "ELECMisc": {
+      "zh": [
+        "白噪声",
+        "电流杂音",
+        "收音机静电"
+      ],
+      "label": "电子噪声",
+      "excludes": [
+        "hum",
+        "music",
+        "wind"
+      ]
+    },
+    "VOXEfrt": {
+      "zh": [
+        "愤怒声",
+        "生气喊叫",
+        "怒吼",
+        "烦躁叹气",
+        "痛苦呻吟",
+        "疼痛叫声",
+        "受伤闷哼",
+        "哎哟声"
+      ],
+      "label": "愤怒",
+      "excludes": [
+        "laugh",
+        "cry",
+        "scream fear",
+        "anger",
+        "sigh"
+      ]
+    },
+    "VOXCry": {
+      "zh": [
+        "哭声",
+        "抽泣",
+        "呜咽",
+        "伤心哭泣",
+        "人哭声",
+        "抽泣声",
+        "痛哭",
+        "哀哭"
+      ],
+      "label": "哭泣",
+      "excludes": [
+        "laugh",
+        "scream",
+        "baby babble",
+        "baby"
+      ]
+    },
+    "VOXScrm": {
+      "zh": [
+        "恐惧声",
+        "害怕喘息",
+        "惊恐吸气",
+        "紧张呼吸",
+        "尖叫",
+        "尖叫恐惧",
+        "大声喊叫",
+        "惊叫"
+      ],
+      "label": "恐惧",
+      "excludes": [
+        "anger",
+        "laugh",
+        "sigh relief",
+        "cry",
+        "crowd cheer"
+      ]
+    },
+    "VOXLaff": {
+      "zh": [
+        "大笑",
+        "咯咯笑",
+        "轻笑"
+      ],
+      "label": "笑声",
+      "excludes": [
+        "cry",
+        "cough",
+        "scream"
+      ]
+    },
+    "HMNBrth": {
+      "zh": [
+        "松口气",
+        "疲惫叹息",
+        "深呼吸",
+        "呼吸声",
+        "缓慢呼吸",
+        "沉重呼吸",
+        "吸气呼气"
+      ],
+      "label": "叹气",
+      "excludes": [
+        "breath",
+        "laugh",
+        "cough",
+        "sigh",
+        "snore"
+      ]
+    },
+    "VOXReac": {
+      "zh": [
+        "惊讶声",
+        "吃惊吸气",
+        "震惊反应",
+        "突然惊呼"
+      ],
+      "label": "惊讶",
+      "excludes": [
+        "fear",
+        "laugh",
+        "sigh"
+      ]
+    },
+    "COMCam": {
+      "zh": [
+        "相机快门",
+        "单反快门声",
+        "拍照声",
+        "相机过片声"
+      ],
+      "label": "相机",
+      "excludes": [
+        "phone",
+        "projector",
+        "mouse click"
+      ]
+    },
+    "CMPTMisc": {
+      "zh": [
+        "电脑风扇",
+        "台式机运行声",
+        "硬盘转动声",
+        "打印机",
+        "打印机工作声",
+        "喷墨打印机",
+        "针式打印机"
+      ],
+      "label": "电脑",
+      "excludes": [
+        "printer",
+        "phone",
+        "keyboard",
+        "copier",
+        "scanner",
+        "computer"
+      ]
+    },
+    "MACHFan": {
+      "zh": [
+        "电风扇",
+        "风扇转动",
+        "吊扇声",
+        "排风扇"
+      ],
+      "label": "风扇",
+      "excludes": [
+        "wind",
+        "air conditioner",
+        "computer"
+      ]
+    },
+    "FIRECrkl": {
+      "zh": [
+        "火堆噼啪声",
+        "篝火声",
+        "柴火燃烧声",
+        "炭火噼啪"
+      ],
+      "label": "火堆噼啪",
+      "excludes": [
+        "torch",
+        "explosion",
+        "water"
+      ]
+    },
+    "FRWKMisc": {
+      "zh": [
+        "烟花爆炸声",
+        "烟花升空",
+        "放烟花"
+      ],
+      "label": "烟花",
+      "excludes": [
+        "gunshot",
+        "explosion",
+        "thunder"
+      ]
+    },
+    "FIREBurn": {
+      "zh": [
+        "火焰声",
+        "大火燃烧",
+        "熊熊火焰",
+        "燃气火焰"
+      ],
+      "label": "火焰",
+      "excludes": [
+        "torch",
+        "match",
+        "water"
+      ]
+    },
+    "FIREIgn": {
+      "zh": [
+        "打火机点火",
+        "翻盖打火机",
+        "点烟声",
+        "火柴",
+        "划火柴",
+        "火柴点燃",
+        "火柴盒摇动"
+      ],
+      "label": "打火机",
+      "excludes": [
+        "match",
+        "torch",
+        "spray",
+        "lighter",
+        "firework"
+      ]
+    },
+    "FIRETrch": {
+      "zh": [
+        "火把",
+        "焊枪声",
+        "喷火声"
+      ],
+      "label": "喷火枪",
+      "excludes": [
+        "campfire",
+        "lighter",
+        "whoosh"
+      ]
+    },
+    "FOLYClth": {
+      "zh": [
+        "布料摩擦",
+        "衣服摩擦声",
+        "衣物窸窣",
+        "外套摩擦"
+      ],
+      "label": "布料",
+      "excludes": [
+        "paper",
+        "leather",
+        "plastic"
+      ]
+    },
+    "FOLYProp": {
+      "zh": [
+        "硬币掉落",
+        "硬币叮当",
+        "硬币旋转"
+      ],
+      "label": "硬币",
+      "excludes": [
+        "keys",
+        "paper",
+        "glass"
+      ]
+    },
+    "OBJCoin": {
+      "zh": [
+        "硬币掉落",
+        "硬币叮当",
+        "硬币旋转"
+      ],
+      "label": "硬币",
+      "excludes": [
+        "keys",
+        "paper",
+        "glass"
+      ]
+    },
+    "FEETHmn": {
+      "zh": [
+        "靴子脚步声",
+        "皮靴走路",
+        "靴子踩地",
+        "劳保鞋脚步",
+        "地毯脚步声",
+        "地毯上走路",
+        "室内软脚步",
+        "地毯脚步",
+        "水泥地脚步声",
+        "混凝土上走路",
+        "硬地面脚步",
+        "人行道脚步",
+        "草地脚步声",
+        "草地上走路",
+        "草坪脚步",
+        "草上行走",
+        "碎石脚步声",
+        "砂石地走路",
+        "碎石踩踏声",
+        "石子路脚步",
+        "高跟鞋脚步声",
+        "高跟鞋踩地",
+        "鞋跟敲地",
+        "高跟鞋走路"
+      ],
+      "label": "靴子脚步",
+      "excludes": [
+        "bare feet",
+        "high heels",
+        "sneakers",
+        "gravel",
+        "wood floor",
+        "metal",
+        "carpet",
+        "water"
+      ]
+    },
+    "PAPRHndl": {
+      "zh": [
+        "纸张声",
+        "纸张摩擦",
+        "揉纸声",
+        "翻页声",
+        "办公纸张",
+        "桌上纸张声",
+        "文件翻动",
+        "整理文件"
+      ],
+      "label": "纸张",
+      "excludes": [
+        "cloth",
+        "plastic bag",
+        "book",
+        "plastic"
+      ]
+    },
+    "PLASHndl": {
+      "zh": [
+        "塑料声",
+        "塑料袋响声",
+        "捏塑料瓶",
+        "塑料容器声"
+      ],
+      "label": "塑料",
+      "excludes": [
+        "paper",
+        "glass",
+        "cloth"
+      ]
+    },
+    "GUNCano": {
+      "zh": [
+        "火炮射击",
+        "坦克炮声",
+        "炮击声"
+      ],
+      "label": "大炮",
+      "excludes": [
+        "handgun",
+        "explosion",
+        "firework"
+      ]
+    },
+    "GUNPis": {
+      "zh": [
+        "手枪声",
+        "手枪射击",
+        "左轮枪声",
+        "单发枪响"
+      ],
+      "label": "手枪",
+      "excludes": [
+        "rifle",
+        "cannon",
+        "silenced"
+      ]
+    },
+    "GUNAuto": {
+      "zh": [
+        "重机枪射击",
+        "机枪连发",
+        "车载机枪"
+      ],
+      "label": "机枪",
+      "excludes": [
+        "handgun",
+        "cannon",
+        "silenced"
+      ]
+    },
+    "GUNRif": {
+      "zh": [
+        "步枪声",
+        "狙击枪",
+        "栓动步枪",
+        "突击步枪射击"
+      ],
+      "label": "步枪",
+      "excludes": [
+        "handgun",
+        "shotgun",
+        "cannon"
+      ]
+    },
+    "GUNShotg": {
+      "zh": [
+        "霰弹枪上膛",
+        "双管猎枪",
+        "猎枪射击"
+      ],
+      "label": "霰弹枪",
+      "excludes": [
+        "rifle",
+        "handgun",
+        "cannon"
+      ]
+    },
+    "GUNSupr": {
+      "zh": [
+        "消音枪声",
+        "消音手枪",
+        "带消音器射击",
+        "微弱枪声"
+      ],
+      "label": "消音枪械",
+      "excludes": [
+        "handgun",
+        "cannon",
+        "explosion"
+      ]
+    },
+    "HORNAir": {
+      "zh": [
+        "球迷气喇叭",
+        "气压喇叭",
+        "气喇叭鸣响"
+      ],
+      "label": "气喇叭",
+      "excludes": [
+        "car horn",
+        "ship horn",
+        "music"
+      ]
+    },
+    "VEHHorn": {
+      "zh": [
+        "按喇叭",
+        "出租车喇叭",
+        "卡车喇叭"
+      ],
+      "label": "汽车喇叭",
+      "excludes": [
+        "train",
+        "ship",
+        "musical horn"
+      ]
+    },
+    "HORNTrad": {
+      "zh": [
+        "按喇叭",
+        "出租车喇叭",
+        "卡车喇叭"
+      ],
+      "label": "汽车喇叭",
+      "excludes": [
+        "train",
+        "ship",
+        "musical horn"
+      ]
+    },
+    "BOATHorn": {
+      "zh": [
+        "雾号",
+        "货轮鸣笛",
+        "渡轮汽笛"
+      ],
+      "label": "轮船汽笛",
+      "excludes": [
+        "train",
+        "car",
+        "air horn"
+      ]
+    },
+    "TRNHorn": {
+      "zh": [
+        "火车鸣笛",
+        "铁路汽笛",
+        "远处火车笛声"
+      ],
+      "label": "火车汽笛",
+      "excludes": [
+        "car",
+        "ship",
+        "factory siren"
+      ]
+    },
+    "HMNCough": {
+      "zh": [
+        "咳嗽声",
+        "清嗓子",
+        "干咳"
+      ],
+      "label": "咳嗽",
+      "excludes": [
+        "sneeze",
+        "breath",
+        "laugh"
+      ]
+    },
+    "HMNHart": {
+      "zh": [
+        "心跳声",
+        "快速心跳",
+        "脉搏声"
+      ],
+      "label": "心跳",
+      "excludes": [
+        "breathing",
+        "footsteps",
+        "drum"
+      ]
+    },
+    "HMNSneez": {
+      "zh": [
+        "打喷嚏",
+        "喷嚏声",
+        "连续打喷嚏",
+        "过敏喷嚏"
+      ],
+      "label": "喷嚏",
+      "excludes": [
+        "cough",
+        "sniff",
+        "breath"
+      ]
+    },
+    "HMNSnor": {
+      "zh": [
+        "打呼噜",
+        "鼾声",
+        "睡觉呼吸",
+        "沉重鼾声"
+      ],
+      "label": "打鼾",
+      "excludes": [
+        "breath",
+        "cough",
+        "sigh"
+      ]
+    },
+    "METLImpt": {
+      "zh": [
+        "金属撞击声",
+        "钢铁碰撞",
+        "金属敲击"
+      ],
+      "label": "金属撞击",
+      "excludes": [
+        "wood",
+        "glass",
+        "flesh"
+      ]
+    },
+    "FGHTImpt": {
+      "zh": [
+        "拳击肉体",
+        "肉搏撞击",
+        "身体倒地",
+        "打斗横扫声",
+        "挥拳声",
+        "武术挥动",
+        "拳风"
+      ],
+      "label": "身体撞击",
+      "excludes": [
+        "metal",
+        "wood",
+        "glass",
+        "impact",
+        "designed whoosh",
+        "sword"
+      ]
+    },
+    "GOREFlsh": {
+      "zh": [
+        "打击肉体",
+        "软体撞击",
+        "拳拳到肉"
+      ],
+      "label": "肉体撞击",
+      "excludes": [
+        "metal",
+        "stone",
+        "wood"
+      ]
+    },
+    "ROCKImpt": {
+      "zh": [
+        "石头碰撞",
+        "岩石撞击",
+        "小石子击中"
+      ],
+      "label": "石头撞击",
+      "excludes": [
+        "metal",
+        "glass",
+        "wood"
+      ]
+    },
+    "WATRImpt": {
+      "zh": [
+        "物体落水",
+        "大水花",
+        "跳水入水"
+      ],
+      "label": "水面撞击",
+      "excludes": [
+        "drip",
+        "rain",
+        "stone"
+      ]
+    },
+    "WOODImpt": {
+      "zh": [
+        "木头敲击",
+        "木板撞击",
+        "木料碰撞"
+      ],
+      "label": "木头撞击",
+      "excludes": [
+        "metal",
+        "glass",
+        "flesh"
+      ]
+    },
+    "MECHHydr": {
+      "zh": [
+        "液压机",
+        "液压压力机",
+        "气动活塞声",
+        "液压升降"
+      ],
+      "label": "液压机械",
+      "excludes": [
+        "electric motor",
+        "engine",
+        "pump"
+      ]
+    },
+    "MOTRElec": {
+      "zh": [
+        "电动机",
+        "电机运转",
+        "马达声",
+        "小型电机嗡鸣"
+      ],
+      "label": "电机",
+      "excludes": [
+        "combustion engine",
+        "fan",
+        "hydraulic"
+      ]
+    },
+    "ROBTMvmt": {
+      "zh": [
+        "机器人关节声",
+        "机械臂",
+        "机器人走路"
+      ],
+      "label": "机器人",
+      "excludes": [
+        "vehicle",
+        "household",
+        "human"
+      ]
+    },
+    "MACHAppl": {
+      "zh": [
+        "吸尘器工作声",
+        "吸尘器电机声",
+        "打扫吸尘"
+      ],
+      "label": "吸尘器",
+      "excludes": [
+        "fan",
+        "hair dryer",
+        "blender"
+      ]
+    },
+    "MAGSpel": {
+      "zh": [
+        "施法声",
+        "魔法咒语",
+        "释放法术",
+        "巫师施法"
+      ],
+      "label": "施法",
+      "excludes": [
+        "whoosh",
+        "sci-fi",
+        "impact"
+      ]
+    },
+    "MAGShim": {
+      "zh": [
+        "魔法掠过",
+        "法术飞过",
+        "闪光横扫"
+      ],
+      "label": "魔法横扫声",
+      "excludes": [
+        "plain whoosh",
+        "wind",
+        "transition"
+      ]
+    },
+    "MACHMed": {
+      "zh": [
+        "除颤仪充电",
+        "电击心脏",
+        "急救电击"
+      ],
+      "label": "除颤器",
+      "excludes": [
+        "monitor beep",
+        "electric zap",
+        "machine"
+      ]
+    },
+    "BEEPMed": {
+      "zh": [
+        "医院监护仪",
+        "心电监护",
+        "监护仪滴滴声",
+        "重症监护仪"
+      ],
+      "label": "医疗监护仪",
+      "excludes": [
+        "electronic alarm",
+        "defibrillator",
+        "clock"
+      ]
+    },
+    "OBJFurn": {
+      "zh": [
+        "椅子移动",
+        "椅子刮地",
+        "拉动椅子",
+        "坐下椅子声",
+        "办公椅",
+        "转椅轮子",
+        "办公椅吱嘎",
+        "坐办公椅"
+      ],
+      "label": "椅子",
+      "excludes": [
+        "footsteps",
+        "door",
+        "cloth",
+        "furniture movement"
+      ]
+    },
+    "DRWRMisc": {
+      "zh": [
+        "抽屉开合",
+        "拉抽屉",
+        "翻抽屉"
+      ],
+      "label": "抽屉",
+      "excludes": [
+        "door",
+        "cabinet",
+        "metal"
+      ]
+    },
+    "MECHSwtch": {
+      "zh": [
+        "拨动开关",
+        "电灯开关",
+        "开关咔哒声"
+      ],
+      "label": "开关",
+      "excludes": [
+        "button",
+        "lever",
+        "keyboard"
+      ]
+    },
+    "MUSCBrass": {
+      "zh": [
+        "小号声",
+        "长号声",
+        "铜管齐奏"
+      ],
+      "label": "铜管乐器",
+      "excludes": [
+        "string",
+        "woodwind",
+        "synth"
+      ]
+    },
+    "MUSCPerc": {
+      "zh": [
+        "爵士鼓",
+        "鼓组循环",
+        "摇滚鼓点",
+        "太鼓",
+        "日本太鼓",
+        "太鼓敲击",
+        "和太鼓",
+        "打击乐",
+        "沙锤",
+        "康加鼓",
+        "铃鼓声"
+      ],
+      "label": "架子鼓",
+      "excludes": [
+        "taiko",
+        "percussion hand",
+        "electronic",
+        "drum kit",
+        "djembe",
+        "cinematic hit",
+        "cymbal"
+      ]
+    },
+    "MUSCPluck": {
+      "zh": [
+        "原声吉他",
+        "吉他扫弦",
+        "指弹吉他",
+        "电吉他",
+        "失真吉他",
+        "电吉他扫弦",
+        "吉他反馈音",
+        "竖琴",
+        "竖琴滑音",
+        "竖琴琶音",
+        "梦幻竖琴"
+      ],
+      "label": "木吉他",
+      "excludes": [
+        "electric guitar",
+        "bass",
+        "harp",
+        "acoustic guitar",
+        "synth",
+        "guitar",
+        "piano",
+        "bell"
+      ]
+    },
+    "MUSCKeyd": {
+      "zh": [
+        "三角钢琴",
+        "钢琴和弦",
+        "立式钢琴"
+      ],
+      "label": "钢琴",
+      "excludes": [
+        "organ",
+        "synth",
+        "harp"
+      ]
+    },
+    "MUSCStr": {
+      "zh": [
+        "小提琴",
+        "大提琴",
+        "交响弦乐"
+      ],
+      "label": "弦乐",
+      "excludes": [
+        "brass",
+        "guitar",
+        "synth"
+      ]
+    },
+    "WATRFlow": {
+      "zh": [
+        "溪流声",
+        "河水流动",
+        "小溪潺潺",
+        "河水",
+        "河流水声",
+        "水流声",
+        "河水急流"
+      ],
+      "label": "河流",
+      "excludes": [
+        "ocean",
+        "rain",
+        "water tap",
+        "waterfall"
+      ]
+    },
+    "THUN": {
+      "zh": [
+        "打雷",
+        "远处雷声",
+        "雷暴"
+      ],
+      "label": "雷声",
+      "excludes": [
+        "rain",
+        "explosion",
+        "impact"
+      ]
+    },
+    "WATRFall": {
+      "zh": [
+        "大瀑布",
+        "瀑布水声",
+        "飞瀑声"
+      ],
+      "label": "瀑布",
+      "excludes": [
+        "river",
+        "ocean",
+        "rain"
+      ]
+    },
+    "WIND": {
+      "zh": [
+        "自然风",
+        "风吹树叶",
+        "一阵风",
+        "刮风声"
+      ],
+      "label": "风",
+      "excludes": [
+        "designed wind",
+        "fan",
+        "whoosh"
+      ]
+    },
+    "CMPTKey": {
+      "zh": [
+        "键盘打字",
+        "机械键盘",
+        "快速打字声",
+        "鼠标",
+        "鼠标点击",
+        "鼠标滚轮",
+        "按鼠标"
+      ],
+      "label": "键盘",
+      "excludes": [
+        "mouse",
+        "calculator",
+        "typewriter",
+        "keyboard",
+        "button",
+        "switch"
+      ]
+    },
+    "COMTelph": {
+      "zh": [
+        "座机铃声",
+        "拨号音",
+        "拿起话筒"
+      ],
+      "label": "办公电话",
+      "excludes": [
+        "mobile phone",
+        "doorbell",
+        "alarm"
+      ]
+    },
+    "SCIAlrm": {
+      "zh": [
+        "飞船警报",
+        "红色警报",
+        "未来感警报"
+      ],
+      "label": "科幻警报",
+      "excludes": [
+        "house alarm",
+        "car alarm",
+        "siren"
+      ]
+    },
+    "SCIDoor": {
+      "zh": [
+        "飞船门开",
+        "气密门",
+        "液压科幻门"
+      ],
+      "label": "科幻门",
+      "excludes": [
+        "house door",
+        "elevator",
+        "car door"
+      ]
+    },
+    "SCIEnrg": {
+      "zh": [
+        "传送音效",
+        "瞬移声",
+        "传送光束",
+        "星舰传送"
+      ],
+      "label": "传送",
+      "excludes": [
+        "whoosh",
+        "riser",
+        "magic"
+      ]
+    },
+    "SCIWeap": {
+      "zh": [
+        "激光枪",
+        "爆能枪",
+        "等离子枪"
+      ],
+      "label": "科幻武器",
+      "excludes": [
+        "gunshot",
+        "magic",
+        "electric zap"
+      ]
+    },
+    "SPRTMisc": {
+      "zh": [
+        "球撞击",
+        "篮球弹跳",
+        "踢足球",
+        "网球击球"
+      ],
+      "label": "球类",
+      "excludes": [
+        "whistle",
+        "crowd",
+        "footsteps"
+      ]
+    },
+    "SPRTWatr": {
+      "zh": [
+        "划水声",
+        "泳池水花",
+        "自由泳"
+      ],
+      "label": "游泳",
+      "excludes": [
+        "diving board",
+        "beach",
+        "rain"
+      ]
+    },
+    "WHSTHmn": {
+      "zh": [
+        "裁判哨声",
+        "体育哨子",
+        "教练哨声",
+        "吹哨"
+      ],
+      "label": "哨声",
+      "excludes": [
+        "train whistle",
+        "bird",
+        "horn"
+      ]
+    },
+    "TOOLHand": {
+      "zh": [
+        "锤子敲钉子",
+        "敲击木头",
+        "铁锤声",
+        "扳手",
+        "扳手转动",
+        "棘轮扳手",
+        "拧螺栓"
+      ],
+      "label": "锤子",
+      "excludes": [
+        "drill",
+        "saw",
+        "metal impact",
+        "screwdriver",
+        "hammer",
+        "machine"
+      ]
+    },
+    "TOOLPowr": {
+      "zh": [
+        "电钻打孔",
+        "冲击钻",
+        "钻孔声"
+      ],
+      "label": "电钻",
+      "excludes": [
+        "saw",
+        "hammer",
+        "dental drill"
+      ]
+    },
+    "VEHCar": {
+      "zh": [
+        "汽车驶过",
+        "汽车启动",
+        "车内行驶声"
+      ],
+      "label": "汽车",
+      "excludes": [
+        "motorcycle",
+        "truck",
+        "train"
+      ]
+    },
+    "VEHMoto": {
+      "zh": [
+        "摩托车驶过",
+        "摩托轰鸣",
+        "踏板车"
+      ],
+      "label": "摩托车",
+      "excludes": [
+        "car",
+        "bicycle",
+        "lawn mower"
+      ]
+    },
+    "TRNMisc": {
+      "zh": [
+        "火车驶过",
+        "地铁列车",
+        "铁轨上的列车"
+      ],
+      "label": "火车",
+      "excludes": [
+        "car",
+        "aircraft",
+        "bus"
+      ]
+    },
+    "VEHTruck": {
+      "zh": [
+        "卡车驶过",
+        "柴油卡车引擎",
+        "货车刹车"
+      ],
+      "label": "卡车",
+      "excludes": [
+        "car",
+        "bus",
+        "train"
+      ]
+    },
+    "MOTRComb": {
+      "zh": [
+        "引擎怠速",
+        "轰油门",
+        "引擎启动"
+      ],
+      "label": "发动机",
+      "excludes": [
+        "electric motor",
+        "machine",
+        "generator"
+      ]
+    },
+    "VEHMech": {
+      "zh": [
+        "引擎怠速",
+        "轰油门",
+        "引擎启动"
+      ],
+      "label": "发动机",
+      "excludes": [
+        "electric motor",
+        "machine",
+        "generator"
+      ]
+    },
+    "WATRBubl": {
+      "zh": [
+        "水壶烧开",
+        "咕嘟冒泡",
+        "开水翻滚"
+      ],
+      "label": "水沸腾",
+      "excludes": [
+        "pouring",
+        "drip",
+        "fire"
+      ]
+    },
+    "WATRDrip": {
+      "zh": [
+        "滴水声",
+        "水龙头滴水",
+        "水滴落水",
+        "漏水声"
+      ],
+      "label": "滴水",
+      "excludes": [
+        "rain",
+        "splash",
+        "boiling"
+      ]
+    },
+    "WATRPour": {
+      "zh": [
+        "倒水声",
+        "往杯里倒水",
+        "装水瓶",
+        "水流倒入"
+      ],
+      "label": "倒水",
+      "excludes": [
+        "drip",
+        "splash",
+        "boiling"
+      ]
+    },
+    "WATRPlmb": {
+      "zh": [
+        "花洒水声",
+        "浴室淋浴",
+        "淋浴喷头",
+        "自来水",
+        "水龙头流水",
+        "开龙头",
+        "厨房水龙头"
+      ],
+      "label": "淋浴",
+      "excludes": [
+        "rain",
+        "bath",
+        "fountain",
+        "drip",
+        "shower",
+        "toilet"
+      ]
+    },
+    "WATRSplsh": {
+      "zh": [
+        "水花声",
+        "溅水声",
+        "落水水花",
+        "拍水"
+      ],
+      "label": "水花",
+      "excludes": [
+        "drip",
+        "pouring",
+        "ocean"
+      ]
+    },
+    "WATRWave": {
+      "zh": [
+        "大浪拍岸",
+        "海浪拍礁",
+        "波涛声"
+      ],
+      "label": "海浪",
+      "excludes": [
+        "river",
+        "lapping",
+        "rain"
+      ]
+    },
+    "WEAPKnif": {
+      "zh": [
+        "拔刀声",
+        "刀刃挥砍",
+        "匕首刺击"
+      ],
+      "label": "刀",
+      "excludes": [
+        "sword",
+        "gun",
+        "kitchen"
+      ]
+    },
+    "WEAPSwrd": {
+      "zh": [
+        "拔剑声",
+        "挥剑",
+        "刀剑相击",
+        "剑挥声",
+        "刀刃横扫",
+        "武士刀挥砍",
+        "宝剑破空声"
+      ],
+      "label": "剑",
+      "excludes": [
+        "knife",
+        "gun",
+        "metal impact",
+        "sword impact",
+        "fight whoosh",
+        "designed whoosh"
+      ]
+    },
+    "AIRBlow": {
+      "zh": [
+        "快速气流",
+        "空气掠过",
+        "气流声"
+      ],
+      "label": "空气横扫声",
+      "excludes": [
+        "wind",
+        "designed whoosh",
+        "impact"
+      ]
+    }
+  }
+}

@@ -106,7 +106,7 @@ function makeLibrary(root: string): void {
   );
   // Plain name — classification must fall back to directory + tokens.
   writeFileSync(
-    path.join(root, 'Impacts', 'Metal', 'metal_clang_heavy_03.wav'),
+    path.join(root, 'Impacts', 'Metal', 'metal_impact_heavy_03.wav'),
     createWav(noise(0.6, 48_000), 48_000),
   );
   // Chinese description inside the filename: exercises CJK bigram indexing.
@@ -205,9 +205,10 @@ test('stage 1 indexes files and records format + DSP + UCS', async () => {
       assert.ok(String(row.searchText).length > 0, 'search text must be populated');
     }
 
-    const clang = rows.find((r) => String(r.filename).startsWith('metal_clang'))!;
+    const clang = rows.find((r) => String(r.filename).startsWith('metal_impact'))!;
     assert.equal(clang.ucsSource, 'filename', 'directory hint should classify the metal clang');
-    assert.equal(clang.ucsCatId, 'IMPACTMetal');
+    // Real UCS CatID: the vocabulary has METALCrsh/METLImpt, not IMPACTMetal.
+    assert.equal(clang.ucsCatId, 'METLImpt');
 
     const door = rows.find((r) => String(r.filename).startsWith('DOORWood'))!;
     assert.equal(door.ucsSource, 'filename');
@@ -223,19 +224,19 @@ test('stage 1 indexes files and records format + DSP + UCS', async () => {
 test('keyword search finds files and respects exclusion syntax', async () => {
   const h = await startHarness(false);
   try {
-    const hit = await h.app.searchService.search({ q: 'metal clang', mode: 'keyword' });
-    assert.ok(hit.hits.length >= 1, 'expected the metal clang to match');
-    assert.equal(hit.hits[0]!.asset.filename, 'metal_clang_heavy_03.wav');
+    const hit = await h.app.searchService.search({ q: 'metal impact', mode: 'keyword' });
+    assert.ok(hit.hits.length >= 1, 'expected the metal impact to match');
+    assert.equal(hit.hits[0]!.asset.filename, 'metal_impact_heavy_03.wav');
 
-    const excluded = await h.app.searchService.search({ q: 'metal -clang', mode: 'keyword' });
+    const excluded = await h.app.searchService.search({ q: 'metal -impact', mode: 'keyword' });
     assert.equal(
-      excluded.hits.some((x) => x.asset.filename === 'metal_clang_heavy_03.wav'),
+      excluded.hits.some((x) => x.asset.filename === 'metal_impact_heavy_03.wav'),
       false,
-      'the -clang exclusion must remove it',
+      'the -impact exclusion must remove it',
     );
 
-    const prefix = await h.app.searchService.search({ q: 'clang*', mode: 'keyword' });
-    assert.ok(prefix.hits.length >= 1, 'prefix wildcard should match clang');
+    const prefix = await h.app.searchService.search({ q: 'impact*', mode: 'keyword' });
+    assert.ok(prefix.hits.length >= 1, 'prefix wildcard should match impact');
   } finally {
     h.cleanup();
   }
@@ -248,9 +249,11 @@ test('CJK query is bigram-indexed so Chinese terms match latin filenames metadat
     // this checks the UCS prior retriever rather than FTS.
     const res = await h.app.searchService.search({ q: '金属撞击', mode: 'hybrid', explain: true });
     assert.ok(res.hits.length >= 1, 'expected 金属撞击 to surface the metal impact');
+    // 金属撞击 is curated onto the official METAL/IMPACT unit (METLImpt); the one
+    // metal file in the fixture is classified METLCrsh from its directory hint.
     assert.ok(
-      res.hits.some((x) => x.asset.ucsCatId === 'IMPACTMetal'),
-      `expected IMPACTMetal in results, got ${JSON.stringify(res.hits.map((x) => x.asset.ucsCatId))}`,
+      res.hits.some((x) => typeof x.asset.ucsCatId === 'string' && x.asset.ucsCatId.startsWith('METL')),
+      `expected a METAL CatID in results, got ${JSON.stringify(res.hits.map((x) => x.asset.ucsCatId))}`,
     );
   } finally {
     h.cleanup();
@@ -290,7 +293,7 @@ test('similarity search works with zero inference (cached vectors)', async () =>
   const h = await startHarness(true);
   try {
     const rows = h.app.catalog.db.prepare('SELECT id, filename FROM assets').all() as Array<{ id: number; filename: string }>;
-    const clang = rows.find((r) => r.filename.startsWith('metal_clang'))!;
+    const clang = rows.find((r) => r.filename.startsWith('metal_impact'))!;
 
     const stub = h.stub!;
     const before = stub.seenTexts.length;
@@ -382,9 +385,9 @@ test('UCS tree reports per-category counts and the lookup endpoint resolves alia
     assert.equal(res.status, 200);
     const body = (await res.json()) as { tree: Array<{ category: string; count: number }>; uncategorized: number };
     assert.ok(body.tree.length > 5, 'the UCS vocabulary should be present');
-    const impacts = body.tree.find((t) => t.category === 'IMPACTS');
-    assert.ok(impacts, 'IMPACTS should exist in the tree');
-    assert.ok(impacts!.count >= 1, 'the metal clang should be counted under IMPACTS');
+    const metal = body.tree.find((t) => t.category === 'METAL');
+    assert.ok(metal, 'METAL should exist in the tree');
+    assert.ok(metal!.count >= 1, 'the metal clang should be counted under METAL');
 
     const lookup = await fetch(`${h.server.url}/api/ucs/lookup?q=${encodeURIComponent('太鼓')}`, {
       headers: { 'x-sounddesk-token': h.server.token },
@@ -401,16 +404,16 @@ test('manual classification overrides the automatic pipeline and survives a resc
   const h = await startHarness(false);
   try {
     const rows = h.app.catalog.db.prepare('SELECT id, filename FROM assets').all() as Array<{ id: number; filename: string }>;
-    const clang = rows.find((r) => r.filename.startsWith('metal_clang'))!;
+    const clang = rows.find((r) => r.filename.startsWith('metal_impact'))!;
 
     const patched = await fetch(`${h.server.url}/api/assets/${clang.id}`, {
       method: 'PATCH',
       headers: { 'x-sounddesk-token': h.server.token, 'content-type': 'application/json' },
-      body: JSON.stringify({ ucsCatId: 'IMPACTWood', tags: ['我的标签'], rating: 4 }),
+      body: JSON.stringify({ ucsCatId: 'WOODImpt', tags: ['我的标签'], rating: 4 }),
     });
     assert.equal(patched.status, 200);
     const asset = (await patched.json()) as { ucsCatId: string; ucsSource: string; tags: string[]; rating: number };
-    assert.equal(asset.ucsCatId, 'IMPACTWood');
+    assert.equal(asset.ucsCatId, 'WOODImpt');
     assert.equal(asset.ucsSource, 'manual');
     assert.deepEqual(asset.tags, ['我的标签']);
     assert.equal(asset.rating, 4);
@@ -419,7 +422,7 @@ test('manual classification overrides the automatic pipeline and survives a resc
     const libraryId = (h.app.catalog.listLibraries()[0]!).id;
     await h.app.indexer.runFastPass(libraryId, h.root);
     const after = h.app.catalog.getAssetRow(clang.id)!;
-    assert.equal(after.ucsCatId, 'IMPACTWood', 'a manual correction must be sticky');
+    assert.equal(after.ucsCatId, 'WOODImpt', 'a manual correction must be sticky');
     assert.equal(after.ucsSource, 'manual');
   } finally {
     h.cleanup();
