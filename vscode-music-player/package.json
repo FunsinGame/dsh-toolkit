@@ -1,0 +1,312 @@
+{
+  "name": "vscode-music-player",
+  "displayName": "B站音乐播放器",
+  "description": "在 VS Code 左侧边栏里搜索并播放 B 站视频的音频：支持扫码登录、收藏夹浏览与增删、播放队列与循环/随机等基础播放功能。",
+  "version": "0.1.0",
+  "publisher": "dsh-toolkit",
+  "license": "MIT",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FunsinGame/dsh-toolkit.git",
+    "directory": "vscode-music-player"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "bilibili",
+    "music",
+    "player",
+    "audio",
+    "radio"
+  ],
+  "main": "./out/extension.js",
+  "extensionKind": [
+    "ui"
+  ],
+  "activationEvents": [
+    "onUri",
+    "onStartupFinished"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": {
+      "supported": true,
+      "description": "播放器只访问网络与自身存储，不读取工作区文件。"
+    }
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "musicPlayer",
+          "title": "音乐播放器",
+          "icon": "media/activity.svg"
+        }
+      ]
+    },
+    "views": {
+      "musicPlayer": [
+        {
+          "type": "webview",
+          "id": "musicPlayer.sidebar",
+          "name": "B站音乐"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "musicPlayer.focus",
+        "title": "打开播放器",
+        "category": "音乐播放器",
+        "icon": "$(music)"
+      },
+      {
+        "command": "musicPlayer.playPause",
+        "title": "播放 / 暂停",
+        "category": "音乐播放器",
+        "icon": "$(debug-start)"
+      },
+      {
+        "command": "musicPlayer.next",
+        "title": "下一首",
+        "category": "音乐播放器",
+        "icon": "$(chevron-right)"
+      },
+      {
+        "command": "musicPlayer.previous",
+        "title": "上一首",
+        "category": "音乐播放器",
+        "icon": "$(chevron-left)"
+      },
+      {
+        "command": "musicPlayer.searchSelection",
+        "title": "在 B 站音乐播放器中搜索",
+        "category": "音乐播放器",
+        "icon": "$(search)"
+      },
+      {
+        "command": "musicPlayer.login",
+        "title": "扫码登录 B 站",
+        "category": "音乐播放器",
+        "icon": "$(account)"
+      },
+      {
+        "command": "musicPlayer.logout",
+        "title": "退出 B 站登录",
+        "category": "音乐播放器",
+        "icon": "$(sign-out)"
+      },
+      {
+        "command": "musicPlayer.openFavorites",
+        "title": "打开收藏夹",
+        "category": "音乐播放器",
+        "icon": "$(heart)"
+      },
+      {
+        "command": "musicPlayer.clearCache",
+        "title": "清理音频缓存",
+        "category": "音乐播放器",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "musicPlayer.showLog",
+        "title": "显示日志",
+        "category": "音乐播放器",
+        "icon": "$(output)"
+      },
+      {
+        "command": "musicPlayer.selfTest",
+        "title": "运行自检（隐藏侧边栏后是否继续播放）",
+        "category": "音乐播放器",
+        "icon": "$(beaker)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "musicPlayer.playPause",
+          "when": "view == musicPlayer.sidebar",
+          "group": "navigation@1"
+        },
+        {
+          "command": "musicPlayer.login",
+          "when": "view == musicPlayer.sidebar && !musicPlayer.loggedIn",
+          "group": "navigation@2"
+        },
+        {
+          "command": "musicPlayer.logout",
+          "when": "view == musicPlayer.sidebar && musicPlayer.loggedIn",
+          "group": "navigation@2"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "musicPlayer.searchSelection",
+          "when": "editorHasSelection",
+          "group": "navigation@30"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "musicPlayer.logout",
+          "when": "musicPlayer.loggedIn"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "musicPlayer.playPause",
+        "key": "ctrl+alt+space",
+        "mac": "cmd+alt+space"
+      },
+      {
+        "command": "musicPlayer.next",
+        "key": "ctrl+alt+right",
+        "mac": "cmd+alt+right"
+      },
+      {
+        "command": "musicPlayer.previous",
+        "key": "ctrl+alt+left",
+        "mac": "cmd+alt+left"
+      }
+    ],
+    "configuration": {
+      "title": "B站音乐播放器",
+      "properties": {
+        "musicPlayer.audioQuality": {
+          "type": "number",
+          "enum": [
+            30216,
+            30232,
+            30280
+          ],
+          "enumDescriptions": [
+            "64K（最省流量）",
+            "132K",
+            "192K（默认，音质最好）"
+          ],
+          "default": 30280,
+          "markdownDescription": "音频音质。杜比与 Hi-Res 需要额外的解码器，本插件不提供；未登录时 B 站只会返回较低音质。"
+        },
+        "musicPlayer.defaultPlayMode": {
+          "type": "string",
+          "enum": [
+            "sequential",
+            "repeat-all",
+            "repeat-one",
+            "shuffle"
+          ],
+          "enumDescriptions": [
+            "顺序播放",
+            "列表循环",
+            "单曲循环",
+            "随机播放"
+          ],
+          "default": "sequential",
+          "markdownDescription": "默认播放模式。"
+        },
+        "musicPlayer.volume": {
+          "type": "number",
+          "default": 0.8,
+          "minimum": 0,
+          "maximum": 1,
+          "markdownDescription": "默认音量（0–1）。播放栏的音量滑块也会写回这一项。"
+        },
+        "musicPlayer.playbackRate": {
+          "type": "number",
+          "enum": [
+            0.5,
+            0.75,
+            1,
+            1.25,
+            1.5,
+            1.75,
+            2
+          ],
+          "default": 1,
+          "markdownDescription": "播放速度倍率。播放栏的倍速选择框也会写回这一项。"
+        },
+        "musicPlayer.requestIntervalMs": {
+          "type": "number",
+          "default": 350,
+          "minimum": 0,
+          "markdownDescription": "对 B 站接口的两次请求之间的最小间隔（毫秒）。调小会更快，但更容易触发风控。"
+        },
+        "musicPlayer.cache.enabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "把解码后的音频缓存到扩展存储目录，重复播放同一首歌时无需再次解码。"
+        },
+        "musicPlayer.cache.maxMB": {
+          "type": "number",
+          "default": 500,
+          "minimum": 50,
+          "markdownDescription": "音频缓存上限（MB）。超出后按最近最少使用淘汰。WAV 格式约 40MB/首，MP3 约 6MB/首。"
+        },
+        "musicPlayer.cache.format": {
+          "type": "string",
+          "enum": [
+            "wav",
+            "mp3"
+          ],
+          "enumDescriptions": [
+            "WAV：解码后直接写盘，零编码开销，但体积大（约 40MB/首）",
+            "MP3：多一次编码，体积小约 8 倍（约 6MB/首）"
+          ],
+          "default": "wav",
+          "markdownDescription": "缓存文件的格式。"
+        },
+        "musicPlayer.showStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "在状态栏显示当前曲目与播放按钮。"
+        },
+        "musicPlayer.logLevel": {
+          "type": "string",
+          "enum": [
+            "off",
+            "info",
+            "debug"
+          ],
+          "enumDescriptions": [
+            "不输出日志",
+            "只输出关键事件",
+            "输出全部细节（排查问题时使用）"
+          ],
+          "default": "info",
+          "markdownDescription": "输出面板「音乐播放器」的日志级别。"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "typecheck": "tsc -p ./ --noEmit",
+    "build": "node scripts/build.mjs",
+    "test": "npm run compile && node --test \"out/test/*.test.js\"",
+    "spike:decode": "npm run compile && node out/spike/decode.js",
+    "package": "npm run build && vsce package --no-dependencies",
+    "install:vsix": "npm run package && code --install-extension vscode-music-player-0.1.0.vsix --force"
+  },
+  "dependencies": {
+    "@wasm-audio-decoders/aac": "^0.0.1",
+    "mp4box": "^2.4.1",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/qrcode": "^1.5.6",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.2.1",
+    "esbuild": "^0.28.0",
+    "typescript": "^5.7.2"
+  }
+}

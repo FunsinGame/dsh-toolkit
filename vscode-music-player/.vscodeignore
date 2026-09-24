@@ -1,0 +1,22 @@
+# 源码与构建工具不随扩展发布。
+src/**
+**/*.ts
+!media/**/*.js
+**/*.map
+tsconfig.json
+.vscode/**
+.vscode-test/**
+node_modules/**
+scripts/**
+package-lock.json
+*.log
+**/*.vsix
+
+# 开发期脚本产物（P0 解码验证）不发布。
+out/spike/**
+out/test/**
+
+# out/ 只发布 esbuild 打的单文件 bundle：它是自包含的（mp4box 与 wasm 解码器都
+# 已经打进去了），tsc 的分模块产物属于重复内容。
+out/**
+!out/extension.js

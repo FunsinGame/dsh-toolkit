@@ -1,0 +1,628 @@
+/*
+ * 侧边栏样式。宽度只有 200–400px，所以一切按竖向堆叠设计；
+ * 颜色全部走 --vscode-* 主题变量，自动跟随浅色/深色/高对比度主题。
+ */
+
+:root {
+  --gap: 8px;
+  --radius: 6px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-foreground);
+  background: transparent;
+  overflow: hidden;
+}
+
+/*
+ * 布局的承载者是 `#app`，不是 `body`。
+ *
+ * 之前把 flex 写在 body 上、而所有元素都在 `#app` 里：`#app` 只是个普通块级盒子，
+ * 于是 `.panel{flex:1}` 与 `.player{flex:0 0 auto}` 全都失效——内容少时播放栏跟在
+ * 内容后面（浮在页面中间），内容多时被 overflow 裁掉（播放栏消失）。
+ */
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* ------------------------------------------------------------------ 页签 */
+
+.tabs {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  padding: 4px 4px 0;
+  border-bottom: 1px solid var(--vscode-panel-border, transparent);
+}
+
+.tab {
+  flex: 1 1 0;
+  padding: 4px 2px;
+  color: var(--vscode-foreground);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  opacity: 0.75;
+}
+
+.tab:hover {
+  opacity: 1;
+}
+
+.tab.active {
+  border-bottom-color: var(--vscode-focusBorder);
+  opacity: 1;
+  font-weight: 600;
+}
+
+/* 播放模式按钮的选中态。 */
+.mode.active {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+
+/* 已登录时账户页签加个小圆点。 */
+.tab.logged-in::after {
+  content: '●';
+  margin-left: 4px;
+  color: var(--vscode-charts-green, #3fb950);
+  font-size: 0.7em;
+  vertical-align: middle;
+}
+
+/* -------------------------------------------------------------- 账户页 */
+
+#panel-account {
+  gap: 10px;
+}
+
+.wide {
+  width: 100%;
+}
+
+.hint {
+  margin: 0;
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.5;
+}
+
+#account-logged-out,
+#account-logged-in {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+#account-logged-in .face {
+  align-self: center;
+}
+
+/* ------------------------------------------------------------------ 通用 */
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* -------------------------------------------------------------- 收藏夹 */
+
+#panel-favorites {
+  gap: 8px;
+}
+
+#panel-favorites input[type='text'],
+#panel-favorites input[type='search'],
+#fav-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 6px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: var(--radius);
+  outline: none;
+}
+
+#fav-title {
+  width: 100%;
+}
+
+#fav-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  background: var(--vscode-editorWidget-background);
+  border-radius: var(--radius);
+}
+
+.pick {
+  flex: 0 0 auto;
+  margin: 0 2px 0 0;
+}
+
+.result.invalid {
+  opacity: 0.55;
+  cursor: default;
+}
+
+#fav-contents {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  gap: 6px;
+}
+
+/* 「加入收藏夹」勾选面板：浮在结果列表之上，高度受限、列表可滚动、按钮固定。 */
+#panel-search {
+  position: relative;
+}
+
+.overlay {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  left: 8px;
+  z-index: 5;
+  /* 关键：高度由内容决定但有上限，收藏夹再多也不会把按钮顶出可视区。 */
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: min(360px, calc(100% - 52px));
+  padding: 8px;
+  overflow: hidden;
+  background: var(--vscode-editorWidget-background);
+  border: 1px solid var(--vscode-editorWidget-border, transparent);
+  border-radius: var(--radius);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 35%);
+}
+
+.overlay-title {
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+
+/* 列表自己滚动，不参与压缩按钮。 */
+.overlay .results {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.overlay-actions {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+}
+
+.overlay .result {
+  padding: 3px 4px;
+}
+
+/* ------------------------------------------------------------------ 设置 */
+
+#panel-settings {
+  gap: 10px;
+  overflow-y: auto;
+}
+
+.settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: var(--vscode-editorWidget-background);
+  border-radius: var(--radius);
+}
+
+.settings-title {
+  font-weight: 600;
+}
+
+.setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.setting > span:first-child {
+  flex: 0 0 auto;
+}
+
+.setting select,
+.setting input[type='number'] {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 150px;
+  padding: 3px 4px;
+  color: var(--vscode-dropdown-foreground, var(--vscode-foreground));
+  background: var(--vscode-dropdown-background, var(--vscode-input-background));
+  border: 1px solid var(--vscode-dropdown-border, transparent);
+  border-radius: 4px;
+}
+
+.setting input[type='range'] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 缓存占用条 */
+.bar {
+  height: 6px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--vscode-foreground) 12%, transparent);
+  border-radius: 3px;
+}
+
+.bar-fill {
+  width: 0;
+  height: 100%;
+  background: var(--vscode-progressBar-background, #0e70c0);
+  transition: width 0.2s ease;
+}
+
+.bar-fill.warn {
+  background: var(--vscode-editorWarning-foreground, #cca700);
+}
+
+
+.qr {
+  align-self: center;
+  width: 200px;
+  height: 200px;
+  padding: 6px;
+  background: #fff;
+  border-radius: var(--radius);
+}
+
+.face {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 50%;
+  background: var(--vscode-editorWidget-background);
+}
+
+.account-name {
+  font-size: 1.1em;
+  font-weight: 600;
+}
+
+#account-logged-in {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+/* ------------------------------------------------------------------ 上：搜索与结果 */
+
+.panel {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: var(--gap);
+  gap: var(--gap);
+}
+
+.search-row {
+  display: flex;
+  gap: 6px;
+}
+
+.search-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 6px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: var(--radius);
+  outline: none;
+}
+
+.search-row input:focus {
+  border-color: var(--vscode-focusBorder);
+}
+
+button {
+  padding: 4px 8px;
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  background: var(--vscode-button-secondaryBackground, transparent);
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+button:hover {
+  background: var(--vscode-button-secondaryHoverBackground, var(--vscode-toolbar-hoverBackground));
+}
+
+button.primary {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+
+button.primary:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+.prepare {
+  padding: 4px 6px;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-editorWidget-background);
+  border-radius: var(--radius);
+}
+
+.empty {
+  padding: 12px 6px;
+  color: var(--vscode-descriptionForeground);
+  text-align: center;
+}
+
+.results {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.result:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.result.active {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+}
+
+/* 正在加载的那一条：左边一条进度色带 + 转圈，让「点击是否生效」一眼可见。 */
+.result.loading {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.result.loading .rtitle::after {
+  content: '';
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-left: 6px;
+  border: 2px solid var(--vscode-progressBar-background, #0e70c0);
+  border-top-color: transparent;
+  border-radius: 50%;
+  vertical-align: middle;
+  animation: vmp-spin 0.8s linear infinite;
+}
+
+@keyframes vmp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 播放栏里的加载提示。 */
+.title.loading::after {
+  content: ' 加载中…';
+  color: var(--vscode-descriptionForeground);
+  font-weight: 400;
+  font-size: 0.9em;
+}
+
+.thumb {
+  flex: 0 0 auto;
+  width: 56px;
+  height: 36px;
+  object-fit: cover;
+  background: var(--vscode-editorWidget-background);
+  border-radius: 4px;
+}
+
+.info {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.rtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rauthor,
+.duration {
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.9em;
+}
+
+.result.active .rauthor,
+.result.active .duration {
+  color: inherit;
+  opacity: 0.8;
+}
+
+.duration {
+  flex: 0 0 auto;
+}
+
+.play-one {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+}
+
+/* ------------------------------------------------------------------ 下：播放器 */
+
+.player {
+  position: relative;
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  grid-template-areas:
+    'cover meta'
+    'controls controls'
+    'hint hint'
+    'progress progress';
+  gap: 4px var(--gap);
+  align-items: center;
+  padding: 6px var(--gap);
+  border-top: 1px solid var(--vscode-panel-border, var(--vscode-editorWidget-border));
+  background: var(--vscode-sideBar-background);
+}
+
+.cover {
+  grid-area: cover;
+  width: 40px;
+  height: 40px;
+  background-color: var(--vscode-editorWidget-background);
+  background-size: cover;
+  background-position: center;
+  border-radius: var(--radius);
+}
+
+.meta {
+  grid-area: meta;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.meta-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.author {
+  overflow: hidden;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.9em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 控制行：上一首/播放/下一首 + 静音 + 音量 + 倍速，全部挤在一行里。 */
+.controls {
+  grid-area: controls;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.controls button {
+  flex: 0 0 auto;
+  padding: 2px 5px;
+}
+
+.controls #volume {
+  flex: 1 1 56px;
+  min-width: 40px;
+}
+
+.controls #rate {
+  flex: 0 0 auto;
+  padding: 2px 3px;
+  color: var(--vscode-dropdown-foreground, var(--vscode-foreground));
+  background: var(--vscode-dropdown-background, transparent);
+  border: 1px solid var(--vscode-dropdown-border, transparent);
+  border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.time {
+  flex: 0 0 auto;
+  color: var(--vscode-descriptionForeground);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85em;
+}
+
+.progress {
+  grid-area: progress;
+  width: 100%;
+}
+
+/* 「被自动播放策略静音」时的显眼提示：时钟在走却没声音，必须让用户一眼看到。 */
+.unmute {
+  grid-area: hint;
+  justify-self: stretch;
+  padding: 4px;
+  color: var(--vscode-inputValidation-warningForeground, #000);
+  background: var(--vscode-inputValidation-warningBackground, var(--vscode-button-background));
+  border: 1px solid var(--vscode-inputValidation-warningBorder, transparent);
+  font-weight: 600;
+}
+
+.toast {
+  position: absolute;
+  right: var(--gap);
+  bottom: calc(100% + 6px);
+  left: var(--gap);
+  padding: 6px;
+  border-radius: var(--radius);
+  background: var(--vscode-inputValidation-errorBackground, var(--vscode-editorWidget-background));
+  color: var(--vscode-inputValidation-errorForeground, var(--vscode-foreground));
+  box-shadow: 0 2px 6px rgb(0 0 0 / 30%);
+}
+
+.toast.warn {
+  background: var(--vscode-inputValidation-warningBackground, var(--vscode-editorWidget-background));
+  color: var(--vscode-inputValidation-warningForeground, var(--vscode-foreground));
+}
+
+.toast.info {
+  background: var(--vscode-editorWidget-background);
+  color: var(--vscode-foreground);
+}
