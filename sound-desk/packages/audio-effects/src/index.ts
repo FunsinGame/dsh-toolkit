@@ -60,6 +60,23 @@ export {
 } from './render.js';
 
 export {
+  MAX_TRACKS,
+  mixDuration,
+  mixSampleRate,
+  normalizeTracks,
+  renderMix,
+  renderStem,
+  staggerTracks,
+  trackDuration,
+  type DecodedAudioLike,
+  type MixOptions,
+  type MixResult,
+  type MixTrack,
+  type MixTrackInput,
+  type OfflineMixContextFactory,
+} from './mix.js';
+
+export {
   decodeWavBytes,
   describeWavFormat,
   encodeWav,

@@ -86,6 +86,8 @@ export async function renderWav(
   const sourceNode = createBufferSource(ctx, buffer);
   const graph = buildChain(ctx, normalized, 0);
   sourceNode.connect(graph.input);
+  // the chain no longer routes itself; the renderer owns the destination
+  graph.output.connect(ctx.destination);
 
   graph.scheduleEnvelope(0, sourceSeconds);
   sourceNode.start(0);

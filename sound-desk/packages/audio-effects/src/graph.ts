@@ -87,6 +87,10 @@ export interface BufferSourceLike extends AudioNodeLike {
   stop(when?: number): void;
 }
 
+export interface StereoPannerLike extends AudioNodeLike {
+  pan: AudioParamLike;
+}
+
 export interface ContextLike {
   sampleRate: number;
   currentTime: number;
@@ -102,6 +106,8 @@ export interface ContextLike {
    * rather than simulated with a cast.
    */
   createBufferSource?(): BufferSourceLike;
+  /** optional for the same reason; used by the multi-track mixer */
+  createStereoPanner?(): StereoPannerLike;
   destination: AudioNodeLike;
 }
 
@@ -404,9 +410,15 @@ export function buildChain(ctx: ContextLike, chain: EffectChain, atTime = ctx.cu
   distRoomWet.connect(distFilterOut);
 
   // → master blend → output
+  //
+  // Deliberately *not* connected to `ctx.destination` here. A chain is a
+  // processing block, and the owner decides where its output goes — the offline
+  // renderer goes to the destination, the mixer goes to its own bus, and the live
+  // player goes to the volume gain. Connecting internally as well created a
+  // second, unprocessed path to the speakers that silently defeated per-track
+  // panning.
   distFilterOut.connect(wetMaster);
   wetMaster.connect(output);
-  output.connect(ctx.destination);
 
   wetMaster.gain.value = 0;
   output.gain.value = chain.outputGain;
