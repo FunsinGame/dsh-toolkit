@@ -10,7 +10,7 @@
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
-| P0-1 | monorepo 骨架、`core` 类型与查询语言、UCS 数据集 | ✅ 完成 |
+| P0-1 | monorepo 骨架、`core` 类型与查询语言、**官方 UCS 8.2.1 数据集（753 子类 / 82 大类，源文件按 SHA-256 钉住）** | ✅ 完成 |
 | P0-2 | 扫描入库、WAV/BWF 元数据、DSP 特征、峰值、Range 流、分级索引 | ✅ 完成 |
 | P0-3 | 混合检索（FTS5 BM25 + 向量 + UCS 先验 + RRF）、中文查询改写 | ✅ 完成（向量层需模型） |
 | P0-3 | **重排（PLAN §3.1(E)：词面 / 分类 / 声学信号融合）** | ✅ 完成（recall@10 0.210→0.300，MRR 0.326→0.531） |
@@ -373,6 +373,7 @@ node packages/engine/dist/cli.js --data-dir ~/.sounddesk --add "D:/SFX"   # 省�
 - **非 RIFF 格式需要 ffmpeg**（FLAC/MP3/AIFF/OGG/M4A）。装了就完整可用：时长、声学特征、波形、声音指纹都正常；没装则这些文件只能按文件名检索，UI 底部会显示「未装 ffmpeg（仅 RIFF 可分析）」。检测顺序：`SOUNDDESK_FFMPEG` 环境变量 → 系统 PATH → 可选的 `ffmpeg-static`（约 80MB，随 optionalDependencies 安装）。
 - **UCS 数据集已是官方 8.2.1 全量**（753 子类 / 82 大类，`complete: true`）。源文件 `packages/ucs/data/ucs_v8.2.1.csv` 按 SHA-256 钉在 `scripts/build-ucs.mjs` 的 `PINNED` 里，哈希不符时构建直接失败；`pnpm --filter @sounddesk/ucs check:ucs` 可随时校验产物与源一致。来源、许可与升级步骤见 `packages/ucs/data/PROVENANCE.md`。**8.2.1 的 CatID 已与旧的手写种子完全不同**：旧的 178 条里只有 `DOORWood` 是真的，其余 177 条已丢弃。
 - **中文分类名是社区译法**，非官方翻译。中文覆盖：82/82 个大类名 + 145/753 个子类（其余子类用官方英文 `subCategory` 展示，分类本身不受影响）。
+- **已有素材库需要重扫一次**：数据集从手写种子换成官方 CatID 后，库里旧的 `ucsCatId`（如 `IMPACTMetal`）已不是合法 UCS 标识，也不会出现在分类树里。对每个素材库点一次「重扫」即可按新词表重新分类；`ucsSource = manual` 的手动订正不会被覆盖。
 - **向量检索是线性扫描**；超过约 5 万文件需要考虑 ANN 索引。
 - **CLAP 真实模型的检索质量已在合成声上验证**（4/6 rank-1，分值分离良好），但尚未在真实录音素材上做大规模评测。合成演示库的分数会明显偏低且挤在一起——那是演示素材不具代表性，不是检索管道的问题。
 - **语义搜索模型下载默认走 `hf-mirror.com`**（`huggingface.co` 在本机不可达）；用 `SOUNDDESK_HF_HOST` 覆盖。

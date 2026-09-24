@@ -23,6 +23,18 @@ export interface EngineHostOptions {
   webRoot?: string | null;
   loadModel: boolean;
   log: (message: string) => void;
+  /**
+   * Notified when a start attempt settles, so host UI (the status bar, the
+   * sidebar) can react without polling. Fires once per actual launch, after the
+   * handle exists or the failure is known.
+   */
+  onStateChange?: (state: EngineHostState) => void;
+}
+
+export interface EngineHostState {
+  ok: boolean;
+  /** present when `ok` is false */
+  error?: string;
 }
 
 export interface EngineHandle {
@@ -58,6 +70,18 @@ export class EngineHost {
   }
 
   private async launch(): Promise<EngineHandle> {
+    try {
+      return await this.launchOnce();
+    } catch (err) {
+      this.options.onStateChange?.({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
+  }
+
+  private async launchOnce(): Promise<EngineHandle> {
     const { options } = this;
     options.log(`starting engine (data dir: ${options.dataDir})`);
     const app = await createApp({
@@ -92,6 +116,7 @@ export class EngineHost {
       },
     };
     options.log(`engine ready at ${server.url}`);
+    options.onStateChange?.({ ok: true });
     return this.handle;
   }
 

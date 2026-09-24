@@ -14,7 +14,9 @@
     "Other"
   ],
   "main": "./out/extension.js",
-  "activationEvents": [],
+  "activationEvents": [
+    "onView:soundDesk.library"
+  ],
   "contributes": {
     "commands": [
       {
@@ -52,8 +54,56 @@
         "command": "soundDesk.showEngineInfo",
         "title": "SoundDesk: 显示引擎信息",
         "category": "SoundDesk"
+      },
+      {
+        "command": "soundDesk.refreshLibrary",
+        "title": "SoundDesk: 刷新素材库视图",
+        "category": "SoundDesk"
+      },
+      {
+        "command": "soundDesk.addToPlaylist",
+        "title": "SoundDesk: 加入播放列表",
+        "category": "SoundDesk"
+      },
+      {
+        "command": "soundDesk.setReferenceAudio",
+        "title": "SoundDesk: 设为参考音频",
+        "category": "SoundDesk"
+      },
+      {
+        "command": "soundDesk.openPlaylist",
+        "title": "SoundDesk: 打开播放列表",
+        "category": "SoundDesk"
+      },
+      {
+        "command": "soundDesk.copyAssetPath",
+        "title": "SoundDesk: 复制文件路径",
+        "category": "SoundDesk"
+      },
+      {
+        "command": "soundDesk.revealAsset",
+        "title": "SoundDesk: 在文件管理器中显示",
+        "category": "SoundDesk"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "soundDesk",
+          "title": "SoundDesk",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "soundDesk": [
+        {
+          "id": "soundDesk.library",
+          "name": "素材库",
+          "contextualTitle": "SoundDesk"
+        }
+      ]
+    },
     "customEditors": [
       {
         "viewType": "soundDesk.audio",
@@ -108,6 +158,30 @@
           "command": "soundDesk.findSimilar",
           "when": "resourceExtname =~ /\\.(wav|bwf|wave|aif|aiff|flac|mp3|ogg|m4a)$/i",
           "group": "soundDesk@2"
+        },
+        {
+          "command": "soundDesk.addToPlaylist",
+          "when": "resourceExtname =~ /\\.(wav|bwf|wave|aif|aiff|flac|mp3|ogg|m4a)$/i",
+          "group": "soundDesk@3"
+        },
+        {
+          "command": "soundDesk.setReferenceAudio",
+          "when": "resourceExtname =~ /\\.(wav|bwf|wave|aif|aiff|flac|mp3|ogg|m4a)$/i",
+          "group": "soundDesk@4"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "soundDesk.refreshLibrary",
+          "when": "view == soundDesk.library",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "soundDesk.openPlaylist",
+          "when": "view == soundDesk.library && viewItem == soundDesk.playlist",
+          "group": "soundDesk@1"
         }
       ]
     },
@@ -141,6 +215,11 @@
           "type": "boolean",
           "default": false,
           "description": "打开工作台时同时用系统浏览器打开同一地址。"
+        },
+        "soundDesk.showStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "在状态栏显示 SoundDesk 引擎状态（素材数量、语义搜索、ffmpeg）。"
         }
       }
     }

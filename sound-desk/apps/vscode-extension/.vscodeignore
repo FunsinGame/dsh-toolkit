@@ -15,3 +15,9 @@ pnpm-lock.yaml
 !media/**
 !data/**
 !README.md
+
+# The runtime never reads these, and the official CSV alone is ~250 KB.
+data/ucs_v8.2.1.csv
+data/official-catalog.json
+data/categories.seed.json
+data/zh-Hans.json
