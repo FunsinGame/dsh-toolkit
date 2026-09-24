@@ -102,6 +102,25 @@ export interface EngineClient {
   ): Promise<BackupImportOutcome>;
   /** live job progress; returns an unsubscribe function */
   subscribe(onEvent: (event: EngineEvent) => void): () => void;
+  /**
+   * What the engine can and cannot do.
+   *
+   * Currently this carries ffmpeg availability, which the UI has to know: without
+   * it, FLAC/MP3/AIFF have no waveform, no fingerprint and cannot play, and
+   * "no waveform" with no explanation looks like a bug.
+   */
+  session(): Promise<SessionInfo>;
+}
+
+export interface SessionInfo {
+  ok: boolean;
+  serverVersion: string;
+  embeddingDim: number;
+  similarityThreshold: number;
+  webRoot: string | null;
+  ffmpeg:
+    | { available: true; version: string | null; source: 'env' | 'path' | 'bundled' }
+    | { available: false };
 }
 
 export interface PatchableAsset {
@@ -424,6 +443,10 @@ class HttpEngineClient implements EngineClient {
 
   downloadUrl(id: number): string {
     return `${this.base}/api/media/${id}/download?token=${encodeURIComponent(this.token)}`;
+  }
+
+  session(): Promise<SessionInfo> {
+    return this.request<SessionInfo>('/api/session');
   }
 
   async fetchWaveBytes(id: number): Promise<Uint8Array> {
@@ -767,6 +790,10 @@ class VscodeEngineClient implements EngineClient {
 
   downloadUrl(id: number): string {
     return `${this.base}/api/media/${id}/download?token=${encodeURIComponent(this.token)}`;
+  }
+
+  session(): Promise<SessionInfo> {
+    return this.call<SessionInfo>('session');
   }
 
   async fetchWaveBytes(id: number): Promise<Uint8Array> {

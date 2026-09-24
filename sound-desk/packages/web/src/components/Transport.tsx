@@ -196,6 +196,15 @@ export function Transport({
       <div className="meta">
         {state.host === 'vscode' ? 'VSCode 内运行' : '浏览器运行'}
         {state.stats && !state.stats.modelsReady ? ' · 语义搜索未启用' : ''}
+        {/* Without ffmpeg, non-RIFF files have no waveform, no fingerprint and cannot
+            play. Saying so is the difference between a documented limitation and
+            what looks like a broken tool. */}
+        {state.session && !state.session.ffmpeg.available ? (
+          <span title="安装 ffmpeg（或用 SOUNDDESK_FFMPEG 指定路径）后，FLAC/MP3/AIFF 等格式才能生成波形、指纹并播放">
+            {' '}
+            · 未装 ffmpeg（仅 RIFF 可分析）
+          </span>
+        ) : null}
       </div>
     </div>
   );

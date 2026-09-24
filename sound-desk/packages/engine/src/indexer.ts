@@ -20,6 +20,8 @@ import { availableParallelism } from 'node:os';
 import { buildSearchText, IndexStage, type EmbeddedMetadata, type DspFeatures, type Embedder } from '@sounddesk/core';
 import { probeWav, decodeWav, analyzeDsp, buildPeaks, serializePeaks } from '@sounddesk/audio-wav';
 
+import { decodeAudio, findFfmpeg, probeWithFfmpeg } from './decode.js';
+
 import type { Catalog } from './db.js';
 import { hashFile, discoverFiles, type DiscoveredFile } from './scanner.js';
 import { UcsClassifier } from './ucs-classifier.js';
@@ -251,6 +253,61 @@ export class Indexer extends EventEmitter {
       } catch (err) {
         lastError = `probe: ${errorMessage(err)}`;
       }
+    } else {
+      /**
+       * Non-RIFF containers (FLAC, MP3, AIFF, OGG, M4A…).
+       *
+       * Metadata comes from ffmpeg when it is available. Without it the file is
+       * still indexed — name, size and hash are enough for keyword search and for
+       * the backup to identify it — but it gets no duration, no DSP features and no
+       * waveform, so the UI must not pretend otherwise. That difference is recorded
+       * in `lastError` so it is visible rather than mysterious.
+       */
+      const probe = await probeWithFfmpeg(file.path);
+      if (probe) {
+        durationMs = probe.durationMs;
+        sampleRate = probe.sampleRate;
+        bitDepth = probe.bitDepth;
+        channels = probe.channels;
+        if (probe.codec) codec = probe.codec.toUpperCase();
+      } else {
+        const ffmpegInfo = await findFfmpeg();
+        lastError = ffmpegInfo
+          ? 'ffmpeg 无法读取这个文件的格式信息'
+          : `这个格式（${codec}）需要 ffmpeg 才能读取时长与波形`;
+      }
+
+      // The fingerprint and the waveform both come from decoded samples, so they
+      // share one decode rather than spawning ffmpeg twice per file.
+      const decoded = await decodeAudio(file.path, { mono: true, maxSeconds: this.dspWindowMs / 1000 });
+      if (decoded.ok) {
+        // ffmpeg resamples to a known rate, so trust its numbers over the probe's
+        // when the two disagree.
+        sampleRate = decoded.sampleRate;
+        if (durationMs === null && decoded.channelData[0]) {
+          durationMs = Math.round((decoded.channelData[0].length / decoded.sampleRate) * 1000);
+        }
+        try {
+          const features = analyzeDsp(decoded.channelData, decoded.sampleRate);
+          dsp = {
+            peak: features.peak,
+            rms: features.rms,
+            peakDb: features.peakDb,
+            rmsDb: features.rmsDb,
+            decayMs: features.decayMs,
+            spectralCentroidHz: features.spectralCentroidHz,
+            highFrequencyRatio: features.highFrequencyRatio,
+            stereoCorrelation: features.stereoCorrelation,
+            hasVoiceLikeActivity: features.hasVoiceLikeActivity,
+            tonality: features.tonality,
+          };
+          lastError = null;
+        } catch (err) {
+          lastError = `dsp: ${errorMessage(err)}`;
+        }
+      } else if (lastError === null) {
+        lastError = decoded.reason;
+      }
     }
 
     const contentHash = await hashFile(file.path, file.sizeBytes).catch(() => null);
@@ -349,15 +406,17 @@ export class Indexer extends EventEmitter {
       this.emitUpdate(job);
 
       await this.runPool(pending, job, controller, async (item) => {
-        if (!/\.(wav|bwf|wave)$/i.test(item.path)) {
-          // Only RIFF containers are decodable without ffmpeg in this build.
-          // Record the attempt so the asset does not retry forever.
-          this.catalog.markPeaks(item.id, null);
-          return;
-        }
         try {
-          const decoded = await decodeWav(item.path, { maxMs: 10 * 60 * 1000 });
-          const peaks = buildPeaks(decoded.data, { sampleRate: decoded.sampleRate });
+          // Decode through the shared decoder so a FLAC gets a waveform wherever
+          // ffmpeg is available. Peak building wants every channel, hence no `mono`.
+          const decoded = await decodeAudio(item.path, { maxSeconds: 10 * 60 });
+          if (!decoded.ok) {
+            // Keep the file browsable, just without a waveform, and record why.
+            this.catalog.markPeaks(item.id, null);
+            if (decoded.needsFfmpeg) this.catalog.setError(item.id, `peaks: ${decoded.reason}`);
+            return;
+          }
+          const peaks = buildPeaks(decoded.channelData, { sampleRate: decoded.sampleRate });
           const target = this.peaksFileFor(item.id);
           await writeFile(target, serializePeaks(peaks));
           this.catalog.markPeaks(item.id, target);
@@ -402,9 +461,16 @@ export class Indexer extends EventEmitter {
       const dim = this.embedder.dim;
 
       await this.runPool(pending, job, controller, async (item) => {
-        const decoded = await decodeWav(item.path, { maxMs: 60_000 });
-        // CLAP expects mono 48 kHz; the embedder implementation handles resampling.
-        const mono = mixToMono(decoded.data);
+        // CLAP expects mono 48 kHz; the decoder resamples and the embedder handles
+        // anything left over.
+        const decoded = await decodeAudio(item.path, { mono: true, maxSeconds: 60 });
+        if (!decoded.ok) {
+          // Not fatal for the library, but the asset stays un-embedded, so record the
+          // reason: silently leaving it at stage 2 forever is worse.
+          this.catalog.setError(item.id, `embed: ${decoded.reason}`);
+          return;
+        }
+        const mono = decoded.channelData.length === 1 ? decoded.channelData[0]! : mixToMono(decoded.channelData);
         const result = await this.embedder!.embedAudio(mono, decoded.sampleRate);
         this.catalog.putEmbedding(item.id, modelId, dim, result.mean, result.onset ?? null);
       });

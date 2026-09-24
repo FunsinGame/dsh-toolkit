@@ -17,6 +17,7 @@ import {
   applyImport,
   deleteExports,
   exportRootsFor,
+  ffmpegStatus,
   isInside,
   listExports,
   moveWithinOrder,
@@ -350,6 +351,22 @@ export function createHandler(engine: EngineLike): Handler {
     },
 
     clearUsage: () => ({ removed: catalog.clearUsage() }),
+
+    /**
+     * Engine capabilities.
+     *
+     * ffmpeg is resolved the same way as in the HTTP server, so the webview sees
+     * identical information in both hosts — a FLAC that cannot play in the browser
+     * cannot play here either, and saying so matters.
+     */
+    session: async () => ({
+      ok: true,
+      serverVersion: '0.1.0',
+      embeddingDim: 512,
+      similarityThreshold: 0.12,
+      webRoot: null,
+      ffmpeg: await ffmpegStatus(),
+    }),
 
     // -- playlists (plan P1-3) -------------------------------------------
     playlists: () => ({ playlists: playlists.list() }),

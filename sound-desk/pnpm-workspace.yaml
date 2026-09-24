@@ -5,8 +5,13 @@ packages:
 # Dependencies whose install scripts must run so their native binaries exist.
 # Without this pnpm skips them and ONNX inference fails at runtime with
 # "Cannot find package 'onnxruntime-node'".
+#
+# ffmpeg-static's postinstall downloads the ffmpeg binary. It is permitted because
+# decoding non-RIFF formats is a real feature (see the audio decoder); the engine
+# still runs without it and says so.
 allowBuilds:
   onnxruntime-node: true
   protobufjs: true
   sharp: true
   esbuild: true
+  ffmpeg-static: true

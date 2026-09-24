@@ -26,6 +26,7 @@ import type {
   PersonalizationState,
   Playlist,
   PlaylistDetail,
+  SessionInfo,
   UcsTree,
 } from '../api/client.ts';
 import { parseBatchQueries, type CompareSort, type CompareColumn } from '../util/compare.ts';
@@ -89,6 +90,8 @@ export interface AppState {
   exportFiles: string[];
   /** last failure from a host-only action (reveal in OS, open in editor) */
   hostActionError: string | null;
+  /** engine capabilities, notably whether non-RIFF formats can be decoded */
+  session: SessionInfo | null;
   /** personalised ranking (plan P2-3) */
   personalization: PersonalizationState | null;
 
@@ -150,6 +153,7 @@ const initialState: AppState = {
   exportResult: null,
   exportFiles: [],
   hostActionError: null,
+  session: null,
   personalization: null,
   compare: false,
   columns: [],
@@ -217,6 +221,7 @@ class Store {
       void this.runSearch();
       // Loaded separately so a personalization failure cannot block the workbench.
       void this.refreshPersonalization();
+      void this.refreshSession();
     } catch (err) {
       this.set({ fatalError: err instanceof Error ? err.message : String(err) });
     }
@@ -550,6 +555,20 @@ class Store {
   }
 
   // -- personalised ranking (plan P2-3) ----------------------------------
+
+  /**
+   * Engine capabilities.
+   *
+   * Best-effort: a failure here must not stop the workbench, it only means the UI
+   * cannot say whether non-RIFF files are analysable.
+   */
+  async refreshSession(): Promise<void> {
+    try {
+      this.set({ session: await this.getClient().session() });
+    } catch {
+      this.set({ session: null });
+    }
+  }
 
   async refreshPersonalization(): Promise<void> {
     try {

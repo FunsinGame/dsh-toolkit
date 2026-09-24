@@ -317,6 +317,23 @@ export {
 } from './export.js';
 
 export {
+  ANALYSIS_SAMPLE_RATE,
+  decodeAudio,
+  ffmpegStatus,
+  findFfmpeg,
+  isRiffPath,
+  probeWithFfmpeg,
+  resetFfmpegCache,
+  transcodeToWav,
+  type DecodedSamples,
+  type DecodeFailure,
+  type DecodeOptions,
+  type DecodeResult,
+  type FfmpegInfo,
+  type FfmpegProbe,
+} from './decode.js';
+
+export {
   PlaylistError,
   Playlists,
   addToPlaylist,

@@ -37,6 +37,7 @@ import { rowToAsset, rowToSummary } from './mappers.js';
 import { streamPeaksFor } from './peaks.js';
 import { errorMessage } from './indexer.js';
 import { ExportError, deleteExports, exportRootsFor, isInside, listExports, saveExport } from './export.js';
+import { ffmpegStatus, findFfmpeg, isRiffPath, transcodeToWav } from './decode.js';
 import {
   PlaylistError,
   Playlists,
@@ -214,12 +215,22 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
 
     // -- session --------------------------------------------------------
     if (pathname === '/api/session' && method === 'GET') {
+      // Resolved once and cached, so this is cheap after the first call.
+      const ffmpeg = await ffmpegStatus();
       sendJson(res, 200, {
         ok: true,
         serverVersion: '0.1.0',
         embeddingDim: EMBEDDING_DIM,
         similarityThreshold: SIMILARITY_THRESHOLD,
         webRoot: opts.webRoot ?? null,
+        /**
+         * Whether non-RIFF formats can be decoded.
+         *
+         * Surfaced because it changes what the app can do — no waveform, no
+         * fingerprint and no playback for FLAC/MP3/AIFF without it — and a user
+         * seeing "no waveform" deserves to know why rather than guess.
+         */
+        ffmpeg,
       });
       return;
     }
@@ -514,7 +525,55 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     // -- media ----------------------------------------------------------
     const streamMatch = /^\/api\/media\/(\d+)\/stream$/.exec(pathname);
     if (streamMatch && (method === 'GET' || method === 'HEAD')) {
-      await streamAudio(req, res, Number(streamMatch[1]));
+      /**
+       * Playable stream.
+       *
+       * RIFF is served as-is and keeps full Range support, which is what makes
+       * seeking instant. Anything else is **transcoded to WAV on the fly** when
+       * ffmpeg is available, because an `<audio>` element cannot be relied on to
+       * decode FLAC/AIFF/M4A — and without this, "play" simply does not work for
+       * those files even though they are indexed.
+       *
+       * The transcoded path gives up Range: the browser has to buffer the whole
+       * clip. That is acceptable for sound effects and is the only honest option
+       * without an ffmpeg-based range server. `?raw=1` bypasses the transcode for a
+       * caller that wants the stored bytes.
+       */
+      const id = Number(streamMatch[1]);
+      const wantsRaw = url.searchParams.get('raw') === '1';
+      const row = opts.catalog.getAssetRow(id);
+      const assetPath = row ? String(row.path ?? '') : '';
+      if (!row || !assetPath) {
+        sendJson(res, 404, { error: 'asset not found' });
+        return;
+      }
+
+      if (!wantsRaw && !isRiffPath(assetPath)) {
+        const ffmpegInfo = await findFfmpeg();
+        if (ffmpegInfo) {
+          const wav = await transcodeToWav(ffmpegInfo.path, assetPath);
+          if (wav) {
+            res.writeHead(200, {
+              'content-type': 'audio/wav',
+              'content-length': String(wav.byteLength),
+              // no accept-ranges: the whole clip is sent in one response
+              'cache-control': 'private, max-age=600',
+            });
+            if (method === 'HEAD') {
+              res.end();
+              return;
+            }
+            res.end(wav);
+            return;
+          }
+          sendJson(res, 415, { error: 'ffmpeg 无法转码这个文件' });
+          return;
+        }
+        // No ffmpeg: fall through and serve the original bytes. A browser that
+        // happens to support the codec will still play it.
+      }
+
+      await streamAudio(req, res, id);
       return;
     }
 
