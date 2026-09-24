@@ -4,6 +4,7 @@ import { getPlayer, type PlayerState } from './audio/player.ts';
 import { requestPlay } from './audio/playback.ts';
 import { DetailsPane } from './components/DetailsPane.tsx';
 import { EffectsPane } from './components/EffectsPane.tsx';
+import { MixerPane } from './components/MixerPane.tsx';
 import { ResultsPane } from './components/ResultsPane.tsx';
 import { SearchBar } from './components/SearchBar.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
@@ -30,6 +31,24 @@ export function App({ bootError }: { bootError: string | null }): React.JSX.Elem
       window.localStorage.setItem('sounddesk.effectsOpen', next ? '1' : '0');
     } catch {
       /* storage disabled — the panel still works for this session */
+    }
+  };
+
+  // Which mixer track's chain the effects panel is editing, if any.
+  const [editingTrackId, setEditingTrackId] = useState<string | null>(null);
+  const [showMixer, setShowMixer] = useState(() => {
+    try {
+      return window.localStorage.getItem('sounddesk.mixerOpen') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleMixer = (next: boolean): void => {
+    setShowMixer(next);
+    try {
+      window.localStorage.setItem('sounddesk.mixerOpen', next ? '1' : '0');
+    } catch {
+      /* storage disabled */
     }
   };
 
@@ -93,11 +112,22 @@ export function App({ bootError }: { bootError: string | null }): React.JSX.Elem
           <ResultsPane playingId={playback.assetId} onPlay={(id) => requestPlay(id)} />
         </div>
         <div className="pane stack">
-          {showEffects && <EffectsPane />}
+          {showMixer && <MixerPane onEditChain={(trackId) => { setEditingTrackId(trackId); setShowEffects(true); }} />}
+          {showEffects && (
+            <EffectsPane
+              trackId={editingTrackId}
+              onClearTarget={() => setEditingTrackId(null)}
+            />
+          )}
           <DetailsPane onPlay={(id) => requestPlay(id)} onSimilar={(id) => void store.findSimilar(id)} />
         </div>
       </div>
-      <Transport showEffects={showEffects} onToggleEffects={toggleEffects} />
+      <Transport
+        showEffects={showEffects}
+        onToggleEffects={toggleEffects}
+        showMixer={showMixer}
+        onToggleMixer={toggleMixer}
+      />
     </div>
   );
 }

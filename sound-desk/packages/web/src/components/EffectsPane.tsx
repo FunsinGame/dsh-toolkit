@@ -20,16 +20,19 @@ import { useEffect, useState } from 'react';
 import {
   DEFAULT_EFFECT_CHAIN,
   EFFECT_PRESETS,
+  isNeutral,
   REVERB_SPACES,
   type EffectChain,
   type ReverbSpace,
 } from '@sounddesk/audio-effects';
+import { getMixer } from '../audio/mixer.ts';
 import { getPlayer, type PlayerState } from '../audio/player.ts';
 import { store } from '../state/store.ts';
 import { useAppState } from '../state/useAppState.ts';
 import { formatBytes, formatDuration } from '../util/format.ts';
 
 const player = getPlayer();
+const mixer = getMixer();
 
 function Row({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
   return (
@@ -105,31 +108,62 @@ function Slot({
   );
 }
 
-export function EffectsPane(): React.JSX.Element {
+export function EffectsPane({
+  trackId = null,
+  onClearTarget,
+}: {
+  /** when set, the panel edits that mixer track's chain instead of the preview */
+  trackId?: string | null;
+  onClearTarget?: () => void;
+}): React.JSX.Element {
   const state = useAppState();
   const [playback, setPlayback] = useState<PlayerState>(() => player.getState());
+  const [mix, setMix] = useState(() => mixer.getState());
   useEffect(() => player.subscribe(setPlayback), []);
+  useEffect(() => mixer.subscribe(setMix), []);
 
-  const chain = playback.chain;
-  const update = (patch: Partial<EffectChain>): void => player.setChain({ ...chain, ...patch });
+  const mixerTrack = trackId ? mix.tracks.find((t) => t.id === trackId) ?? null : null;
+  const chain = mixerTrack ? mixerTrack.chain : playback.chain;
+
+  /**
+   * Route a change to wherever this panel is pointed.
+   *
+   * Editing a track's chain goes through the mixer so the change is audible
+   * immediately; editing otherwise updates the preview chain. One control set,
+   * two targets — the alternative was a second copy of every slider.
+   */
+  const apply = (next: EffectChain): void => {
+    if (mixerTrack) mixer.updateTrack(mixerTrack.id, { chain: next });
+    else player.setChain(next);
+  };
+  const update = (patch: Partial<EffectChain>): void => apply({ ...chain, ...patch });
   const updateEq = (id: string, patch: Partial<EffectChain['eq'][number]>): void =>
-    player.setChain({ ...chain, eq: chain.eq.map((band) => (band.id === id ? { ...band, ...patch } : band)) });
+    apply({ ...chain, eq: chain.eq.map((band) => (band.id === id ? { ...band, ...patch } : band)) });
+  const reset = (): void => apply(structuredClone(DEFAULT_EFFECT_CHAIN));
 
   const asset = state.selected;
   const canExport = asset !== null && !state.exporting;
+  const neutral = mixerTrack ? isNeutral(mixerTrack.chain) : playback.chainNeutral;
 
   return (
     <div className="pane effects">
       <div className="pane-head">
-        <span>效果链（仅试听）</span>
-        <span className="count">
-          {state.exporting
-            ? `导出中 ${(state.exportProgress * 100).toFixed(0)}%`
-            : playback.chainNeutral
-              ? '原声'
-              : '已修改'}
-        </span>
+        <span>{mixerTrack ? `效果链 · 轨道「${mixerTrack.label}」` : '效果链（仅试听）'}</span>
+        <span className="count">{state.exporting ? `导出中 ${(state.exportProgress * 100).toFixed(0)}%` : neutral ? '原声' : '已修改'}</span>
       </div>
+
+      {mixerTrack && (
+        <div className="section" style={{ paddingBottom: 0 }}>
+          <div className="fx-hint">
+            正在编辑多轨里这条轨道的效果链。
+            {onClearTarget && (
+              <button style={{ marginLeft: 6, padding: '0 6px' }} onClick={onClearTarget}>
+                改回编辑试听链
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="section">
         <div className="fx-toolbar">
@@ -140,14 +174,14 @@ export function EffectsPane(): React.JSX.Element {
           >
             {chain.enabled ? '旁通' : '已旁通'}
           </button>
-          <button onClick={() => player.resetChain()} title="把所有参数复位为原声">
+          <button onClick={() => reset()} title="把所有参数复位为原声">
             复位
           </button>
           <select
             value=""
             onChange={(ev) => {
               const preset = EFFECT_PRESETS.find((p) => p.id === ev.target.value);
-              if (preset) player.setChain(preset.apply(chain));
+              if (preset) apply(preset.apply(chain));
               ev.target.value = '';
             }}
             title="套用预设"
@@ -387,6 +421,9 @@ export function EffectsPane(): React.JSX.Element {
         </Slot>
       </div>
 
+      {/* Export is about the selected asset, so it is meaningless while editing a
+          mixer track's chain — the mixer pane owns multi-track export. */}
+      {!mixerTrack && (
       <div className="section">
         <h3>导出</h3>
         <div className="fx-hint" style={{ marginBottom: 6 }}>
@@ -430,6 +467,7 @@ export function EffectsPane(): React.JSX.Element {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

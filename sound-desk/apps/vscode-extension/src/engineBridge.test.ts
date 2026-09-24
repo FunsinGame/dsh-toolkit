@@ -10,9 +10,13 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 import { Catalog, UcsClassifier, syncUcsTable } from '@sounddesk/engine';
 import { dataset } from '@sounddesk/ucs';
+import { encodeWav } from '@sounddesk/audio-effects';
 
 import { createHandler, type EngineLike } from './engineBridge.ts';
 
@@ -26,6 +30,11 @@ interface Fixture {
 function makeFixture(): Fixture {
   const catalog = Catalog.openMemory();
   const classifier = new UcsClassifier(dataset.categories as never[]);
+  // A real temporary library root. A hard-coded POSIX-looking path such as
+  // `/tmp/sfx` resolves *inside the repository* on Windows, which made the export
+  // test write into the working tree and then collide with itself on a rerun.
+  const libraryRoot = mkdtempSync(path.join(tmpdir(), 'sounddesk-ext-lib-'));
+  const dataDir = mkdtempSync(path.join(tmpdir(), 'sounddesk-ext-data-'));
   // Real catalogues get this from createApp; a hand-built one must do it too or
   // the ucs_categories join reports everything as uncategorised.
   syncUcsTable(catalog, dataset.categories as never[]);
@@ -34,7 +43,7 @@ function makeFixture(): Fixture {
   const engine: EngineLike = {
     catalog,
     classifier,
-    dataDir: ':memory:',
+    dataDir,
     ucs: {
       list: () => dataset.categories.map((c) => ({ ...c, code: c.code ?? c.category })),
       categories: () => categories,
@@ -65,11 +74,11 @@ function makeFixture(): Fixture {
     } as unknown as EngineLike['indexer'],
   };
 
-  const libraryId = catalog.addLibrary('Test Library', '/tmp/sfx', 'local');
+  const libraryId = catalog.addLibrary('Test Library', libraryRoot, 'local');
   const { id } = catalog.upsertAsset({
     libraryId,
-    path: '/tmp/sfx/Doors/wood_close.wav',
-    dir: '/tmp/sfx/Doors',
+    path: path.join(libraryRoot, 'Doors', 'wood_close.wav'),
+    dir: path.join(libraryRoot, 'Doors'),
     filename: 'wood_close.wav',
     extension: '.wav',
     sizeBytes: 1234,
@@ -111,7 +120,11 @@ function makeFixture(): Fixture {
     engine,
     catalog,
     handler: createHandler(engine),
-    close: () => catalog.close(),
+    close: () => {
+      catalog.close();
+      rmSync(libraryRoot, { recursive: true, force: true });
+      rmSync(dataDir, { recursive: true, force: true });
+    },
   };
 }
 
@@ -119,6 +132,56 @@ test('unknown methods fail loudly instead of hanging the UI', async () => {
   const f = makeFixture();
   try {
     await assert.rejects(() => f.handler('doesNotExist', {}), /unsupported engine method/);
+  } finally {
+    f.close();
+  }
+});
+
+/**
+ * The webview renders effect-chain exports offline and hands the finished bytes to
+ * the host. The host only writes them, so the test is about the same safety rules
+ * as the HTTP route: a real WAV lands on disk, and junk is refused rather than
+ * written to a file named `.wav`.
+ */
+test('saveExport writes a real WAV and refuses non-audio bytes', async () => {
+  const f = makeFixture();
+  try {
+    const assets = (await f.handler('listAssets', { limit: 1 })) as {
+      items: Array<{ id: number; filename: string }>;
+    };
+    const asset = assets.items[0]!;
+
+    const samples = new Float32Array(64);
+    for (let i = 0; i < samples.length; i += 1) samples[i] = Math.sin((i / samples.length) * Math.PI * 2) * 0.5;
+    const wav = encodeWav([samples], 48000, { bitsPerSample: 24 });
+
+    const saved = (await f.handler('saveExport', {
+      assetId: asset.id,
+      filename: asset.filename,
+      bytes: wav,
+    })) as { filePath: string; bytes: number; renamed: boolean };
+
+    assert.equal(saved.bytes, wav.byteLength);
+    assert.equal(saved.renamed, false);
+    assert.ok(saved.filePath.endsWith('_fx.wav'), `expected an _fx suffix, got ${saved.filePath}`);
+    assert.ok(existsSync(saved.filePath), 'the export must be on disk');
+    assert.equal(statSync(saved.filePath).size, wav.byteLength);
+
+    // a second export must not overwrite the first
+    const again = (await f.handler('saveExport', {
+      assetId: asset.id,
+      filename: asset.filename,
+      bytes: wav,
+    })) as { filePath: string; renamed: boolean };
+    assert.notEqual(again.filePath, saved.filePath);
+    assert.equal(again.renamed, true);
+    assert.ok(existsSync(saved.filePath), 'the first export must survive');
+
+    await assert.rejects(
+      () => f.handler('saveExport', { assetId: asset.id, filename: 'x.wav', bytes: new Uint8Array(32) }),
+      /不是 WAV/,
+    );
+    await assert.rejects(() => f.handler('saveExport', { assetId: 999999, filename: 'x.wav', bytes: wav }), /not found/);
   } finally {
     f.close();
   }

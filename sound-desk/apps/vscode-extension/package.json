@@ -10,7 +10,9 @@
   "engines": {
     "vscode": "^1.90.0"
   },
-  "categories": ["Other"],
+  "categories": [
+    "Other"
+  ],
   "main": "./out/extension.js",
   "activationEvents": [],
   "contributes": {
@@ -57,15 +59,33 @@
         "viewType": "soundDesk.audio",
         "displayName": "SoundDesk 音频",
         "selector": [
-          { "filenamePattern": "*.wav" },
-          { "filenamePattern": "*.bwf" },
-          { "filenamePattern": "*.wave" },
-          { "filenamePattern": "*.aif" },
-          { "filenamePattern": "*.aiff" },
-          { "filenamePattern": "*.flac" },
-          { "filenamePattern": "*.mp3" },
-          { "filenamePattern": "*.ogg" },
-          { "filenamePattern": "*.m4a" }
+          {
+            "filenamePattern": "*.wav"
+          },
+          {
+            "filenamePattern": "*.bwf"
+          },
+          {
+            "filenamePattern": "*.wave"
+          },
+          {
+            "filenamePattern": "*.aif"
+          },
+          {
+            "filenamePattern": "*.aiff"
+          },
+          {
+            "filenamePattern": "*.flac"
+          },
+          {
+            "filenamePattern": "*.mp3"
+          },
+          {
+            "filenamePattern": "*.ogg"
+          },
+          {
+            "filenamePattern": "*.m4a"
+          }
         ],
         "priority": "option"
       }
@@ -106,7 +126,9 @@
         },
         "soundDesk.musicFolders": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "（预留）要索引的素材目录；目前请用「添加素材库目录…」命令。"
         },
@@ -135,6 +157,7 @@
     "@sounddesk/engine": "workspace:*"
   },
   "devDependencies": {
+    "@sounddesk/audio-effects": "workspace:*",
     "@sounddesk/ucs": "workspace:*",
     "@types/vscode": "^1.90.0",
     "esbuild": "^0.28.0"

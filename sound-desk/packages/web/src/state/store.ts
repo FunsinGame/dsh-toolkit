@@ -21,8 +21,23 @@ import type {
 
 import type { EngineClient, UcsTree } from '../api/client.ts';
 import { createOfflineAudioContext } from '../audio/offline.ts';
+import { getMixer } from '../audio/mixer.ts';
 import { getPlayer } from '../audio/player.ts';
-import { renderWav } from '@sounddesk/audio-effects';
+import { normalizeTracks, renderMix, renderStem, renderWav } from '@sounddesk/audio-effects';
+
+/**
+ * 24-bit PCM for exports: the delivery standard for sound effects, and lossless
+ * for anything the chain produces (16-bit would add audible quantisation to quiet
+ * tails).
+ */
+const EXPORT_ENCODING = { bitsPerSample: 24, encoding: 'pcm' } as const;
+
+/**
+ * Silence appended after the mix so the last track's reverb can ring out. The
+ * per-track tails are already counted by `mixDuration`; this covers a chain-level
+ * tail such as a long decay shared by every track.
+ */
+const MIX_TAIL_SECONDS = 0.5;
 
 export interface AppState {
   ready: boolean;
@@ -60,7 +75,7 @@ export interface AppState {
   /** 0..1 render progress */
   exportProgress: number;
   exportError: string | null;
-  exportResult: { filePath: string; bytes: number; renamed: boolean; durationSeconds: number } | null;
+  exportResult: { filePath: string; bytes: number; renamed: boolean; durationSeconds: number; files?: string[] } | null;
 
   ucsTree: UcsTree | null;
   libraries: Library[];
@@ -350,7 +365,8 @@ class Store {
       const client = this.getClient();
       const source = await client.fetchWaveBytes(assetId);
       const result = await renderWav(source, getPlayer().getChain(), createOfflineAudioContext, {
-        onProgress: (fraction) => this.set({ exportProgress: fraction }),
+        encode: EXPORT_ENCODING,
+        onProgress: (fraction: number) => this.set({ exportProgress: fraction }),
       });
       const saved = await client.saveExport({ assetId, filename, bytes: result.bytes });
       this.set({
@@ -361,6 +377,74 @@ class Store {
           bytes: saved.bytes,
           renamed: saved.renamed,
           durationSeconds: result.durationSeconds,
+        },
+      });
+    } catch (err) {
+      this.set({
+        exporting: false,
+        exportProgress: 0,
+        exportError: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
+   * Render the multi-track mix to a new file.
+   *
+   * `stems` writes one file per track instead of a single mix; both paths use the
+   * same offline renderer, so a set of stems sums back to the mix.
+   */
+  async exportMix(mode: 'mix' | 'stems'): Promise<void> {
+    if (this.state.exporting) return;
+    const mixer = getMixer();
+    const trackCount = mixer.trackCount;
+    if (trackCount === 0) {
+      this.set({ exportError: '还没有轨道可以导出' });
+      return;
+    }
+    this.set({ exporting: true, exportError: null, exportResult: null, exportProgress: 0 });
+
+    try {
+      const client = this.getClient();
+      const inputs = mixer.toMixTrackInputs();
+      if (inputs.length === 0) throw new Error('轨道都还没有解码完成');
+      const tracks = normalizeTracks(inputs);
+      const total = mode === 'stems' ? tracks.length : 1;
+      const written: string[] = [];
+      let bytes = 0;
+      let seconds = 0;
+
+      for (let i = 0; i < tracks.length; i += 1) {
+        const result =
+          mode === 'stems'
+            ? await renderStem(tracks[i]!, createOfflineAudioContext, { encode: EXPORT_ENCODING })
+            : await renderMix(tracks, createOfflineAudioContext, {
+                encode: EXPORT_ENCODING,
+                tailSeconds: MIX_TAIL_SECONDS,
+                onProgress: (fraction) => this.set({ exportProgress: fraction }),
+              });
+        // Save immediately after each render so a failure part-way leaves the
+        // stems already written rather than losing all of them.
+        const saved = await client.saveExport({
+          assetId: tracks[i]!.assetId,
+          filename: mode === 'stems' ? `${tracks[i]!.label}_stem.wav` : `mix_${tracks.length}tracks.wav`,
+          bytes: result.bytes,
+        });
+        written.push(saved.filePath);
+        bytes += saved.bytes;
+        seconds = Math.max(seconds, result.durationSeconds);
+        if (mode === 'stems') this.set({ exportProgress: (i + 1) / total });
+      }
+
+      this.set({
+        exporting: false,
+        exportProgress: 1,
+        exportResult: {
+          filePath: written.length === 1 ? written[0]! : `${written.length} 个文件`,
+          bytes,
+          renamed: false,
+          durationSeconds: seconds,
+          files: written,
         },
       });
     } catch (err) {

@@ -30,6 +30,9 @@ importers:
         specifier: workspace:*
         version: link:../../packages/engine
     devDependencies:
+      '@sounddesk/audio-effects':
+        specifier: workspace:*
+        version: link:../../packages/audio-effects
       '@sounddesk/ucs':
         specifier: workspace:*
         version: link:../../packages/ucs

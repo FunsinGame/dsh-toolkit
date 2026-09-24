@@ -6,8 +6,9 @@
  * never a source of confusion about what is playing.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 
+import { getMixer, type MixerState } from '../audio/mixer.ts';
 import { getPlayer, type PlayerState } from '../audio/player.ts';
 import { onPlayRequest } from '../audio/playback.ts';
 import { waveformColorFor } from '../audio/peaks.ts';
@@ -15,20 +16,28 @@ import { store } from '../state/store.ts';
 import { useAppState } from '../state/useAppState.ts';
 import { formatDuration } from '../util/format.ts';
 import { Waveform } from './Waveform.tsx';
+import { MAX_TRACKS } from '@sounddesk/audio-effects';
 
 const player = getPlayer();
+const mixer = getMixer();
 
 export function Transport({
   showEffects,
   onToggleEffects,
+  showMixer,
+  onToggleMixer,
 }: {
   showEffects: boolean;
   onToggleEffects: (next: boolean) => void;
+  showMixer: boolean;
+  onToggleMixer: (next: boolean) => void;
 }): React.JSX.Element {
   const state = useAppState();
   const [playback, setPlayback] = useState<PlayerState>(() => player.getState());
+  const [mixState, setMixState] = useState<MixerState>(() => mixer.getState());
 
   useEffect(() => player.subscribe(setPlayback), []);
+  useEffect(() => mixer.subscribe(setMixState), []);
 
   // Consume play intents from the list and the details pane.
   useEffect(
@@ -161,6 +170,14 @@ export function Transport({
           >
             效果
             {!playback.chainNeutral ? ' •' : ''}
+          </button>
+          <button
+            className={showMixer ? 'active' : ''}
+            onClick={() => onToggleMixer(!showMixer)}
+            title={`多轨叠层（最多 ${MAX_TRACKS} 轨，可混音或分轨导出）`}
+          >
+            多轨
+            {mixState.tracks.length > 0 ? ` ${mixState.tracks.length}` : ''}
           </button>
         </div>
       </div>
