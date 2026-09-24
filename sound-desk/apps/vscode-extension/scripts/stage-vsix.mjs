@@ -44,8 +44,15 @@ const DEFAULT_OUT = path.join(EXT_ROOT, '.vsix-stage');
  * Kept as an explicit list rather than "copy node_modules" so that adding a runtime
  * dependency is a deliberate act, and so the package contents are reviewable.
  * Everything an `import` in src/ pulls in is already inside the esbuild bundle.
+ *
+ * `ffmpeg-static` is here because the engine loads it *dynamically*
+ * (`decode.ts` builds the specifier at runtime so a bundler cannot resolve it
+ * statically and fail the build for anyone who skipped the optional dependency).
+ * That makes it external by construction, so a package without it reports
+ * "未装 ffmpeg" and loses non-RIFF decoding, waveforms, fingerprints and playback —
+ * which is exactly what shipped before this entry existed.
  */
-const RUNTIME_PACKAGES = ['@huggingface/transformers', 'onnxruntime-common', 'onnxruntime-node'];
+const RUNTIME_PACKAGES = ['@huggingface/transformers', 'onnxruntime-common', 'onnxruntime-node', 'ffmpeg-static'];
 
 /** Platform folder under onnxruntime-node/bin/napi-v6 that is worth shipping. */
 function platformDir() {

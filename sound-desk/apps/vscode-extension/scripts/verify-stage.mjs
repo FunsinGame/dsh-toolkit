@@ -49,18 +49,37 @@ check('data/categories.generated.json (UCS)', () => {
 });
 
 console.log('\n=== runtime packages, resolved from the stage only ===');
-for (const spec of ['@huggingface/transformers', 'onnxruntime-common', 'onnxruntime-node']) {
+for (const spec of ['@huggingface/transformers', 'onnxruntime-common', 'onnxruntime-node', 'ffmpeg-static']) {
   check(spec, () => {
     const resolved = requireFromStage.resolve(spec);
     if (!resolved.startsWith(stage)) throw new Error(`resolved outside the stage: ${resolved}`);
     return path.relative(stage, resolved);
   });
 }
+
 console.log('\n=== the native runtime actually loads ===');
 check('new onnxruntime-node session API', () => {
   const ort = requireFromStage('onnxruntime-node');
   if (typeof ort.InferenceSession?.create !== 'function') throw new Error('InferenceSession.create is not a function');
   return `v${ort.env?.versions?.common ?? '?'}`;
+});
+
+/**
+ * ffmpeg is loaded *dynamically* by the engine, so it is external to the bundle and
+ * only exists in the package because stage-vsix copies it. Without it the engine
+ * reports "未装 ffmpeg" and loses non-RIFF decoding, waveforms and playback — a
+ * regression that is invisible until someone opens a FLAC. Check the whole chain:
+ * the module resolves, its default export is a path, and that path is a real file
+ * inside the stage.
+ */
+console.log('\n=== ffmpeg is present and its binary exists ===');
+check('ffmpeg-static resolves to a real binary inside the stage', () => {
+  const mod = requireFromStage('ffmpeg-static');
+  const binary = mod?.default ?? mod;
+  if (typeof binary !== 'string' || binary.length === 0) throw new Error(`default export is not a path: ${typeof binary}`);
+  if (!binary.startsWith(stage)) throw new Error(`binary is outside the stage: ${binary}`);
+  if (!existsSync(binary)) throw new Error(`binary does not exist: ${binary}`);
+  return `${path.relative(stage, binary)} (${(statSync(binary).size / 1024 / 1024).toFixed(1)} MB)`;
 });
 
 console.log('\n=== the CLAP model is present, so no download is needed ===');

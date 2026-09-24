@@ -42,6 +42,9 @@ const required = [
   'extension/out/node_modules/@huggingface/transformers/package.json',
   'extension/out/node_modules/onnxruntime-common/package.json',
   'extension/out/node_modules/onnxruntime-node/package.json',
+  // Dynamically loaded by the engine, so it is external to the bundle and present
+  // only because stage-vsix copies it. Without it the engine reports "未装 ffmpeg".
+  'extension/out/node_modules/ffmpeg-static/package.json',
 ];
 let failures = 0;
 console.log('\n=== required entries ===');
@@ -121,6 +124,13 @@ try {
   // The native runtime must load from inside the package too.
   const ort = createRequire(bundle)('onnxruntime-node');
   console.log('  onnxruntime-node loads:', typeof ort.InferenceSession?.create === 'function' ? 'yes' : 'NO');
+
+  // And the dynamically-imported ffmpeg must both resolve and point at a real file.
+  const ffmpegMod = createRequire(bundle)('ffmpeg-static');
+  const ffmpegBinary = ffmpegMod?.default ?? ffmpegMod;
+  const ffmpegOk = typeof ffmpegBinary === 'string' && existsSync(ffmpegBinary);
+  console.log('  ffmpeg-static binary:', ffmpegOk ? 'yes' : 'MISSING');
+  if (!ffmpegOk) failures += 1;
 } catch (err) {
   failures += 1;
   console.log(`  FAIL ${err.code ?? ''} ${String(err.message).split('\n')[0]}`);

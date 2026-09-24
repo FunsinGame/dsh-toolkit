@@ -485,6 +485,75 @@ test('media and peaks also accept the token as a query parameter', async () => {
   }
 });
 
+test('cross-origin responses carry the headers the webview needs', async () => {
+  const h = await startHarness(false);
+  try {
+    const rows = h.app.catalog.db.prepare('SELECT id FROM assets ORDER BY id').all() as Array<{ id: number }>;
+    const id = rows[0]!.id;
+
+    /**
+     * The VSCode webview runs on `vscode-webview://…`, which is a different origin
+     * from `http://127.0.0.1:PORT`. Its `<audio crossOrigin="anonymous">` element
+     * therefore refuses a response with no `Access-Control-Allow-Origin`, and the
+     * rejection never reaches the app's own error handling — the symptom is "play
+     * does nothing, with no message". This test pins the header that fixes it.
+     */
+    const origin = 'vscode-webview://test-origin';
+    const media = await fetch(`${h.server.url}/api/media/${id}/stream?token=${encodeURIComponent(h.server.token)}`, {
+      headers: { origin },
+    });
+    assert.equal(media.status, 200);
+    assert.equal(
+      media.headers.get('access-control-allow-origin'),
+      origin,
+      'media must be readable from the webview origin or playback is silently blocked',
+    );
+    // Seeking is a Range request; its response needs the same treatment.
+    assert.match(media.headers.get('access-control-expose-headers') ?? '', /accept-ranges/);
+
+    const ranged = await fetch(`${h.server.url}/api/media/${id}/stream?token=${encodeURIComponent(h.server.token)}`, {
+      headers: { origin, range: 'bytes=0-1023' },
+    });
+    assert.equal(ranged.status, 206);
+    assert.equal(ranged.headers.get('access-control-allow-origin'), origin, 'ranged media must be allowed too');
+
+    // A JSON PATCH with a custom header triggers a preflight, which must be answered
+    // or the real request never happens.
+    const preflight = await fetch(`${h.server.url}/api/assets/${id}`, {
+      method: 'OPTIONS',
+      headers: {
+        origin,
+        'access-control-request-method': 'PATCH',
+        'access-control-request-headers': 'content-type',
+      },
+    });
+    assert.equal(preflight.status, 204, 'the preflight must be answered, not 404d');
+    assert.equal(preflight.headers.get('access-control-allow-origin'), origin);
+    assert.match(preflight.headers.get('access-control-allow-methods') ?? '', /PATCH/);
+    assert.match(preflight.headers.get('access-control-allow-headers') ?? '', /content-type/);
+
+    // The policy is not widened: an unknown origin is still refused.
+    const evil = await fetch(`${h.server.url}/api/session?token=${encodeURIComponent(h.server.token)}`, {
+      headers: { origin: 'https://evil.example' },
+    });
+    assert.equal(evil.status, 403, 'cross-origin access stays restricted to known origins');
+
+    // Localhost (the browser case) is allowed, and a request with no Origin at all
+    // (the extension host, curl) is unaffected.
+    const localhost = await fetch(`${h.server.url}/api/session`, {
+      headers: { origin: `http://127.0.0.1:${h.server.port}`, 'x-sounddesk-token': h.server.token },
+    });
+    assert.equal(localhost.status, 200);
+    assert.equal(localhost.headers.get('access-control-allow-origin'), `http://127.0.0.1:${h.server.port}`);
+
+    const noOrigin = await fetch(`${h.server.url}/api/session`, { headers: { 'x-sounddesk-token': h.server.token } });
+    assert.equal(noOrigin.status, 200);
+    assert.equal(noOrigin.headers.get('access-control-allow-origin'), null, 'no Origin means no CORS header to send');
+  } finally {
+    h.cleanup();
+  }
+});
+
 test('embedded metadata can be read and written back into the file', async () => {
   const h = await startHarness(false);
   try {

@@ -212,9 +212,18 @@ export class Player {
   }
 
   async play(): Promise<void> {
-    if (!this.state.ready && !this.buffer) return;
+    // A silent `return` here was the worst possible behaviour: pressing play on an
+    // asset whose load had failed did nothing at all and said nothing, so the only
+    // visible evidence was "the button does not work". Say what is wrong instead.
+    if (!this.state.ready && !this.buffer) {
+      this.patch({
+        error: this.state.assetId === null ? '还没有选中音频' : '音频尚未加载完成，请稍候再试或重新点击',
+        playing: false,
+      });
+      return;
+    }
     try {
-      this.ensureContext();
+      const ctx = this.ensureContext();
       if (this.state.reverse) {
         await this.playReversed();
         return;
@@ -227,9 +236,15 @@ export class Player {
       // The envelope runs on the audio clock, so it is scheduled from the
       // context's current time rather than from a DOM timer.
       if (this.chainGraph && this.state.duration > 0) {
-        this.chainGraph.scheduleEnvelope(this.ctx?.currentTime ?? 0, this.state.duration);
+        this.chainGraph.scheduleEnvelope(ctx.currentTime, this.state.duration);
       }
       await this.audio.play();
+      // The element reports success even when the graph feeding the speakers is
+      // suspended; that combination is silence with a "playing" indicator, so it is
+      // worth naming rather than leaving the user to guess.
+      if (ctx.state === 'suspended') {
+        this.patch({ error: '浏览器音频上下文被挂起（需要一次点击才能出声）：请再点一次播放。' });
+      }
     } catch (err) {
       this.patch({ error: describePlaybackError(err), playing: false });
     }

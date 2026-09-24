@@ -180,6 +180,15 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
   if (address === null || typeof address === 'string') throw new Error('failed to bind server');
   const port = address.port;
 
+  /**
+   * Whether a request's Origin is acceptable.
+   *
+   * Everything the UI runs from is a *different* origin from the engine: in a browser
+   * that is `http://localhost:PORT`, and inside VSCode it is `vscode-webview://…`.
+   * So this is not only a CSRF check, it is also the gate for CORS — see
+   * `applyCors`, which must mirror the decision in a header or the response is
+   * unusable to the page even though it was allowed through.
+   */
   function originAllowed(req: IncomingMessage, bindHost: string, extra: Set<string>): boolean {
     const origin = req.headers.origin;
     // Non-browser clients (curl, tests, the VSCode extension host) send no Origin.
@@ -190,12 +199,54 @@ export async function startServer(opts: ServerOptions): Promise<RunningServer> {
     return false;
   }
 
+  /**
+   * Emit the CORS headers a cross-origin caller needs.
+   *
+   * The origin is echoed rather than sent as `*` because the page may need
+   * credentials later and `*` is incompatible with that; the value has already been
+   * checked by `originAllowed`, so echoing it is not a widening of the policy.
+   *
+   * This was missing, and its absence is silent in the worst way: the engine answered
+   * with the correct bytes, so nothing failed server-side, while the webview's
+   * `<audio crossOrigin="anonymous">` element refused the response. The symptom was
+   * "play does nothing, with no message" — the CORS rejection never reaches the app's
+   * own error handling.
+   */
+  function applyCors(req: IncomingMessage, res: ServerResponse): void {
+    const origin = req.headers.origin;
+    if (!origin) return;
+    res.setHeader('access-control-allow-origin', origin);
+    // Tells caches the response varies by Origin, so one origin's copy is never
+    // replayed to another.
+    res.setHeader('vary', 'Origin');
+    // Only the token is ever sent; the range header must be allowed or seeking in a
+    // cross-origin audio element is blocked.
+    res.setHeader('access-control-allow-headers', 'x-sounddesk-token, content-type, range');
+    res.setHeader('access-control-allow-methods', 'GET, HEAD, POST, PATCH, PUT, DELETE, OPTIONS');
+    res.setHeader('access-control-expose-headers', 'content-length, content-range, accept-ranges');
+    res.setHeader('access-control-max-age', '600');
+  }
+
   async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', `http://${host}:${port}`);
     const pathname = url.pathname;
 
     if (!originAllowed(req, host, allowedOrigins)) {
       sendJson(res, 403, { error: 'origin not allowed' });
+      return;
+    }
+
+    // CORS applies to every response, including the 404s below, so it is set once
+    // here rather than at each write site.
+    applyCors(req, res);
+
+    // Preflight. A cross-origin POST/PATCH with `content-type: application/json` or
+    // an `x-sounddesk-token` header is preceded by this, and answering it with 404
+    // makes the real request never happen. It is unauthenticated by design: a
+    // preflight cannot carry the token.
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
       return;
     }
 
