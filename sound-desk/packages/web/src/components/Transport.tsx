@@ -16,7 +16,8 @@ import { store } from '../state/store.ts';
 import { useAppState } from '../state/useAppState.ts';
 import { formatDuration } from '../util/format.ts';
 import { Waveform } from './Waveform.tsx';
-import { MAX_TRACKS } from '@sounddesk/audio-effects';
+import { isNeutral, MAX_TRACKS } from '@sounddesk/audio-effects';
+import { isProcessing } from '../audio/effectPanel.ts';
 
 const player = getPlayer();
 const mixer = getMixer();
@@ -31,13 +32,16 @@ export function Transport({
   onToggleEffects: (next: boolean) => void;
   showMixer: boolean;
   onToggleMixer: (next: boolean) => void;
-}): React.JSX.Element {
-  const state = useAppState();
+}): React.JSX.Element {  const state = useAppState();
   const [playback, setPlayback] = useState<PlayerState>(() => player.getState());
   const [mixState, setMixState] = useState<MixerState>(() => mixer.getState());
 
   useEffect(() => player.subscribe(setPlayback), []);
   useEffect(() => mixer.subscribe(setMixState), []);
+
+  // The live preview chain. `playback` already re-renders whenever it changes (the player
+  // publishes it), so it is read from there rather than tracked separately.
+  const chain = playback.chain;
 
   // Consume play intents from the list and the details pane.
   useEffect(
@@ -169,10 +173,15 @@ export function Transport({
           <button
             className={showEffects ? 'active' : ''}
             onClick={() => onToggleEffects(!showEffects)}
-            title="效果链：EQ / 失真 / 混响 / 距离 / 包络，仅影响试听"
+            title="效果链：EQ / 失真 / 混响 / 距离 / 包络，仅影响试听。点开调整，关掉即回到原声（设置会保留）"
           >
             效果
-            {!playback.chainNeutral ? ' •' : ''}
+            {/*
+              The dot means "what you hear is processed", not "settings differ from
+              default": with the panel open and the chain bypassed inside it, the audio is
+              dry, so a dot would contradict the panel header.
+            */}
+            {isProcessing(chain, isNeutral) ? ' •' : ''}
           </button>
           <button
             className={showMixer ? 'active' : ''}

@@ -978,6 +978,41 @@ select:focus {
   background: var(--bg-elevated);
 }
 
+/* The effect chain is a popover anchored to the transport rather than a docked pane.
+   `position: relative` here plus `bottom: 100%` on the panel puts it directly above
+   the transport bar without the transport's own grid row growing — which is the point:
+   the panel must not steal height from the result list while it is open. */
+.transport-wrap {
+  position: relative;
+}
+
+.effects-popover {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 100%;
+  z-index: 60;
+  /* Bounded so a tall panel cannot swallow the whole window; the panel itself scrolls.
+     `min()` keeps it sane on short windows too. */
+  max-height: min(60vh, 520px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: var(--bg-elevated);
+  box-shadow: 0 -10px 30px rgb(0 0 0 / 28%);
+}
+
+.effects-popover .pane.effects {
+  /* Overrides the docked-pane borders: the popover already provides the frame. */
+  border: none;
+  border-radius: 0;
+  overflow-y: auto;
+  min-height: 0;
+}
+
 .transport .title {
   overflow: hidden;
   text-overflow: ellipsis;

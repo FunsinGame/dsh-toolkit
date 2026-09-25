@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { getPlayer, type PlayerState } from './audio/player.ts';
+import { chainForPanelState } from './audio/effectPanel.ts';
 import { requestPlay } from './audio/playback.ts';
 import { DetailsPane } from './components/DetailsPane.tsx';
 import { ComparePane } from './components/ComparePane.tsx';
@@ -27,14 +28,47 @@ export function App({ bootError }: { bootError: string | null }): React.JSX.Elem
     }
   });
 
+  /**
+   * The effect panel is a popover over the transport, and its open state *is* the
+   * master bypass.
+   *
+   * Opening it enables the chain; closing it disables the chain but keeps every
+   * setting, so "close, listen to the original, reopen, carry on tweaking" works.
+   * Clearing the chain on close would instead throw away the work, which is the one
+   * thing a user shaping a sound does not want.
+   */
+  function applyPanelState(open: boolean): void {
+    const player = getPlayer();
+    const next = chainForPanelState(player.getChain(), open);
+    // `null` means the flag already agrees; skipping avoids needlessly touching the
+    // live audio graph.
+    if (next) player.setChain(next);
+  }
+
   const toggleEffects = (next: boolean): void => {
     setShowEffects(next);
+    applyPanelState(next);
     try {
       window.localStorage.setItem('sounddesk.effectsOpen', next ? '1' : '0');
     } catch {
       /* storage disabled — the panel still works for this session */
     }
   };
+
+  /**
+   * Enforce the rule on mount too.
+   *
+   * `showEffects` and the chain are both persisted independently, so a reload can
+   * produce a closed panel over an *enabled* chain — audio that is processed while the
+   * UI offers no way to see or undo it. Synchronising once on mount removes that state
+   * entirely; afterwards `toggleEffects` is the only thing that changes either side.
+   */
+  useEffect(() => {
+    applyPanelState(showEffects);
+    // Mount-only on purpose: re-running it on every render would fight the user's
+    // in-panel bypass button.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Which mixer track's chain the effects panel is editing, if any.
   const [editingTrackId, setEditingTrackId] = useState<string | null>(null);
@@ -124,22 +158,41 @@ export function App({ bootError }: { bootError: string | null }): React.JSX.Elem
           )}
         </div>
         <div className="pane stack">
-          {showMixer && <MixerPane onEditChain={(trackId) => { setEditingTrackId(trackId); setShowEffects(true); }} />}
-          {showEffects && (
-            <EffectsPane
-              trackId={editingTrackId}
-              onClearTarget={() => setEditingTrackId(null)}
+          {showMixer && (
+            <MixerPane
+              onEditChain={(trackId) => {
+                setEditingTrackId(trackId);
+                // Through the toggle, not setShowEffects: opening the panel is what
+                // enables the chain, so a track's effects stay audible while editing.
+                toggleEffects(true);
+              }}
             />
           )}
           <DetailsPane onPlay={(id) => requestPlay(id)} onSimilar={(id) => void store.findSimilar(id)} />
         </div>
       </div>
-      <Transport
-        showEffects={showEffects}
-        onToggleEffects={toggleEffects}
-        showMixer={showMixer}
-        onToggleMixer={toggleMixer}
-      />
+      {/*
+        The effect chain lives above the transport as a popover, not in the right-hand
+        stack: it is a thing you open, listen through, and close, and as a docked pane it
+        permanently took width and height away from the results while being idle.
+      */}
+      <div className="transport-wrap">
+        {showEffects && (
+          <div className="effects-popover">
+            <EffectsPane
+              trackId={editingTrackId}
+              onClearTarget={() => setEditingTrackId(null)}
+              onClose={() => toggleEffects(false)}
+            />
+          </div>
+        )}
+        <Transport
+          showEffects={showEffects}
+          onToggleEffects={toggleEffects}
+          showMixer={showMixer}
+          onToggleMixer={toggleMixer}
+        />
+      </div>
     </div>
   );
 }

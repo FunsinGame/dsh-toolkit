@@ -26,6 +26,7 @@ import {
   type ReverbSpace,
 } from '@sounddesk/audio-effects';
 import { getMixer } from '../audio/mixer.ts';
+import { hearingLabel } from '../audio/effectPanel.ts';
 import { getPlayer, type PlayerState } from '../audio/player.ts';
 import { store } from '../state/store.ts';
 import { useAppState } from '../state/useAppState.ts';
@@ -111,10 +112,13 @@ function Slot({
 export function EffectsPane({
   trackId = null,
   onClearTarget,
+  onClose,
 }: {
   /** when set, the panel edits that mixer track's chain instead of the preview */
   trackId?: string | null;
   onClearTarget?: () => void;
+  /** closes the popover; omitted when the panel is used inline */
+  onClose?: () => void;
 }): React.JSX.Element {
   const state = useAppState();
   const [playback, setPlayback] = useState<PlayerState>(() => player.getState());
@@ -143,13 +147,23 @@ export function EffectsPane({
 
   const asset = state.selected;
   const canExport = asset !== null && !state.exporting;
-  const neutral = mixerTrack ? isNeutral(mixerTrack.chain) : playback.chainNeutral;
 
   return (
     <div className="pane effects">
       <div className="pane-head">
         <span>{mixerTrack ? `效果链 · 轨道「${mixerTrack.label}」` : '效果链（仅试听）'}</span>
-        <span className="count">{state.exporting ? `导出中 ${(state.exportProgress * 100).toFixed(0)}%` : neutral ? '原声' : '已修改'}</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {/*
+            Says whether what you are hearing is processed, because closing this window
+            is what bypasses the chain — so the state has to be readable from inside it.
+          */}
+          <span className="count">{state.exporting ? `导出中 ${(state.exportProgress * 100).toFixed(0)}%` : hearingLabel(chain, isNeutral)}</span>
+          {onClose && (
+            <button style={{ padding: '0 6px' }} onClick={onClose} title="关闭效果窗口并恢复原声（设置会保留）">
+              关闭
+            </button>
+          )}
+        </span>
       </div>
 
       {mixerTrack && (
