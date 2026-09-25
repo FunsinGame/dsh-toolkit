@@ -51,6 +51,50 @@ test('setRow 替换整行', () => {
   assert.deepEqual(TABLE[1], ['ann', '31', 'berlin'], '入参不会被改动');
 });
 
+test('setRange 从左上角写入粘贴的矩形', () => {
+  const rows = applyOp(TABLE, {
+    kind: 'setRange',
+    row: 1,
+    column: 1,
+    values: [
+      ['X', 'Y'],
+      ['Z', 'W'],
+    ],
+  });
+  assert.deepEqual(rows[1], ['ann', 'X', 'Y']);
+  assert.deepEqual(rows[2], ['bob', 'Z', 'W']);
+  assert.deepEqual(rows[3], ['cid', '105', 'Ankara'], '选区之外的行不受影响');
+  assert.deepEqual(TABLE[1], ['ann', '31', 'berlin'], '入参不会被改动');
+});
+
+test('setRange 会在行不够宽时补齐单元格', () => {
+  const rows = applyOp([['a'], ['b']], {
+    kind: 'setRange',
+    row: 0,
+    column: 1,
+    values: [['x', 'y']],
+  });
+  assert.deepEqual(rows, [
+    ['a', 'x', 'y'],
+    ['b'],
+  ]);
+});
+
+test('setRange 遇到文档末尾就停下，不新增行', () => {
+  const rows = applyOp([['a'], ['b']], {
+    kind: 'setRange',
+    row: 1,
+    column: 0,
+    values: [['x'], ['y'], ['z']],
+  });
+  assert.deepEqual(rows, [['a'], ['x']]);
+});
+
+test('setRange 忽略越界的锚点与空块', () => {
+  assert.deepEqual(applyOp(TABLE, { kind: 'setRange', row: 9, column: 0, values: [['x']] }), TABLE);
+  assert.deepEqual(applyOp(TABLE, { kind: 'setRange', row: 1, column: 0, values: [] }), TABLE);
+});
+
 test('insertRows 在指定位置插入空行', () => {
   const rows = applyOp(TABLE, { kind: 'insertRows', index: 1, count: 2, width: 3 });
   assert.equal(rows.length, 6);

@@ -62,6 +62,7 @@ export type WebviewMessage =
   | { readonly type: 'undo' }
   | { readonly type: 'redo' }
   | { readonly type: 'clipboard'; readonly text: string }
+  | { readonly type: 'readClipboard' }
   | { readonly type: 'error'; readonly message: string };
 
 /** 视图要渲染的行与元数据。 */
@@ -319,6 +320,14 @@ export class CsvTableSession implements vscode.Disposable {
         return;
       case 'clipboard':
         await vscode.env.clipboard.writeText(message.text);
+        return;
+      case 'readClipboard':
+        // 视图里的 `navigator.clipboard.readText()` 并非在所有环境都可用，
+        // 回退到宿主读取剪贴板，由视图继续完成粘贴。
+        this.panel.webview.postMessage({
+          type: 'clipboardText',
+          text: await vscode.env.clipboard.readText(),
+        });
         return;
       case 'error':
         void vscode.window.showWarningMessage('CSV 表格视图：' + message.message);

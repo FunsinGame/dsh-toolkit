@@ -59,6 +59,11 @@
     noSelection: '未选中',
     edit: '编辑单元格',
     copy: '复制',
+    paste: '粘贴',
+    pasted: '已粘贴 {rows} × {cols}',
+    nothingToPaste: '剪贴板里没有可粘贴的文本。',
+    readOnlyPaste: '表格为只读，无法粘贴。',
+    selectFirst: '请先选中要粘贴到的单元格。',
     copyMarkdown: '复制为 Markdown 表格',
     insertRowAbove: '在上方插入行',
     insertRowBelow: '在下方插入行',
@@ -134,8 +139,12 @@
   let headSignature = null;
   let toastTimer = null;
   let viewTimer = null;
+  /** 等待浏览器 paste 事件的计时器，见 {@link beginPaste}。 */
+  let pasteTimer = null;
   /** 进行中的行 / 列拖拽，格式见 {@link beginDrag}。 */
   let drag = null;
+  /** 进行中的单元格拖拽选区，格式见 {@link beginCellSelect}。 */
+  let cellSelect = null;
   /** 拖拽结束后浏览器还会补发一次 click，用它把那次 click 丢掉。 */
   let suppressClick = false;
 
@@ -1114,6 +1123,7 @@
     }
     const rect = selectionRect();
     const active = view.selection ? view.selection.focus : null;
+    scroll.classList.toggle('selecting', cellSelect !== null && cellSelect.active);
     const cells = tbody.querySelectorAll('td.cell');
     for (const cell of cells) {
       const row = Number(cell.getAttribute('data-row'));
@@ -1202,6 +1212,170 @@
       matrix.push(line);
     }
     return matrix;
+  }
+
+  /**
+   * 把粘贴板文本切分成矩阵。
+   *
+   * 复制出来的内容在选区内部用制表符、行与行之间用换行分隔；末尾的那个换行
+   * 只是文本结束的标志，不构成额外一行。
+   *
+   * @param {string} text - 剪贴板文本。
+   * @returns {string[][]} 按行排列的单元格；没有可用内容时为空数组。
+   */
+  function parseClipboardText(text) {
+    const normalized = String(text === undefined || text === null ? '' : text)
+      .replace(/\r\n?/g, '\n')
+      .replace(/\n$/, '');
+    if (normalized === '') {
+      return [];
+    }
+    return normalized.split('\n').map(function (line) {
+      return line.split('\t');
+    });
+  }
+
+  /**
+   * 把粘贴内容写到当前选区的左上角。
+   *
+   * 单行或单列的粘贴块会铺满整个选区，与电子表格的习惯一致；其余情况以
+   * 选区左上角为锚点，按块自身的大小展开。
+   *
+   * @param {string[][]} matrix - 剪贴板内容。
+   * @returns {boolean} 是否发出了修改。
+   */
+  function pasteMatrix(matrix) {
+    if (model.readOnly || matrix.length === 0) {
+      return false;
+    }
+    const rect = selectionRect();
+    if (!rect) {
+      return false;
+    }
+    const blockWidth = matrix.reduce(function (widest, line) {
+      return Math.max(widest, line.length);
+    }, 0);
+    if (blockWidth === 0) {
+      return false;
+    }
+    const selectionWidth = rect.c2 - rect.c1 + 1;
+    const selectionHeight = rect.r2 - rect.r1 + 1;
+    // 只有一个值的粘贴块铺满整个选区，与电子表格的习惯一致；多行多列的块则
+    // 按自身大小展开，选区左上角就是锚点。
+    const repeatAcross = matrix.length === 1 ? selectionWidth : 1;
+    const repeatDown = blockWidth === 1 ? selectionHeight : 1;
+    const values = [];
+    for (let row = 0; row < matrix.length * repeatDown; row += 1) {
+      const line = [];
+      for (let column = 0; column < blockWidth * repeatAcross; column += 1) {
+        const cell = matrix[row % matrix.length][column % blockWidth];
+        line.push(cell === undefined ? '' : cell);
+      }
+      values.push(line);
+    }
+    const lastRow = Math.min(model.rows.length - 1, rect.r1 + values.length - 1);
+    const lastColumn = rect.c1 + values[0].length - 1;
+    sendOp({ kind: 'setRange', row: rect.r1, column: rect.c1, values: values });
+    view.selection = {
+      anchor: { row: rect.r1, col: rect.c1 },
+      focus: { row: lastRow, col: lastColumn },
+    };
+    paintSelection();
+    renderStatus();
+    toast(
+      t('pasted')
+        .replace('{rows}', String(values.length))
+        .replace('{cols}', String(values[0].length)),
+    );
+    return true;
+  }
+
+  /**
+   * 粘贴输入的文本。
+   *
+   * @param {string} text - 剪贴板文本。
+   */
+  function pasteText(text) {
+    if (model.readOnly) {
+      toast(t('readOnlyPaste'));
+      return;
+    }
+    const matrix = parseClipboardText(text);
+    if (matrix.length === 0) {
+      toast(t('nothingToPaste'));
+      return;
+    }
+    if (!pasteMatrix(matrix)) {
+      toast(t('selectFirst'));
+    }
+  }
+
+  /**
+   * 一次粘贴请求：先等浏览器随 paste 事件给出的文本，拿不到再退到
+   * `navigator.clipboard`，最后交给编辑器读取。
+   *
+   * 这条路径不依赖编辑器消息往返，因此 Ctrl+V 在绝大多数情况下都是即时的。
+   */
+  function beginPaste() {
+    if (model.readOnly) {
+      toast(t('readOnlyPaste'));
+      return;
+    }
+    if (!selectionRect()) {
+      toast(t('selectFirst'));
+      return;
+    }
+    if (pasteTimer !== null) {
+      window.clearTimeout(pasteTimer);
+    }
+    pasteTimer = window.setTimeout(function () {
+      pasteTimer = null;
+      readClipboardText();
+    }, 120);
+  }
+
+  /** 剪贴板事件没有给出文本时的回退路径。 */
+  function readClipboardText() {
+    if (navigator.clipboard && navigator.clipboard.readText) {
+      navigator.clipboard
+        .readText()
+        .then(function (text) {
+          pasteText(text);
+        })
+        .catch(function () {
+          vscode.postMessage({ type: 'readClipboard' });
+        });
+      return;
+    }
+    vscode.postMessage({ type: 'readClipboard' });
+  }
+
+  /**
+   * 处理粘贴事件，文本由浏览器随事件一起给出。
+   *
+   * @param {ClipboardEvent} event - 粘贴事件。
+   * @returns {boolean} 是否已经用事件里的文本完成了粘贴。
+   */
+  function handlePasteEvent(event) {
+    const data = event.clipboardData;
+    if (!data || typeof data.getData !== 'function') {
+      return false;
+    }
+    // 先认领这次粘贴，随后到达的编辑器回包不会再粘一遍。
+    if (pasteTimer !== null) {
+      window.clearTimeout(pasteTimer);
+      pasteTimer = null;
+    }
+    if (model.readOnly || !selectionRect()) {
+      return true;
+    }
+    const text = data.getData('text/plain');
+    if (typeof text !== 'string' || text === '') {
+      // 剪贴板里没有文本（例如图片），请求仍然到此为止。
+      return true;
+    }
+    pasteText(text);
+    return true;
   }
 
   /**
@@ -1349,6 +1523,7 @@
     const items = [
       { label: t('edit'), run: function () { startEdit(row, column); }, disabled: model.readOnly },
       { label: t('copy'), run: copySelection },
+      { label: t('paste'), run: beginPaste, disabled: model.readOnly },
       { label: t('copyMarkdown'), run: copySelectionAsMarkdown },
       { separator: true },
       {
@@ -1606,7 +1781,7 @@
         return;
       }
       if (cell.hasAttribute('data-col')) {
-        selectCell(Number(cell.getAttribute('data-row')), Number(cell.getAttribute('data-col')), event.shiftKey);
+        beginCellSelect(event, Number(cell.getAttribute('data-row')), Number(cell.getAttribute('data-col')));
       }
     });
 
@@ -1946,6 +2121,234 @@
     endDrag();
   }
 
+  /* ------------------------------------------------------ 拖拽选中单元格区域 */
+
+  /**
+   * 按指针位置算出它下面的单元格。
+   *
+   * 优先用几何计算而不是 `elementFromPoint`：拖动过程中行会被重建，命中的节点
+   * 可能是刚被替换掉的旧节点；而且指针移出表格（触发自动滚动）时几何计算仍然
+   * 有效。
+   *
+   * @param {MouseEvent} event - mousemove 事件。
+   * @returns {{row: number, col: number}|null} 行号是绝对行索引；不在表格上时为 `null`。
+   */
+  function cellAtPoint(event) {
+    const width = scroll.clientWidth || 0;
+    const height = scroll.clientHeight || 0;
+    if (width > 0 && height > 0) {
+      const bounds = scroll.getBoundingClientRect();
+      const offsetY = event.clientY - bounds.top;
+      const offsetX = event.clientX - bounds.left;
+      if (offsetX >= 0 && offsetX <= width && offsetY >= 0 && offsetY <= height) {
+        const rows = displayRows();
+        const frozenRows = Math.min(view.frozenRows, rows.length);
+        const frozenColumns = Math.min(view.frozenColumns, model.columnCount);
+        const bodyTop = offsetY - HEAD_HEIGHT;
+        if (bodyTop >= 0) {
+          let index = -1;
+          if (frozenRows > 0 && bodyTop < frozenRows * ROW_HEIGHT) {
+            index = Math.floor(bodyTop / ROW_HEIGHT);
+          } else if (bodyTop >= scroll.scrollTop + frozenRows * ROW_HEIGHT) {
+            index = Math.floor((bodyTop - scroll.scrollTop) / ROW_HEIGHT);
+          }
+          if (index >= 0 && index < rows.length) {
+            let column = -1;
+            const bodyLeft = offsetX - ROWNUM_WIDTH;
+            if (bodyLeft >= 0) {
+              if (frozenColumns > 0 && bodyLeft < frozenColumns * DEFAULT_COLUMN_WIDTH) {
+                // 锁定的列固定在左侧，不随横向滚动移动。
+                let left = 0;
+                for (let candidate = 0; candidate < frozenColumns; candidate += 1) {
+                  left += columnWidth(candidate);
+                  if (bodyLeft < left) {
+                    column = candidate;
+                    break;
+                  }
+                }
+              } else {
+                let left = 0;
+                for (let candidate = 0; candidate < frozenColumns; candidate += 1) {
+                  left += columnWidth(candidate);
+                }
+                const scrolled = bodyLeft - left + scroll.scrollLeft;
+                let offset = 0;
+                for (let candidate = frozenColumns; candidate < model.columnCount; candidate += 1) {
+                  offset += columnWidth(candidate);
+                  if (scrolled < offset) {
+                    column = candidate;
+                    break;
+                  }
+                }
+              }
+            }
+            if (column >= 0 && column < model.columnCount) {
+              return { row: rows[index], col: column };
+            }
+          }
+        }
+      }
+    }
+    if (typeof document.elementFromPoint !== 'function') {
+      return null;
+    }
+    const element = document.elementFromPoint(event.clientX, event.clientY);
+    const cell = element && element.closest ? element.closest('td.cell') : null;
+    if (cell === null) {
+      return null;
+    }
+    return { row: Number(cell.getAttribute('data-row')), col: Number(cell.getAttribute('data-col')) };
+  }
+
+  /** 指针贴着表格边缘时自动滚动，便于拖拽到看不见的行列。 */
+  function autoScrollFor(event) {
+    const bounds = scroll.getBoundingClientRect();
+    const edge = 24;
+    if (event.clientY < bounds.top + edge) {
+      scroll.scrollTop -= ROW_HEIGHT;
+    } else if (event.clientY > bounds.bottom - edge) {
+      scroll.scrollTop += ROW_HEIGHT;
+    }
+    if (event.clientX < bounds.left + edge) {
+      scroll.scrollLeft -= DEFAULT_COLUMN_WIDTH;
+    } else if (event.clientX > bounds.right - edge) {
+      scroll.scrollLeft += DEFAULT_COLUMN_WIDTH;
+    }
+  }
+
+  /**
+   * 按下单元格：立刻选中它，并开始拖拽选区。
+   *
+   * @param {MouseEvent} event - mousedown 事件。
+   * @param {number} row - 绝对行索引。
+   * @param {number} column - 列索引。
+   */
+  function beginCellSelect(event, row, column) {
+    if (event.button !== undefined && event.button !== 0) {
+      return;
+    }
+    // 表格本身可聚焦，这样键盘与剪贴板事件不会落到别处。
+    if (typeof scroll.focus === 'function') {
+      scroll.focus();
+    }
+    selectCell(row, column, event.shiftKey);
+    cellSelect = {
+      anchor: view.selection.anchor,
+      row: row,
+      column: column,
+      startX: event.clientX,
+      startY: event.clientY,
+      active: false,
+      autoScroll: false,
+      frame: null,
+      lastEvent: event,
+    };
+    event.preventDefault();
+    document.addEventListener('mousemove', onCellSelectMove);
+    document.addEventListener('mouseup', onCellSelectEnd);
+  }
+
+  /**
+   * 拖动过程中把选区扩展到指针所在的单元格。
+   *
+   * @param {MouseEvent} event - mousemove 事件。
+   */
+  function onCellSelectMove(event) {
+    if (cellSelect === null) {
+      return;
+    }
+    cellSelect.lastEvent = event;
+    if (
+      !cellSelect.active &&
+      Math.abs(event.clientX - cellSelect.startX) < DRAG_THRESHOLD &&
+      Math.abs(event.clientY - cellSelect.startY) < DRAG_THRESHOLD
+    ) {
+      return;
+    }
+    const inside =
+      event.clientX >= 0 &&
+      event.clientY >= 0 &&
+      event.clientX <= (window.innerWidth || 0) &&
+      event.clientY <= (window.innerHeight || 0);
+    if (!inside) {
+      // 指针移出窗口时由自动滚动继续扩展选区。
+      cellSelect.autoScroll = true;
+      if (cellSelect.frame === null) {
+        cellSelect.frame = raf(autoScrollStep);
+      }
+      return;
+    }
+    cellSelect.active = true;
+    extendCellSelection(event);
+  }
+
+  /** 自动滚动的一帧：滚动后按最近一次指针位置重新扩展选区。 */
+  function autoScrollStep() {
+    if (cellSelect === null) {
+      return;
+    }
+    cellSelect.frame = null;
+    if (cellSelect.autoScroll) {
+      autoScrollFor(cellSelect.lastEvent);
+      extendCellSelection(cellSelect.lastEvent);
+      cellSelect.frame = raf(autoScrollStep);
+    }
+  }
+
+  /**
+   * 把选区扩展到指针位置。
+   *
+   * @param {MouseEvent} event - 指针事件。
+   */
+  function extendCellSelection(event) {
+    const current = cellSelect;
+    if (current === null) {
+      return;
+    }
+    const target = cellAtPoint(event);
+    if (target === null || (target.row === current.row && target.col === current.column)) {
+      return;
+    }
+    current.row = target.row;
+    current.column = target.col;
+    view.selection = { anchor: current.anchor, focus: { row: target.row, col: target.col } };
+    paintSelection();
+    scrollIntoView(displayRows().indexOf(target.row));
+    renderStatus();
+  }
+
+  /**
+   * 结束单元格拖拽选区。
+   *
+   * @param {MouseEvent} event - mouseup 事件。
+   */
+  function onCellSelectEnd(event) {
+    const current = cellSelect;
+    if (current === null) {
+      return;
+    }
+    // 收尾时指针可能已经离开窗口，这里再按最后一次位置补一次，保证选区完整。
+    if (current.active) {
+      extendCellSelection(event);
+    }
+    endCellSelect();
+    if (current.active) {
+      // 拖动过就丢掉随后补发的 click，避免它把选区重置成单个单元格。
+      suppressClick = true;
+    }
+  }
+
+  /** 清理单元格拖拽选区的临时状态。 */
+  function endCellSelect() {
+    document.removeEventListener('mousemove', onCellSelectMove);
+    document.removeEventListener('mouseup', onCellSelectEnd);
+    if (cellSelect !== null && cellSelect.frame !== null) {
+      window.cancelAnimationFrame(cellSelect.frame);
+    }
+    cellSelect = null;
+    paintSelection();
+  }
+
   /** 绑定文档级的键盘与关闭处理函数。 */
   function wireDocument() {
     document.addEventListener('keydown', function (event) {
@@ -1958,6 +2361,10 @@
         hideMenu();
         if (drag !== null) {
           cancelDrag();
+          return;
+        }
+        if (cellSelect !== null) {
+          endCellSelect();
           return;
         }
         if (!typing) {
@@ -1975,6 +2382,11 @@
       if (meta && event.key.toLowerCase() === 'c') {
         event.preventDefault();
         copySelection();
+        return;
+      }
+      if (meta && event.key.toLowerCase() === 'v') {
+        event.preventDefault();
+        beginPaste();
         return;
       }
       if (meta && event.key.toLowerCase() === 'a') {
@@ -2069,6 +2481,20 @@
         }
         event.preventDefault();
         navigate(rowDelta, columnDelta, event.shiftKey);
+      }
+    });
+
+    document.addEventListener('paste', function (event) {
+      const target = event.target;
+      const typing =
+        target instanceof HTMLElement &&
+        (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA');
+      if (typing) {
+        // 就地编辑时让输入框自己处理粘贴。
+        return;
+      }
+      if (handlePasteEvent(event)) {
+        event.preventDefault();
       }
     });
 
@@ -2212,6 +2638,13 @@
           break;
         case 'toast':
           toast(message.message || '');
+          break;
+        case 'clipboardText':
+          if (pasteTimer !== null) {
+            window.clearTimeout(pasteTimer);
+            pasteTimer = null;
+          }
+          pasteText(message.text === undefined || message.text === null ? '' : message.text);
           break;
         default:
           break;

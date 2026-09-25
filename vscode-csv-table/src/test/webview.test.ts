@@ -141,6 +141,187 @@ function plain<T>(value: T): T {
 }
 
 /**
+ * 给一个 window 装上可控的剪贴板。
+ *
+ * jsdom 默认没有 `navigator.clipboard`，而真实 webview 里它是可用的；这里造一个
+ * 便于断言复制与粘贴的行为。
+ *
+ * @param window - 已载入的视图所在的 window。
+ * @returns 记录复制内容、并提供粘贴内容的替身。
+ */
+function stubClipboard(window: any): { written: string[]; read: string } {
+  const written: string[] = [];
+  const clipboard = {
+    written,
+    read: '',
+    writeText(text: string) {
+      written.push(text);
+      return Promise.resolve();
+    },
+    readText() {
+      return Promise.resolve(clipboard.read);
+    },
+  };
+  Object.defineProperty(window.navigator, 'clipboard', {
+    value: clipboard,
+    configurable: true,
+  });
+  return clipboard;
+}
+
+/**
+ * 构造一个只带文本的 `clipboardData` 替身。
+ *
+ * @param text - 剪贴板里的文本。
+ * @returns `getData` / `types` 接口。
+ */
+function clipboardEventData(text: string): any {
+  return {
+    types: ['text/plain'],
+    getData(type: string) {
+      return type === 'text/plain' ? text : '';
+    },
+  };
+}
+
+/**
+ * 派发一次带剪贴板内容的 paste 事件。
+ *
+ * jsdom 的 `ClipboardEvent` 不接受 `clipboardData` 初始化参数，因此这里直接构造
+ * 一个带有该属性的事件对象再派发。
+ *
+ * @param harness - 已载入的视图。
+ * @param text - 剪贴板里的文本。
+ */
+function dispatchPaste(harness: Harness, text: string): void {
+  const event: any = new harness.window.Event('paste', { bubbles: true, cancelable: true });
+  event.clipboardData = clipboardEventData(text);
+  harness.window.document.dispatchEvent(event);
+}
+
+/**
+ * 选中一个单元格。
+ *
+ * @param harness - 已载入的视图。
+ * @param row - 绝对行索引。
+ * @param column - 列索引。
+ */
+function clickCell(harness: Harness, row: number, column: number): void {
+  const cell = harness.window.document.querySelector(
+    `tbody td.cell[data-row="${row}"][data-col="${column}"]`,
+  );
+  assert.ok(cell, `找不到单元格 ${row},${column}`);
+  cell.dispatchEvent(new harness.window.MouseEvent('mousedown', { bubbles: true }));
+  harness.window.document.dispatchEvent(new harness.window.MouseEvent('mouseup', { bubbles: true }));
+}
+
+/**
+ * 把表格的滚动容器与单元格摆到一套确定的几何上。
+ *
+ * jsdom 既没有排版也没有命中测试；有了这套矩形，坐标 → 单元格的换算才能像在
+ * 真实窗口里一样工作。测试同时把列宽固定成 `columnWidth`，否则自动列宽会按
+ * 内容变化，算出来的坐标就对不上了。
+ *
+ * @param harness - 已载入的视图。
+ * @returns 坐标换算需要用到的那几个量。
+ */
+function stubGridGeometry(harness: Harness): {
+  readonly viewport: { width: number; height: number };
+  readonly rownumWidth: number;
+  readonly columnWidth: number;
+  readonly headHeight: number;
+  readonly rowHeight: number;
+} {
+  // 视口要装得下三列，否则拖动到第三列时指针会落到表格之外。
+  const viewport = { width: 600, height: 300 };
+  const rownumWidth = 56;
+  const columnWidth = 140;
+  const headHeight = 30;
+  const rowHeight = 26;
+  const document = harness.window.document;
+  const scroll = document.getElementById('scroll');
+  Object.defineProperty(scroll, 'clientWidth', { value: viewport.width, configurable: true });
+  Object.defineProperty(scroll, 'clientHeight', { value: viewport.height, configurable: true });
+  scroll.getBoundingClientRect = () => ({
+    top: 0,
+    bottom: viewport.height,
+    left: 0,
+    right: viewport.width,
+    width: viewport.width,
+    height: viewport.height,
+  });
+  for (const cell of Array.from(document.querySelectorAll('tbody td.cell')) as any[]) {
+    const row = Number(cell.getAttribute('data-row'));
+    const column = Number(cell.getAttribute('data-col'));
+    cell.getBoundingClientRect = () => ({
+      top: headHeight + row * rowHeight,
+      bottom: headHeight + (row + 1) * rowHeight,
+      left: rownumWidth + column * columnWidth,
+      right: rownumWidth + (column + 1) * columnWidth,
+      width: columnWidth,
+      height: rowHeight,
+    });
+  }
+  return { viewport, rownumWidth, columnWidth, headHeight, rowHeight };
+}
+
+/**
+ * 单元格中心点的坐标。
+ *
+ * @param grid - {@link stubGridGeometry} 返回的几何。
+ * @param row - 绝对行索引。
+ * @param column - 列索引。
+ * @returns 该单元格中心的 `[x, y]`。
+ */
+function centreOf(
+  grid: {
+    readonly rownumWidth: number;
+    readonly columnWidth: number;
+    readonly headHeight: number;
+    readonly rowHeight: number;
+  },
+  row: number,
+  column: number,
+): [number, number] {
+  return [
+    grid.rownumWidth + column * grid.columnWidth + grid.columnWidth / 2,
+    grid.headHeight + row * grid.rowHeight + grid.rowHeight / 2,
+  ];
+}
+
+/**
+ * 在表格上做一次拖拽。
+ *
+ * @param harness - 已载入的视图。
+ * @param from - 按下时的单元格与坐标。
+ * @param to - 松开时的坐标。
+ */
+function dragOnGrid(
+  harness: Harness,
+  from: { row: number; column: number; x: number; y: number },
+  to: { x: number; y: number },
+): void {
+  const document = harness.window.document;
+  const start = document.querySelector(
+    `tbody td.cell[data-row="${from.row}"][data-col="${from.column}"]`,
+  );
+  assert.ok(start, '拖拽的起点单元格必须存在');
+  start.dispatchEvent(
+    new harness.window.MouseEvent('mousedown', {
+      bubbles: true,
+      clientX: from.x,
+      clientY: from.y,
+    }),
+  );
+  document.dispatchEvent(
+    new harness.window.MouseEvent('mousemove', { bubbles: true, clientX: to.x, clientY: to.y }),
+  );
+  document.dispatchEvent(
+    new harness.window.MouseEvent('mouseup', { bubbles: true, clientX: to.x, clientY: to.y }),
+  );
+}
+
+/**
  * 读取某一行中所有单元格的文本。
  *
  * @param harness - 已载入的视图。
@@ -540,6 +721,167 @@ test('Delete 用一次修改清空选中的区域', () => {
     columnStart: 0,
     columnEnd: 0,
   });
+});
+
+test('Ctrl+C 复制单个选中单元格的内容', () => {
+  const harness = createHarness();
+  const clipboard = stubClipboard(harness.window);
+  send(harness, updateMessage(SAMPLE));
+  clickCell(harness, 1, 2);
+  harness.window.document.dispatchEvent(
+    new harness.window.KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true }),
+  );
+  assert.deepEqual(clipboard.written, ['berlin']);
+});
+
+test('拖动可以选出矩形区域，Ctrl+C 复制为 TSV', () => {
+  const harness = createHarness();
+  const clipboard = stubClipboard(harness.window);
+  const widths: Record<string, number> = { 0: 140, 1: 140, 2: 140 };
+  send(harness, updateMessage(SAMPLE, { viewState: { columnWidths: widths } }));
+  const grid = stubGridGeometry(harness);
+  dragOnGrid(harness, { row: 0, column: 0, x: centreOf(grid, 0, 0)[0], y: centreOf(grid, 0, 0)[1] }, {
+    x: centreOf(grid, 2, 2)[0],
+    y: centreOf(grid, 2, 2)[1],
+  });
+  const document = harness.window.document;
+  assert.equal(document.querySelectorAll('tbody td.cell.selected').length, 9, '整个 3 × 3 矩形都在选区内');
+  assert.equal(
+    document.querySelector('tbody td.cell[data-row="2"][data-col="2"]').classList.contains('active-cell'),
+    true,
+    '焦点落在拖到的那一格上',
+  );
+
+  document.dispatchEvent(
+    new harness.window.KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true }),
+  );
+  assert.deepEqual(clipboard.written, ['name\tage\tcity\nann\t31\tberlin\nbob\t9\tamsterdam']);
+});
+
+test('拖动之后补发的 click 不会把选区缩回一个单元格', () => {
+  const harness = createHarness();
+  send(harness, updateMessage(SAMPLE, { viewState: { columnWidths: { 0: 140, 1: 140, 2: 140 } } }));
+  const grid = stubGridGeometry(harness);
+  dragOnGrid(harness, { row: 0, column: 0, x: centreOf(grid, 0, 0)[0], y: centreOf(grid, 0, 0)[1] }, {
+    x: centreOf(grid, 1, 1)[0],
+    y: centreOf(grid, 1, 1)[1],
+  });
+  const document = harness.window.document;
+  document
+    .querySelector('tbody td.cell[data-row="0"][data-col="0"]')
+    .dispatchEvent(new harness.window.MouseEvent('click', { bubbles: true }));
+  assert.equal(document.querySelectorAll('tbody td.cell.selected').length, 4, '选区保持在 2 × 2');
+});
+
+test('拖动中移动距离不足只算单击', () => {
+  const harness = createHarness();
+  send(harness, updateMessage(SAMPLE, { viewState: { columnWidths: { 0: 140, 1: 140, 2: 140 } } }));
+  const grid = stubGridGeometry(harness);
+  const point = centreOf(grid, 1, 1);
+  dragOnGrid(harness, { row: 1, column: 1, x: point[0], y: point[1] }, { x: point[0] + 2, y: point[1] });
+  assert.equal(
+    harness.window.document.querySelectorAll('tbody td.cell.selected').length,
+    1,
+    '没有超过阈值就还是单个单元格',
+  );
+});
+
+test('Ctrl+V 直接粘贴到选中的单元格，并作为锚点铺开', async () => {
+  const harness = createHarness();
+  const clipboard = stubClipboard(harness.window);
+  clipboard.read = 'x\ty';
+  send(harness, updateMessage(SAMPLE));
+  clickCell(harness, 1, 0);
+  harness.window.document.dispatchEvent(
+    new harness.window.KeyboardEvent('keydown', { key: 'v', ctrlKey: true, bubbles: true }),
+  );
+  // 视图先等浏览器的 paste 事件，等不到再去读剪贴板。
+  await new Promise(resolve => setTimeout(resolve, 200));
+  const op = harness.posted.filter(message => message.type === 'op').pop();
+  assert.deepEqual(plain(op?.op), {
+    kind: 'setRange',
+    row: 1,
+    column: 0,
+    values: [['x', 'y']],
+  });
+  // 粘完之后选区正好盖住刚写进去的那块内容。
+  assert.equal(
+    harness.window.document.querySelector('tbody td.cell[data-row="1"][data-col="1"]').classList.contains('active-cell'),
+    true,
+  );
+});
+
+test('浏览器随 paste 事件给出的文本可以直接粘贴', () => {
+  const harness = createHarness();
+  stubClipboard(harness.window);
+  send(harness, updateMessage(SAMPLE));
+  clickCell(harness, 1, 0);
+  harness.window.document.dispatchEvent(
+    new harness.window.KeyboardEvent('keydown', { key: 'v', ctrlKey: true, bubbles: true }),
+  );
+  dispatchPaste(harness, 'p\tq\nr\ts');
+  const op = harness.posted.filter(message => message.type === 'op').pop();
+  assert.deepEqual(plain(op?.op), {
+    kind: 'setRange',
+    row: 1,
+    column: 0,
+    values: [
+      ['p', 'q'],
+      ['r', 's'],
+    ],
+  });
+});
+
+test('编辑器回传的剪贴板文本用于粘贴', () => {
+  const harness = createHarness();
+  stubClipboard(harness.window);
+  send(harness, updateMessage(SAMPLE));
+  clickCell(harness, 2, 1);
+  send(harness, { type: 'clipboardText', text: 'one\ntwo\n' });
+  const op = harness.posted.filter(message => message.type === 'op').pop();
+  assert.deepEqual(plain(op?.op), {
+    kind: 'setRange',
+    row: 2,
+    column: 1,
+    values: [['one'], ['two']],
+  });
+});
+
+test('单值粘贴铺满整个选中区域', () => {
+  const harness = createHarness();
+  send(harness, updateMessage(SAMPLE, { viewState: { columnWidths: { 0: 140, 1: 140, 2: 140 } } }));
+  const grid = stubGridGeometry(harness);
+  dragOnGrid(harness, { row: 0, column: 0, x: centreOf(grid, 0, 0)[0], y: centreOf(grid, 0, 0)[1] }, {
+    x: centreOf(grid, 1, 1)[0],
+    y: centreOf(grid, 1, 1)[1],
+  });
+  send(harness, { type: 'clipboardText', text: 'full' });
+  const op = harness.posted.filter(message => message.type === 'op').pop();
+  assert.deepEqual(plain(op?.op), {
+    kind: 'setRange',
+    row: 0,
+    column: 0,
+    values: [
+      ['full', 'full'],
+      ['full', 'full'],
+    ],
+  });
+});
+
+test('没有选区时粘贴只提示，不发出修改', () => {
+  const harness = createHarness();
+  send(harness, updateMessage(SAMPLE));
+  send(harness, { type: 'clipboardText', text: 'x' });
+  assert.deepEqual(plain(harness.posted.filter(message => message.type === 'op')), []);
+  assert.match(harness.window.document.getElementById('status').textContent, /请先选中/);
+});
+
+test('只读表格拒绝粘贴', () => {
+  const harness = createHarness();
+  send(harness, updateMessage(SAMPLE, { truncated: true, readOnly: true }));
+  clickCell(harness, 0, 0);
+  send(harness, { type: 'clipboardText', text: 'x' });
+  assert.deepEqual(plain(harness.posted.filter(message => message.type === 'op')), []);
 });
 
 test('过滤输入框会回传视图状态', async () => {

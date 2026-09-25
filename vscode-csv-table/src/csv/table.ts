@@ -44,6 +44,15 @@ export type CsvOp =
   | { readonly kind: 'setCell'; readonly row: number; readonly column: number; readonly value: string }
   | { readonly kind: 'setRow'; readonly row: number; readonly values: readonly string[] }
   | {
+      readonly kind: 'setRange';
+      /** 粘贴块的左上角所在行。 */
+      readonly row: number;
+      /** 粘贴块的左上角所在列。 */
+      readonly column: number;
+      /** 按行排列的粘贴内容；行不足时用空单元格补齐。 */
+      readonly values: readonly (readonly string[])[];
+    }
+  | {
       readonly kind: 'clearRange';
       readonly rowStart: number;
       readonly rowEnd: number;
@@ -389,6 +398,31 @@ export function applyOp(rows: readonly (readonly string[])[], op: CsvOp): string
       }
       const next = cloneRows(rows);
       next[op.row] = op.values.slice();
+      return next;
+    }
+
+    case 'setRange': {
+      if (op.row < 0 || op.row >= rows.length || op.values.length === 0) {
+        return cloneRows(rows);
+      }
+      const next = cloneRows(rows);
+      for (let offset = 0; offset < op.values.length; offset += 1) {
+        const index = op.row + offset;
+        if (index >= next.length) {
+          break;
+        }
+        const line = op.values[offset];
+        if (line.length === 0) {
+          continue;
+        }
+        // 粘贴块可能比文档更宽：保留块内末尾的空单元格，这样整块粘贴的对齐
+        // 方式与复制时看到的矩形一致。
+        const target = padRow(next[index], op.column);
+        for (let column = 0; column < line.length; column += 1) {
+          target[op.column + column] = line[column];
+        }
+        next[index] = target;
+      }
       return next;
     }
 

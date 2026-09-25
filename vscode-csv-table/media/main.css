@@ -220,6 +220,8 @@ select {
   border-spacing: 0;
   table-layout: fixed;
   width: 100%;
+  /* 拖动选中单元格时不要顺手把单元格文字也选进去。 */
+  user-select: none;
 }
 
 .csv-table th,
@@ -316,6 +318,16 @@ select {
 .csv-table td.active-cell {
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: -1px;
+}
+
+/* 拖动选中过程中让选区看起来还没落定，松手后恢复为普通选区。 */
+body.selecting .csv-table tbody tr:hover td.selected,
+.grid-scroll.selecting .csv-table td.selected {
+  background: color-mix(in srgb, var(--vscode-editor-selectionBackground) 55%, transparent);
+}
+
+.grid-scroll.selecting .csv-table td.active-cell {
+  outline-style: dashed;
 }
 
 .head-label {
