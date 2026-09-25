@@ -13,7 +13,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { store } from '../state/store.ts';
 import { useAppState } from '../state/useAppState.ts';
 import type { ProbeHit } from '../api/client.ts';
-import { confidenceClass, formatDuration, formatRate, rerankReasons, sourceLabel } from '../util/format.ts';
+import {
+  confidenceClass,
+  formatDuration,
+  formatRate,
+  hitPathsLabel,
+  hitPathsLine,
+  rerankReasons,
+} from '../util/format.ts';
 import { buildDragData } from '../util/dragOut.ts';
 
 /**
@@ -201,12 +208,27 @@ export function ResultsPane({ playingId, onPlay }: { playingId: number | null; o
                         ...rerankReasons(hit.score),
                       ].join('\n')}
                     />
+                    {/*
+                      Which retrievers returned this row. This used to print the
+                      *classification* source (`文件名` / `内嵌` / `AI` / `声学` / `手动`),
+                      which read as the file name on nearly every row — `filename` is the
+                      normal classification source, since a UCS-style name is the primary
+                      evidence. The retrieval path is what this column is for.
+                    */}
                     <span
                       className="count"
-                      title={JSON.stringify(hit.score.ranks)}
-                      style={hit.score.rerank && hit.score.rerank.matchedTerms.length > 0 ? { color: '#7ee0a0' } : undefined}
+                      title={[
+                        hitPathsLine(hit.score),
+                        ...rerankReasons(hit.score),
+                        `匹配度 ${(hit.score.confidence * 100).toFixed(0)}%`,
+                      ].join('\n')}
+                      style={
+                        hit.score.rerank && hit.score.rerank.matchedTerms.length > 0
+                          ? { color: '#7ee0a0' }
+                          : undefined
+                      }
                     >
-                      {sourceLabel(asset.ucsSource)}
+                      {hitPathsLabel(hit.score)}
                     </span>
                     {/*
                       A window match means this file CONTAINS the reference rather

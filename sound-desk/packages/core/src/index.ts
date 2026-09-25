@@ -24,5 +24,16 @@ export const EMBEDDING_DIM = 512;
  */
 export const SIMILARITY_THRESHOLD = 0.12;
 
+/**
+ * Cosine similarity of a text→audio match that is actually *right*, on CLAP's shared
+ * space (see the calibration above).
+ *
+ * Exported so the UI can describe a similarity without inventing its own scale: below
+ * this number a match is weak-but-real, above it the pair really is related. Reporting
+ * "声音指纹相似度 62%" with no anchor invites the reader to compare it with a
+ * percentage they expect to reach 100.
+ */
+export const STRONG_SIMILARITY = 0.35;
+
 /** Default page size for search results. */
 export const DEFAULT_SEARCH_LIMIT = 60;

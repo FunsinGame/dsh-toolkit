@@ -10,7 +10,15 @@ import { useEffect, useState } from 'react';
 
 import { store } from '../state/store.ts';
 import { useAppState } from '../state/useAppState.ts';
-import { confidenceClass, formatBytes, formatDuration, formatRate, rerankReasons, sourceLabel } from '../util/format.ts';
+import {
+  confidenceClass,
+  formatBytes,
+  formatDuration,
+  formatRate,
+  hitPaths,
+  rerankReasons,
+  sourceLabel,
+} from '../util/format.ts';
 import { describeDragCapability, dragHint } from '../util/dragOut.ts';
 import type { ReclassifyResult } from '../api/client.ts';
 import { MetadataEditor } from './MetadataEditor.tsx';
@@ -42,6 +50,9 @@ export function DetailsPane({ onPlay, onSimilar }: { onPlay(id: number): void; o
 
   const em = asset.embedded;
   const dsp = asset.dsp;
+  // The retrieval paths and the prose reasons are kept separate: one is a fact about how
+  // the hit was found, the other explains its position.
+  const paths = hitPaths(state.selectedScore);
   const reasons = rerankReasons(state.selectedScore);
   // Which host-side file actions exist here, so the UI offers only real ones.
   const capability = describeDragCapability(state.host ?? 'browser');
@@ -102,9 +113,24 @@ export function DetailsPane({ onPlay, onSimilar }: { onPlay(id: number): void; o
         {capability.canRevealFile && <div className="kv">{dragHint(capability)}</div>}
       </div>
 
-      {reasons.length > 0 && (
+      {(paths.length > 0 || reasons.length > 0) && (
         <div className="section">
           <h3>排序依据</h3>
+          {/*
+            Which retrievers returned this, with ranks. A row found by several retrievers
+            at good ranks is corroborated; one found by a single retriever is that
+            retriever's specific answer — and that difference is invisible without this.
+          */}
+          {paths.length > 0 && (
+            <div className="kv" style={{ marginBottom: 6 }}>
+              命中路径：
+              {paths.map((path) => (
+                <span key={path.retriever} className="badge" style={{ marginRight: 4 }} title={`第 ${path.rank} 名`}>
+                  {path.label} #{path.rank}
+                </span>
+              ))}
+            </div>
+          )}
           <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, lineHeight: 1.7 }}>
             {reasons.map((reason) => (
               <li key={reason}>{reason}</li>
@@ -112,6 +138,7 @@ export function DetailsPane({ onPlay, onSimilar }: { onPlay(id: number): void; o
           </ul>
           <div className="kv" style={{ marginTop: 4 }}>
             重排把多条弱信号合成分数，这里列出各条的作用；没有列出的信号说明它对该结果没有倾向。
+            声音指纹相似度按 CLAP 的实测刻度判断强弱（约 35% 以上即算真的相关），所以百分比看着不高也可能是一次正确命中。
           </div>
         </div>
       )}

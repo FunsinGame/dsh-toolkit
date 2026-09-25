@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --import ../../tools/register.mjs --experimental-strip-types --test \"src/**/*.test.ts\"",
-    "check:popover": "node scripts/popover-layout.mjs"
+    "check:popover": "node scripts/popover-layout.mjs",
+    "check:provenance": "node scripts/check-hit-provenance.mjs"
   },
   "dependencies": {
     "@sounddesk/audio-effects": "workspace:*",
