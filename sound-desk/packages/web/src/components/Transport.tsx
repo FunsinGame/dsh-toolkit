@@ -195,7 +195,7 @@ export function Transport({
 
       <div className="meta">
         {state.host === 'vscode' ? 'VSCode 内运行' : '浏览器运行'}
-        {state.stats && !state.stats.modelsReady ? ' · 语义搜索未启用' : ''}
+        {state.stats && !state.stats.modelsReady ? ' · 语义搜索未启用（loadModel 关闭）' : ''}
         {/* Without ffmpeg, non-RIFF files have no waveform, no fingerprint and cannot
             play. Saying so is the difference between a documented limitation and
             what looks like a broken tool. */}

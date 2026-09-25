@@ -195,8 +195,8 @@
         },
         "soundDesk.loadModel": {
           "type": "boolean",
-          "default": false,
-          "markdownDescription": "启动时加载 CLAP 声音指纹模型（首次会下载约 100MB）。关闭时只启用关键词 + UCS 检索。"
+          "default": true,
+          "markdownDescription": "启动时加载 CLAP 声音指纹模型。**默认开启**：模型已随插件离线打包，不需要额外下载，关掉它就等于关掉语义搜索——状态行会显示「语义搜索未启用」，搜中文词也基本搜不到东西（库里的文件名是英文，关键词检索只能比 BM25）。只有在启动慢、想省内存时才需要关。"
         },
         "soundDesk.musicFolders": {
           "type": "array",

@@ -99,14 +99,24 @@ export function ResultsPane({ playingId, onPlay }: { playingId: number | null; o
       {state.mode === 'semantic' && state.stats && state.stats.embedded === 0 && (
         <div className="notice">
           {/*
-            This used to assert "运行一次不带 --no-model 的索引即可补齐", which is only
-            one of three possible causes and was actively wrong for a user whose model
-            loads fine and whose library simply never had the fingerprint pass run —
-            it sent them to re-index something that was already indexed.
+            Two different faults, two different fixes, and conflating them is what made
+            this hard to diagnose:
+              - no model  -> semantic search cannot run at all; turn loadModel on
+              - no prints -> the model is fine; the library just needs the pass run
+            The old copy asserted the second cause unconditionally, so a user who simply
+            had the model switched off was told to re-index a library that was fine.
           */}
-          {state.stats.modelsReady
-            ? '这个库还没有生成声音指纹，所以没有可比对的向量。用左侧素材库的「补齐指纹」按钮补一次即可。'
-            : '声音指纹模型没有加载，所以语义搜索没有可比对的向量。确认模型可用后，用左侧素材库的「补齐指纹」按钮生成一次。'}
+          {!state.stats.modelsReady ? (
+            <>
+              <strong>声音指纹模型没有加载</strong>，所以语义搜索没有可比对的向量。
+              打开设置里的 <code>soundDesk.loadModel</code>（现在默认就是开的）后重载窗口即可；
+              模型随插件离线打包，不需要下载。
+            </>
+          ) : (
+            <>
+              这个库还没有生成声音指纹，所以没有可比对的向量。用左侧素材库的<strong>「补齐指纹」</strong>按钮补一次即可。
+            </>
+          )}
         </div>
       )}
 
@@ -243,6 +253,19 @@ export function ResultsPane({ playingId, onPlay }: { playingId: number | null; o
             ) : (
               <div style={{ fontSize: 12 }}>
                 试试换个说法、拆成更具体的词（对象 + 材质 + 动作），或者改用「关键词」模式搜文件名。
+                {/*
+                  Say the real reason when there is one: with no model loaded the
+                  semantic retriever never runs, so a Chinese query over an English
+                  library cannot match anything — and the generic "换个说法" advice
+                  above would send the user off rewriting a query that was fine.
+                */}
+                {state.stats && !state.stats.modelsReady && (
+                  <>
+                    {' '}
+                    <strong>语义搜索当前不可用</strong>：声音指纹模型没有加载，打开{' '}
+                    <code>soundDesk.loadModel</code> 后重载窗口再试。
+                  </>
+                )}
               </div>
             )}
           </div>
