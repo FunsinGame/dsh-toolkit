@@ -269,7 +269,29 @@ export function createHandler(engine: EngineLike): Handler {
       return engine.ucs.lookup(term ?? '');
     },
 
-    stats: () => ({ ...catalog.stats(), dbBytes: 0, modelsReady: false }),
+    /**
+     * Engine statistics, including whether semantic search can work.
+     *
+     * `modelsReady` and `dbBytes` used to be hardcoded to `false` / `0` here, which
+     * made the status line read "语义搜索未启用" on every VSCode run — including one
+     * with a loaded model and a fully embedded library. The HTTP server derives the
+     * same field from the live embedder, so the two hosts disagreed, and in this
+     * direction: it told the user their search was degraded when it was not, which is
+     * exactly the kind of message that sends someone looking for a fault that is not
+     * there.
+     */
+    stats: () => ({
+      ...catalog.stats(),
+      // Matches the HTTP route, which reports the catalogue file's size on disk.
+      dbBytes: (() => {
+        try {
+          return statSync(path.join(engine.dataDir, 'catalog.db')).size;
+        } catch {
+          return 0;
+        }
+      })(),
+      modelsReady: engine.embedder?.ready === true,
+    }),
 
     jobs: () => engine.indexer.listJobs(),
 

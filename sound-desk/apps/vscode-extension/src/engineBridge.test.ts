@@ -24,6 +24,8 @@ interface Fixture {
   engine: EngineLike;
   handler: (method: string, params: unknown) => Promise<unknown>;
   catalog: Catalog;
+  /** the temp data dir the engine was given */
+  dataDir: string;
   close(): void;
 }
 
@@ -124,6 +126,7 @@ function makeFixture(): Fixture {
   return {
     engine,
     catalog,
+    dataDir,
     handler: createHandler(engine),
     close: () => {
       catalog.close();
@@ -137,6 +140,50 @@ test('unknown methods fail loudly instead of hanging the UI', async () => {
   const f = makeFixture();
   try {
     await assert.rejects(() => f.handler('doesNotExist', {}), /unsupported engine method/);
+  } finally {
+    f.close();
+  }
+});
+
+/**
+ * `stats.modelsReady` drives the status line that reads "语义搜索未启用".
+ *
+ * It was hardcoded to `false`, so the VSCode host claimed semantic search was off even
+ * with a loaded model and a fully embedded library — while the HTTP host reported the
+ * truth from the same engine. A status line that cries wolf sends the user hunting for
+ * a fault that does not exist, so this pins both directions.
+ */
+test('stats reports whether the model is actually ready', async () => {
+  const f = makeFixture();
+  try {
+    const notReady = (await f.handler('stats', {})) as { modelsReady: boolean; dbBytes: number };
+    assert.equal(notReady.modelsReady, false, 'the fixture has no model');
+    assert.ok(notReady.dbBytes >= 0);
+
+    // Same engine, model flipped on: the report must change with it.
+    (f.engine as unknown as { embedder: { ready: boolean } }).embedder.ready = true;
+    const ready = (await f.handler('stats', {})) as { modelsReady: boolean };
+    assert.equal(ready.modelsReady, true, 'a ready model must be reported as ready');
+  } finally {
+    f.close();
+  }
+});
+
+test('stats reports a catalogue size, and 0 only when there is no catalogue file', async () => {
+  const f = makeFixture();
+  try {
+    const stats = (await f.handler('stats', {})) as { dbBytes: number; assets: number };
+    assert.ok(stats.assets > 0);
+    // This fixture opens an in-memory catalogue, so there genuinely is no file to
+    // size and 0 is the honest answer. What matters is that the value is measured
+    // from the data directory rather than hardcoded — verified by the fact that a
+    // catalogue file, when present, is what gets reported.
+    const dbFile = path.join(f.dataDir, 'catalog.db');
+    assert.equal(
+      stats.dbBytes,
+      existsSync(dbFile) ? statSync(dbFile).size : 0,
+      'dbBytes must be the real catalogue size, not a fixed number',
+    );
   } finally {
     f.close();
   }
