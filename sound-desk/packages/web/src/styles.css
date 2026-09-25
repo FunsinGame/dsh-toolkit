@@ -1009,8 +1009,20 @@ select:focus {
   /* Overrides the docked-pane borders: the popover already provides the frame. */
   border: none;
   border-radius: 0;
-  overflow-y: auto;
+  /*
+     The panel must SHRINK to the popover and scroll, which takes all three of these.
+     Without `flex: 1 1 auto` the pane keeps its content height (1455px for eight open
+     slots) inside a 483px popover, so everything past the fold is clipped by the
+     popover's own overflow and cannot be scrolled to — the reported bug.
+     `min-height: 0` is what overrides a flex item's default `min-height: auto`, without
+     which the box refuses to shrink below its content and `overflow-y` never engages.
+  */
+  flex: 1 1 auto;
   min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* The popover already draws the rounded top; keep the scrollbar off its corners. */
+  overscroll-behavior: contain;
 }
 
 .transport .title {
