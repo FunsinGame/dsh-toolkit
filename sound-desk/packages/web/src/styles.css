@@ -17,13 +17,58 @@
   overflow: auto;
 }
 
-.pane.effects,
-.pane.mixer {
+/* Panels that open above the transport (效果 / 多轨 / 对比). One box, one scroll,
+   one close button — see components/Popover.tsx for why they are not docked panes. */
+.transport-popover {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 100%;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  max-height: min(60vh, 520px);
+  overflow: hidden;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 -8px 24px rgb(0 0 0 / 45%);
+}
+
+.popover-head {
   flex: 0 0 auto;
-  /* half each, so two open panels cannot crowd out the details pane */
-  max-height: 50%;
-  overflow-y: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
   border-bottom: 1px solid var(--border-strong);
+  background: var(--bg-inset);
+}
+
+.popover-title {
+  font-weight: 600;
+}
+
+.popover-head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.popover-close {
+  padding: 0 8px;
+}
+
+/* The single scroll container. `flex: 1 1 auto` is load-bearing: as a flex item the
+   body defaults to `min-height: auto`, which lets tall content grow past the capped
+   popover and become unreachable — the bug this replaced. */
+.popover-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
 }
 
 /* One mixer track: index chip, name, then M/S/effects/remove. */
@@ -168,9 +213,47 @@
 
 /* -- compare workspace ---------------------------------------------------- */
 
+/* 对比 renders inside a popover, so unlike a docked pane it must not claim `height: 100%`
+   or a scroll region of its own — the popover body is the only scroll container, so a
+   tall batch of columns cannot end up in a nested scrollbar. */
 .pane.compare {
   display: flex;
   flex-direction: column;
+}
+
+/* The query box and its buttons stay at the top of the popover: a batch of six columns is
+   taller than the popover, and scrolling back up to edit a query you are comparing against
+   defeats the point of comparing. Nothing to stick against once the compare panel scrolls
+   its own column bodies (below), so this only matters if it ever scrolls as a whole. */
+.pane.compare > .section {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+}
+
+/*
+   对比 is the one panel that must NOT scroll as a whole.
+
+   Its columns are boxes with their own scrolling result list, and the thing being
+   compared is the column headers — query, sort, pin — across all six at once. If the body
+   scrolled instead, the columns would first stretch to their content (measured at 9175px
+   inside a 483px popover) and the headers would scroll out of view exactly when they are
+   needed. So the body is a flex column that hands the remaining height to the panel, and
+   the scrolling happens inside each column.
+
+   `:has()` rather than a prop on the wrapper: the panel's own CSS owns how it fills the
+   box, and Chrome/Edge — the only browsers this workbench targets — have supported it
+   since 105.
+*/
+.popover-body:has(.pane.compare) {
+  display: flex;
+  flex-direction: column;
+}
+
+.popover-body:has(.pane.compare) > .pane.compare {
+  flex: 1 1 auto;
   min-height: 0;
 }
 
@@ -978,51 +1061,12 @@ select:focus {
   background: var(--bg-elevated);
 }
 
-/* The effect chain is a popover anchored to the transport rather than a docked pane.
-   `position: relative` here plus `bottom: 100%` on the panel puts it directly above
-   the transport bar without the transport's own grid row growing — which is the point:
-   the panel must not steal height from the result list while it is open. */
+/* The popovers are anchored to the transport. `position: relative` here plus
+   `bottom: 100%` on the popover puts them directly above the transport bar without the
+   transport's own grid row growing — which is the point: an open panel must not steal
+   height from the result list, and a closed one must not take any at all. */
 .transport-wrap {
   position: relative;
-}
-
-.effects-popover {
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: 100%;
-  z-index: 60;
-  /* Bounded so a tall panel cannot swallow the whole window; the panel itself scrolls.
-     `min()` keeps it sane on short windows too. */
-  max-height: min(60vh, 520px);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid var(--border-strong);
-  border-bottom: none;
-  border-radius: 8px 8px 0 0;
-  background: var(--bg-elevated);
-  box-shadow: 0 -10px 30px rgb(0 0 0 / 28%);
-}
-
-.effects-popover .pane.effects {
-  /* Overrides the docked-pane borders: the popover already provides the frame. */
-  border: none;
-  border-radius: 0;
-  /*
-     The panel must SHRINK to the popover and scroll, which takes all three of these.
-     Without `flex: 1 1 auto` the pane keeps its content height (1455px for eight open
-     slots) inside a 483px popover, so everything past the fold is clipped by the
-     popover's own overflow and cannot be scrolled to — the reported bug.
-     `min-height: 0` is what overrides a flex item's default `min-height: auto`, without
-     which the box refuses to shrink below its content and `overflow-y` never engages.
-  */
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  /* The popover already draws the rounded top; keep the scrollbar off its corners. */
-  overscroll-behavior: contain;
 }
 
 .transport .title {

@@ -24,6 +24,7 @@ import { getPlayer } from '../audio/player.ts';
 import { store } from '../state/store.ts';
 import { useAppState } from '../state/useAppState.ts';
 import { formatBytes, formatDuration } from '../util/format.ts';
+import { Popover } from './Popover.tsx';
 
 const mixer = getMixer();
 
@@ -33,7 +34,15 @@ const STAGGER_LABELS: Record<StaggerMode, string> = {
   together: '全部齐发',
 };
 
-export function MixerPane({ onEditChain }: { onEditChain: (trackId: string) => void }): React.JSX.Element {
+export function MixerPane({
+  open,
+  onEditChain,
+  onClose,
+}: {
+  open: boolean;
+  onEditChain: (trackId: string) => void;
+  onClose: () => void;
+}): React.JSX.Element {
   const state = useAppState();
   const [mix, setMix] = useState<MixerState>(() => mixer.getState());
   const [stagger, setStagger] = useState<StaggerMode>('sequential');
@@ -56,15 +65,13 @@ export function MixerPane({ onEditChain }: { onEditChain: (trackId: string) => v
   }
 
   return (
-    <div className="pane mixer">
-      <div className="pane-head">
-        <span>多轨叠层</span>
-        <span className="count">
-          {mix.tracks.length}/{MAX_TRACKS}
-          {mix.loading ? ' · 载入中' : ''}
-        </span>
-      </div>
-
+    <Popover
+      open={open}
+      testId="popover-mixer"
+      title="多轨叠层"
+      hint={`${mix.tracks.length}/${MAX_TRACKS}${mix.loading ? ' · 载入中' : ''}`}
+      onClose={onClose}
+    >
       <div className="section">
         <div className="fx-toolbar">
           <button disabled={!canAdd} onClick={() => void addSelected()} title="把当前选中的素材加入多轨">
@@ -293,6 +300,6 @@ export function MixerPane({ onEditChain }: { onEditChain: (trackId: string) => v
           </div>
         )}
       </div>
-    </div>
+    </Popover>
   );
 }

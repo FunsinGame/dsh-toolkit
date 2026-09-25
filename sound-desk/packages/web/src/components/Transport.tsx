@@ -12,7 +12,7 @@ import { getMixer, type MixerState } from '../audio/mixer.ts';
 import { getPlayer, type PlayerState } from '../audio/player.ts';
 import { onPlayRequest } from '../audio/playback.ts';
 import { waveformColorFor } from '../audio/peaks.ts';
-import { store } from '../state/store.ts';
+import { store, type OpenPanel } from '../state/store.ts';
 import { useAppState } from '../state/useAppState.ts';
 import { formatDuration } from '../util/format.ts';
 import { Waveform } from './Waveform.tsx';
@@ -23,15 +23,16 @@ const player = getPlayer();
 const mixer = getMixer();
 
 export function Transport({
-  showEffects,
+  openPanel,
   onToggleEffects,
-  showMixer,
   onToggleMixer,
+  onToggleCompare,
 }: {
-  showEffects: boolean;
-  onToggleEffects: (next: boolean) => void;
-  showMixer: boolean;
-  onToggleMixer: (next: boolean) => void;
+  /** which panel is open above the bar; the buttons show it as active */
+  openPanel: OpenPanel;
+  onToggleEffects: () => void;
+  onToggleMixer: () => void;
+  onToggleCompare: () => void;
 }): React.JSX.Element {  const state = useAppState();
   const [playback, setPlayback] = useState<PlayerState>(() => player.getState());
   const [mixState, setMixState] = useState<MixerState>(() => mixer.getState());
@@ -171,8 +172,8 @@ export function Transport({
             </span>
           )}
           <button
-            className={showEffects ? 'active' : ''}
-            onClick={() => onToggleEffects(!showEffects)}
+            className={openPanel === 'effects' ? 'active' : ''}
+            onClick={onToggleEffects}
             title="效果链：EQ / 失真 / 混响 / 距离 / 包络，仅影响试听。点开调整，关掉即回到原声（设置会保留）"
           >
             效果
@@ -184,16 +185,16 @@ export function Transport({
             {isProcessing(chain, isNeutral) ? ' •' : ''}
           </button>
           <button
-            className={showMixer ? 'active' : ''}
-            onClick={() => onToggleMixer(!showMixer)}
+            className={openPanel === 'mixer' ? 'active' : ''}
+            onClick={onToggleMixer}
             title={`多轨叠层（最多 ${MAX_TRACKS} 轨，可混音或分轨导出）`}
           >
             多轨
             {mixState.tracks.length > 0 ? ` ${mixState.tracks.length}` : ''}
           </button>
           <button
-            className={state.compare ? 'active' : ''}
-            onClick={() => store.setCompare(!state.compare)}
+            className={openPanel === 'compare' ? 'active' : ''}
+            onClick={onToggleCompare}
             title="多栏对比：每行一个查询，各栏独立排序，可钉住与调宽"
           >
             对比

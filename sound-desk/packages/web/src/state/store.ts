@@ -31,6 +31,7 @@ import type {
   UcsTree,
 } from '../api/client.ts';
 import { parseBatchQueries, type CompareSort, type CompareColumn } from '../util/compare.ts';
+import { nextPanel, panelChanged, type OpenPanel, type PanelName } from './openPanel.ts';
 import { createOfflineAudioContext } from '../audio/offline.ts';
 import { getMixer } from '../audio/mixer.ts';
 import { getPlayer } from '../audio/player.ts';
@@ -49,6 +50,8 @@ const EXPORT_ENCODING = { bitsPerSample: 24, encoding: 'pcm' } as const;
  * tail such as a long decay shared by every track.
  */
 const MIX_TAIL_SECONDS = 0.5;
+
+export type { OpenPanel } from './openPanel.ts';
 
 export interface AppState {
   ready: boolean;
@@ -120,11 +123,21 @@ export interface AppState {
    * the view is to judge several searches against each other — a shared sort would
    * make the comparison meaningless.
    */
-  compare: boolean;
   columns: CompareColumn[];
   compareInput: string;
-  /** true once `runCompare` has completed at least once */
-  compareRan: boolean;
+
+  /**
+   * Which of the panels above the transport is open, if any.
+   *
+   * One field rather than three booleans, because they cannot be open together: all
+   * three are anchored in the same place above the transport, so two at once would
+   * overlap into an unusable stack. Modelling it as a choice makes that impossible to
+   * get wrong — there is no state to reconcile, and "open 多轨" cannot leave 效果 up.
+   *
+   * The main list stays mounted underneath whichever one is open, so a panel never
+   * replaces the results the user is working from.
+   */
+  openPanel: OpenPanel;
 
   /** playlists (plan P1-3) */
   playlists: Playlist[];
@@ -193,10 +206,9 @@ const initialState: AppState = {
   session: null,
   probe: null,
   personalization: null,
-  compare: false,
   columns: [],
   compareInput: '',
-  compareRan: false,
+  openPanel: null,
   playlists: [],
   openPlaylist: null,
   playlistError: null,
@@ -737,11 +749,34 @@ class Store {
       });
   }
 
-  // -- compare workspace (plan P2-3) -------------------------------------
+  // -- panels above the transport (效果 / 多轨 / 对比) -----------------------
 
-  setCompare(on: boolean): void {
-    this.set({ compare: on });
+  /**
+   * Open one panel, or close it if it is already the open one.
+   *
+   * Passing the panel rather than a boolean is what removes the "two panels open"
+   * state: whatever was open is replaced. `null` closes everything.
+   */
+  togglePanel(panel: PanelName): void {
+    this.set({ openPanel: nextPanel(this.state.openPanel, panel) });
   }
+
+  /**
+   * Set the open panel outright, including to `null`.
+   *
+   * Used by the boot path, which restores the remembered choice before any user
+   * interaction — toggling would be wrong there, because "restore 效果" must open it
+   * even if it happens to be the current value.
+   */
+  setOpenPanel(panel: OpenPanel): void {
+    if (panelChanged(this.state.openPanel, panel)) this.set({ openPanel: panel });
+  }
+
+  closePanel(): void {
+    if (this.state.openPanel !== null) this.set({ openPanel: null });
+  }
+
+  // -- compare workspace (plan P2-3) -------------------------------------
 
   setCompareInput(text: string): void {
     this.set({ compareInput: text });
@@ -757,7 +792,7 @@ class Store {
   async runCompare(): Promise<void> {
     const { queries, dropped } = parseBatchQueries(this.state.compareInput);
     if (queries.length === 0) {
-      this.set({ columns: [], compareRan: true, searchError: null });
+      this.set({ columns: [], searchError: null });
       return;
     }
     if (dropped > 0) {
@@ -785,7 +820,7 @@ class Store {
         error: null,
       };
     });
-    this.set({ columns, compareRan: true, searchError: null });
+    this.set({ columns, searchError: null });
 
     for (let i = 0; i < columns.length; i += 1) {
       const column = columns[i]!;
@@ -879,12 +914,15 @@ class Store {
    * Promote one column into the main view.
    *
    * The bridge between the two modes: comparing several queries and then working
-   * with the winner should not require retyping it.
+   * with the winner should not require retyping it. Closing the panel is part of
+   * promoting — the results are now in the list behind it, and leaving the popover
+   * up would hide them.
    */
   promoteColumn(id: string): void {
     const column = this.state.columns.find((c) => c.id === id);
     if (!column) return;
-    this.set({ compare: false, query: column.query });
+    this.set({ query: column.query });
+    this.closePanel();
     void this.runSearch();
   }
 

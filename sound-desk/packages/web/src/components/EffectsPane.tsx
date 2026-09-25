@@ -31,6 +31,7 @@ import { getPlayer, type PlayerState } from '../audio/player.ts';
 import { store } from '../state/store.ts';
 import { useAppState } from '../state/useAppState.ts';
 import { formatBytes, formatDuration } from '../util/format.ts';
+import { Popover } from './Popover.tsx';
 
 const player = getPlayer();
 const mixer = getMixer();
@@ -110,15 +111,23 @@ function Slot({
 }
 
 export function EffectsPane({
+  open,
   trackId = null,
   onClearTarget,
   onClose,
 }: {
+  /**
+   * Whether the popover is showing.
+   *
+   * Passed in rather than derived: `open` is also the master bypass (see App), so the
+   * component that owns that decision owns the render too — there is no state in which
+   * the chain is enabled but the panel invisible.
+   */
+  open: boolean;
   /** when set, the panel edits that mixer track's chain instead of the preview */
   trackId?: string | null;
   onClearTarget?: () => void;
-  /** closes the popover; omitted when the panel is used inline */
-  onClose?: () => void;
+  onClose: () => void;
 }): React.JSX.Element {
   const state = useAppState();
   const [playback, setPlayback] = useState<PlayerState>(() => player.getState());
@@ -149,23 +158,18 @@ export function EffectsPane({
   const canExport = asset !== null && !state.exporting;
 
   return (
-    <div className="pane effects">
-      <div className="pane-head">
-        <span>{mixerTrack ? `效果链 · 轨道「${mixerTrack.label}」` : '效果链（仅试听）'}</span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {/*
-            Says whether what you are hearing is processed, because closing this window
-            is what bypasses the chain — so the state has to be readable from inside it.
-          */}
-          <span className="count">{state.exporting ? `导出中 ${(state.exportProgress * 100).toFixed(0)}%` : hearingLabel(chain, isNeutral)}</span>
-          {onClose && (
-            <button style={{ padding: '0 6px' }} onClick={onClose} title="关闭效果窗口并恢复原声（设置会保留）">
-              关闭
-            </button>
-          )}
-        </span>
-      </div>
-
+    <Popover
+      open={open}
+      testId="popover-effects"
+      title={mixerTrack ? `效果链 · 轨道「${mixerTrack.label}」` : '效果链（仅试听）'}
+      /*
+        Says whether what you are hearing is processed, because closing this window is
+        what bypasses the chain — so the state has to be readable from inside it. Export
+        progress takes the same slot: it is the only other thing that can be in flight.
+      */
+      hint={state.exporting ? `导出中 ${(state.exportProgress * 100).toFixed(0)}%` : hearingLabel(chain, isNeutral)}
+      onClose={onClose}
+    >
       {mixerTrack && (
         <div className="section" style={{ paddingBottom: 0 }}>
           <div className="fx-hint">
@@ -508,6 +512,6 @@ export function EffectsPane({
         </div>
       </div>
       )}
-    </div>
+    </Popover>
   );
 }

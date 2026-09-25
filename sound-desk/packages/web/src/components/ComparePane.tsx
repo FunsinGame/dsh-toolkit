@@ -22,11 +22,12 @@ import { formatDuration, formatRate } from '../util/format.ts';
 import { requestPlay } from '../audio/playback.ts';
 import { store } from '../state/store.ts';
 import { useAppState } from '../state/useAppState.ts';
+import { Popover } from './Popover.tsx';
 
 const MIN_WIDTH = 180;
 const MAX_WIDTH = 720;
 
-export function ComparePane(): React.JSX.Element {
+export function ComparePane({ open, onClose }: { open: boolean; onClose: () => void }): React.JSX.Element {
   const state = useAppState();
   const overlap = crossColumnCounts(state.columns);
   const dragging = useRef<{ id: string; startX: number; startWidth: number } | null>(null);
@@ -67,15 +68,15 @@ export function ComparePane(): React.JSX.Element {
   };
 
   return (
-    <div className="pane compare">
-      <div className="pane-head">
-        <span>多栏对比</span>
-        <span className="count">
-          {state.columns.length > 0 ? `${state.columns.length} 栏` : '每行一个查询'}
-        </span>
-      </div>
-
-      <div className="section">
+    <Popover
+      open={open}
+      testId="popover-compare"
+      title="多栏对比"
+      hint={state.columns.length > 0 ? `${state.columns.length} 栏` : '每行一个查询'}
+      onClose={onClose}
+    >
+      <div className="pane compare">
+        <div className="section">
         <textarea
           className="cmp-input"
           rows={3}
@@ -92,7 +93,7 @@ export function ComparePane(): React.JSX.Element {
         />
         <div className="fx-toolbar">
           <button onClick={() => void store.runCompare()}>对比（Ctrl+Enter）</button>
-          <button onClick={() => store.setCompare(false)} title="回到单栏结果列表">
+          <button onClick={onClose} title="关闭对比窗口，回到单栏结果列表">
             退出对比
           </button>
           <span className="fx-hint">钉住的栏在重新对比时保留结果</span>
@@ -197,7 +198,8 @@ export function ComparePane(): React.JSX.Element {
           </div>
         )}
       </div>
-    </div>
+      </div>
+    </Popover>
   );
 }
 
