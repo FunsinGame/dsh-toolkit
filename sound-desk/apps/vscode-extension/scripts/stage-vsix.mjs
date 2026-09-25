@@ -39,20 +39,35 @@ const REPO_ROOT = path.resolve(EXT_ROOT, '..', '..');
 const DEFAULT_OUT = path.join(EXT_ROOT, '.vsix-stage');
 
 /**
- * Packages the bundle resolves at runtime.
+ * Packages the bundle resolves at runtime — the *roots* only.
  *
  * Kept as an explicit list rather than "copy node_modules" so that adding a runtime
  * dependency is a deliberate act, and so the package contents are reviewable.
  * Everything an `import` in src/ pulls in is already inside the esbuild bundle.
+ * Their transitive dependencies are resolved automatically by `resolveClosure` —
+ * hand-listing those is how this went wrong: `sharp` was added without
+ * `detect-libc` / `@img/colour` / `semver`, so it resolved and then failed to load.
  *
  * `ffmpeg-static` is here because the engine loads it *dynamically*
  * (`decode.ts` builds the specifier at runtime so a bundler cannot resolve it
  * statically and fail the build for anyone who skipped the optional dependency).
  * That makes it external by construction, so a package without it reports
- * "未装 ffmpeg" and loses non-RIFF decoding, waveforms, fingerprints and playback —
- * which is exactly what shipped before this entry existed.
+ * "未装 ffmpeg" and loses non-RIFF decoding, waveforms, fingerprints and playback.
+ *
+ * `sharp` is here for the subtlest reason, and leaving it out broke semantic search
+ * completely: `@huggingface/transformers` does `require("sharp")` at **module top
+ * level**, purely to support image inputs this app never uses. Without it the whole
+ * transformers module throws on load, so `createEmbedder` degrades to the null
+ * embedder and the extension reports "语义搜索未启用" forever — with the model sitting
+ * right there in the package.
  */
-const RUNTIME_PACKAGES = ['@huggingface/transformers', 'onnxruntime-common', 'onnxruntime-node', 'ffmpeg-static'];
+const RUNTIME_ROOTS = [
+  '@huggingface/transformers',
+  'onnxruntime-common',
+  'onnxruntime-node',
+  'ffmpeg-static',
+  'sharp',
+];
 
 /** Platform folder under onnxruntime-node/bin/napi-v6 that is worth shipping. */
 function platformDir() {
@@ -84,6 +99,50 @@ async function findInStore(name) {
     if (existsSync(path.join(pkgDir, 'package.json'))) return pkgDir;
   }
   return null;
+}
+
+/**
+ * Resolve a package and everything it needs at runtime.
+ *
+ * Walks `dependencies` and the *installed* `optionalDependencies`. Optional entries
+ * that are not present are **skipped silently**, which is what makes this platform-aware
+ * for free: pnpm installs only the `@img/sharp-<platform>` whose prebuilt binary matches
+ * this machine, and the other two dozen are legitimately absent. Treating those as
+ * failures would make every package build fail.
+ *
+ * A missing *required* dependency is reported, because a package that resolves but
+ * cannot load is the exact failure mode this function exists to prevent — `sharp`
+ * shipped without `detect-libc` once and semantic search died silently.
+ */
+async function resolveClosure(roots) {
+  const resolved = new Map();
+  const missingRequired = [];
+  const skippedOptional = [];
+  const queue = roots.map((name) => ({ name, optional: false }));
+
+  while (queue.length > 0) {
+    const { name, optional } = queue.shift();
+    if (resolved.has(name)) continue;
+
+    const dir = await findInStore(name);
+    if (!dir) {
+      if (optional) skippedOptional.push(name);
+      else missingRequired.push(name);
+      continue;
+    }
+    resolved.set(name, dir);
+
+    let manifest;
+    try {
+      manifest = JSON.parse(await readFile(path.join(dir, 'package.json'), 'utf8'));
+    } catch {
+      continue;
+    }
+    for (const dep of Object.keys(manifest.dependencies ?? {})) queue.push({ name: dep, optional: false });
+    for (const dep of Object.keys(manifest.optionalDependencies ?? {})) queue.push({ name: dep, optional: true });
+  }
+
+  return { resolved, missingRequired, skippedOptional };
 }
 
 /**
@@ -180,15 +239,14 @@ async function main() {
   const modules = path.join(out, 'out', 'node_modules');
   await mkdir(modules, { recursive: true });
   const copied = [];
-  for (const name of RUNTIME_PACKAGES) {
-    const from = await findInStore(name);
-    if (!from) {
-      copied.push({ name, ok: false, reason: 'not found in the pnpm store' });
-      continue;
-    }
+  const closure = await resolveClosure(RUNTIME_ROOTS);
+  for (const [name, from] of closure.resolved) {
     const pruneNative = name === 'onnxruntime-node' && !allPlatforms;
     await copyPackage(from, path.join(modules, ...name.split('/')), { pruneNative, keepPlatform });
     copied.push({ name, ok: true, from: path.relative(REPO_ROOT, from) });
+  }
+  for (const name of closure.missingRequired) {
+    copied.push({ name, ok: false, reason: 'required dependency not found in the pnpm store' });
   }
 
   const bytes = await dirSize(out);
@@ -236,18 +294,28 @@ async function main() {
     platform: keepPlatform,
     allPlatforms,
     sizeMb: Number((bytes / 1024 / 1024).toFixed(1)),
+    packages: copied.length,
     runtimePackages: copied,
+    // Recorded so "why is that other platform's binary not here" is answerable without
+    // reading the resolver.
+    skippedOptionalForOtherPlatforms: closure.skippedOptional,
   };
   await writeFile(path.join(out, 'STAGE-REPORT.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 
   console.log(`[stage-vsix] staged ${report.sizeMb} MB into ${out}`);
   console.log(`[stage-vsix] platform: ${keepPlatform.platform}/${keepPlatform.arch}${allPlatforms ? ' (all platforms kept)' : ''}`);
+  console.log(`[stage-vsix] ${copied.length} packages copied`);
   for (const pkg of copied) {
     console.log(`[stage-vsix]   ${pkg.ok ? 'ok  ' : 'FAIL'} ${pkg.name}${pkg.ok ? '' : ` (${pkg.reason})`}`);
   }
+  if (closure.skippedOptional.length > 0) {
+    console.log(
+      `[stage-vsix] skipped ${closure.skippedOptional.length} optional package(s) not installed for this platform`,
+    );
+  }
   const failed = copied.filter((pkg) => !pkg.ok);
   if (failed.length > 0) {
-    console.error(`[stage-vsix] ${failed.length} runtime package(s) missing; the VSIX would not start.`);
+    console.error(`[stage-vsix] ${failed.length} REQUIRED runtime package(s) missing; the VSIX would not start.`);
     return 1;
   }
   return 0;

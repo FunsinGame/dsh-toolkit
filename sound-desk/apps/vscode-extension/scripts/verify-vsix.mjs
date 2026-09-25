@@ -131,6 +131,28 @@ try {
   const ffmpegOk = typeof ffmpegBinary === 'string' && existsSync(ffmpegBinary);
   console.log('  ffmpeg-static binary:', ffmpegOk ? 'yes' : 'MISSING');
   if (!ffmpegOk) failures += 1;
+
+  /**
+   * Load the transformer library from inside the extracted package.
+   *
+   * This is the check that matters most and was missing: the extension bundle loads
+   * perfectly well WITHOUT it, because the model is loaded lazily and
+   * `createEmbedder` swallows the failure. So a package missing `sharp` (which
+   * transformers requires at module top level) passes every other check here and then
+   * reports "语义搜索未启用" for ever in the installed extension.
+   */
+  try {
+    const t = createRequire(bundle)('@huggingface/transformers');
+    const ok = typeof t.AutoTokenizer?.from_pretrained === 'function'
+      && typeof t.ClapTextModelWithProjection?.from_pretrained === 'function'
+      && typeof t.ClapAudioModelWithProjection?.from_pretrained === 'function';
+    console.log(`  @huggingface/transformers loads: ${ok ? 'yes' : 'NO'} (${Object.keys(t).length} exports)`);
+    if (!ok) failures += 1;
+  } catch (err) {
+    failures += 1;
+    console.log(`  @huggingface/transformers loads: NO — ${err.code ?? ''} ${String(err.message).split('\n')[0]}`);
+    console.log('    (without this, semantic search silently degrades to "off")');
+  }
 } catch (err) {
   failures += 1;
   console.log(`  FAIL ${err.code ?? ''} ${String(err.message).split('\n')[0]}`);

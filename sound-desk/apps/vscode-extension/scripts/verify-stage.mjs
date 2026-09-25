@@ -49,13 +49,46 @@ check('data/categories.generated.json (UCS)', () => {
 });
 
 console.log('\n=== runtime packages, resolved from the stage only ===');
-for (const spec of ['@huggingface/transformers', 'onnxruntime-common', 'onnxruntime-node', 'ffmpeg-static']) {
+for (const spec of ['@huggingface/transformers', 'onnxruntime-common', 'onnxruntime-node', 'ffmpeg-static', 'sharp']) {
   check(spec, () => {
     const resolved = requireFromStage.resolve(spec);
     if (!resolved.startsWith(stage)) throw new Error(`resolved outside the stage: ${resolved}`);
     return path.relative(stage, resolved);
   });
 }
+// sharp's platform binary is a leaf package with no exported entry point — requiring it
+// is an error by design — so it is checked by presence of the prebuilt binding sharp
+// actually dlopen()s. Absent, sharp loads (so transformers loads) but every image call
+// throws; present is the only thing worth asserting.
+check('@img/sharp-win32-x64 native binding', () => {
+  const dir = path.join(modules, '@img', 'sharp-win32-x64');
+  if (!existsSync(dir)) throw new Error(`missing at ${path.relative(stage, dir)}`);
+  const lib = path.join(dir, 'lib');
+  if (!existsSync(lib)) throw new Error('no lib/ inside the platform package');
+  const binding = readdirSync(lib).filter((f) => f.endsWith('.node'));
+  if (binding.length === 0) throw new Error('no .node binding inside lib/');
+  const mb = binding.reduce((sum, f) => sum + statSync(path.join(lib, f)).size, 0) / 1024 / 1024;
+  return `${binding.join(', ')} (${mb.toFixed(1)} MB)`;
+});
+
+/**
+ * Require the transformer library, which is what the extension actually does.
+ *
+ * Resolving a module and *loading* it are different things, and the gap between them is
+ * exactly what broke semantic search: `@huggingface/transformers` resolves fine without
+ * `sharp`, then throws `Cannot find module 'sharp'` while loading, because it requires
+ * sharp at module top level for image support this app never uses. A resolve-only check
+ * passes in that broken state, so this check loads it.
+ */
+console.log('\n=== the transformer library loads (not merely resolves) ===');
+check('require @huggingface/transformers', () => {
+  const mod = requireFromStage('@huggingface/transformers');
+  if (typeof mod.AutoTokenizer?.from_pretrained !== 'function') throw new Error('AutoTokenizer missing');
+  if (typeof mod.ClapTextModelWithProjection?.from_pretrained !== 'function') {
+    throw new Error('ClapTextModelWithProjection missing');
+  }
+  return `${Object.keys(mod).length} exports`;
+});
 
 console.log('\n=== the native runtime actually loads ===');
 check('new onnxruntime-node session API', () => {
