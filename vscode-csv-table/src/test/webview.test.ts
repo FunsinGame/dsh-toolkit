@@ -453,6 +453,44 @@ test('公式单元格的悬浮提示上半是结果、下半是公式', () => {
   assert.equal(tooltip.hidden, true, '非公式单元格不显示');
 });
 
+test('编辑时在输入框里点击不会退出编辑，可以定位光标', () => {
+  const harness = createHarness();
+  send(harness, updateMessage([['id', 'name'], ['1', 'abcdef']]));
+  const document = harness.window.document;
+  const cell = document.querySelector('tbody td.cell[data-row="1"][data-col="1"]');
+  cell.dispatchEvent(new harness.window.MouseEvent('dblclick', { bubbles: true }));
+  const input = cell.querySelector('input.cell-input');
+  assert.ok(input !== null, '双击进入编辑');
+  assert.equal(input.value, 'abcdef');
+  // 双击进入编辑时会全选内容，方便直接覆盖。
+  assert.equal(input.selectionStart, 0);
+  assert.equal(input.selectionEnd, 6);
+
+  // 再点一下字符串中间：应该只是把光标放过去，不能退出编辑。
+  input.dispatchEvent(new harness.window.MouseEvent('mousedown', { bubbles: true, clientX: 20, clientY: 30 }));
+  document.dispatchEvent(new harness.window.MouseEvent('mouseup', { bubbles: true }));
+  assert.equal(cell.querySelector('input.cell-input'), input, '仍在编辑，输入框还在原位');
+  assert.equal(input.value, 'abcdef', '内容没被改动');
+  assert.deepEqual(plain(harness.posted.filter(message => message.type === 'op')), [], '没有发出多余的修改');
+  // 编辑仍然有效：改完提交能正常回传。
+  input.value = 'abXcdef';
+  input.dispatchEvent(new harness.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  const op = harness.posted.filter(message => message.type === 'op').pop();
+  assert.deepEqual(plain(op?.op), { kind: 'setCell', row: 1, column: 1, value: 'abXcdef' });
+});
+
+test('编辑时在输入框里打字不会触发表格快捷键', () => {
+  const harness = createHarness();
+  send(harness, updateMessage([['id', 'name'], ['1', 'keep']]));
+  const document = harness.window.document;
+  const cell = document.querySelector('tbody td.cell[data-row="1"][data-col="1"]');
+  cell.dispatchEvent(new harness.window.MouseEvent('dblclick', { bubbles: true }));
+  const input = cell.querySelector('input.cell-input');
+  input.dispatchEvent(new harness.window.KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
+  assert.equal(input.value, 'keep', 'Delete 交给输入框自己处理');
+  assert.deepEqual(plain(harness.posted.filter(message => message.type === 'op')), []);
+});
+
 test('悬浮提示在移出表格时收起', () => {
   const harness = createHarness();
   const rows = [
@@ -472,8 +510,7 @@ test('悬浮提示在移出表格时收起', () => {
   assert.equal(tooltip.hidden, true, '移出表格后收起');
 });
 
-test('双击公式单元格时输入框里是公式原文', () => {
-  const harness = createHarness();
+test('双击公式单元格时输入框里是公式原文', () => {  const harness = createHarness();
   const rows = [
     ['name', 'text'],
     ['hero_buff_name_42000001', '=REF("lang.csv", "name", "value")'],

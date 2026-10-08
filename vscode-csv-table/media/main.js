@@ -1613,7 +1613,23 @@
     }, 4000);
   }
 
-  /* -------------------------------------------------------- 公式悬浮提示 */
+  /**
+   * 判断事件目标是表单控件。
+   *
+   * 就地编辑的输入框、工具栏的下拉框都算：落在它们身上的键盘、粘贴与鼠标事件
+   * 要交给控件自己处理，表格的选区与快捷键必须让路。
+   *
+   * @param {EventTarget|null} target - 事件目标。
+   * @returns 是否是输入类控件。
+   */
+  function isTypingTarget(target) {
+    return (
+      target instanceof HTMLElement &&
+      (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA')
+    );
+  }
+
+  /* -------------------------------------------------------------- 公式悬浮提示 */
 
   /**
    * 显示公式单元格的悬浮提示：上面是查询结果，下面是完整公式。
@@ -2049,11 +2065,15 @@
       }
     });
     scroll.addEventListener('mouseleave', hideCellTooltip);
-    scroll.addEventListener('mousedown', hideCellTooltip);
-
     scroll.addEventListener('mousedown', function (event) {
       const target = event.target;
       if (!(target instanceof Element)) {
+        return;
+      }
+      hideCellTooltip();
+      // 正在就地编辑：输入框上的按下交给它自己处理（定位光标、拖选文字），
+      // 否则这里会把焦点抢到滚动容器，输入框失焦直接提交并退出编辑。
+      if (isTypingTarget(target)) {
         return;
       }
       suppressClick = false;
@@ -2671,10 +2691,7 @@
   /** 绑定文档级的键盘与关闭处理函数。 */
   function wireDocument() {
     document.addEventListener('keydown', function (event) {
-      const target = event.target;
-      const typing =
-        target instanceof HTMLElement &&
-        (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA');
+      const typing = isTypingTarget(event.target);
 
       if (event.key === 'Escape') {
         hideMenu();
@@ -2804,11 +2821,7 @@
     });
 
     document.addEventListener('paste', function (event) {
-      const target = event.target;
-      const typing =
-        target instanceof HTMLElement &&
-        (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA');
-      if (typing) {
+      if (isTypingTarget(event.target)) {
         // 就地编辑时让输入框自己处理粘贴。
         return;
       }
