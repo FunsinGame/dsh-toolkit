@@ -29,6 +29,8 @@ export interface FormulaReadResult {
 /** 读取并监听公式引用的文件。 */
 export class FormulaFiles implements vscode.Disposable {
   private readonly watchers = new Map<string, vscode.FileSystemWatcher>();
+  /** 上一次 `read` 的结果：定位到引用表时可以直接复用，不必再读一遍磁盘。 */
+  private lastRead: FormulaReadResult | null = null;
   private disposed = false;
 
   /**
@@ -99,7 +101,23 @@ export class FormulaFiles implements vscode.Disposable {
       uris.push(uri);
       this.watch(uri);
     }
-    return { tables, errors, uris };
+    const result: FormulaReadResult = { tables, errors, uris };
+    this.lastRead = result;
+    return result;
+  }
+
+  /**
+   * 复用上一次 {@link read} 的结果。
+   *
+   * 「定位到引用表」在点击后紧接着就会用到同一批被引用的表，这里直接还回去，
+   * 不必再读一遍磁盘（`read` 每次都会重新读，是为了跟随文件变化）。
+   *
+   * @param path - 公式里写的路径。
+   * @returns 上次读到的表；没有缓存时为 `null`。
+   */
+  public cached(path: string): FormulaTable | null {
+    const table = this.lastRead?.tables.get(normalizeFormulaPath(path));
+    return table ?? null;
   }
 
   /**
@@ -110,7 +128,7 @@ export class FormulaFiles implements vscode.Disposable {
    * @param path - 公式里写的路径。
    * @returns 文件 URI；都找不到时为 `null`。
    */
-  private async resolve(path: string): Promise<vscode.Uri | null> {
+  public async resolve(path: string): Promise<vscode.Uri | null> {
     const cleaned = path.trim().replace(/\\/g, '/').replace(/^\.\//, '');
     const candidates: vscode.Uri[] = [];
     if (/^[a-zA-Z]+:\/\//.test(cleaned)) {

@@ -442,8 +442,74 @@ test('双击公式单元格时输入框里是公式原文', () => {
   assert.equal(cell.textContent, '庇护');
 });
 
-test('点击列号行只选中整列，不触发排序', () => {
+test('公式单元格的右键菜单能定位到引用表', () => {
   const harness = createHarness();
+  const rows = [
+    ['name', 'text'],
+    ['hero_buff_name_42000001', '=REF("lang.csv", "name", "value")'],
+  ];
+  // 这里给的是「目标格在我们视图里的行列」，真实坐标由宿主算好（见公式测试）。
+  send(
+    harness,
+    updateMessage(rows, { resolved: { 1: [null, '庇护'] }, formulaTargets: { 1: [null, [4, 2]] } }),
+  );
+  const document = harness.window.document;
+  const formulaCell = document.querySelector('tbody td.cell[data-row="1"][data-col="1"]');
+  const plainCell = document.querySelector('tbody td.cell[data-row="1"][data-col="0"]');
+  const itemsOf = (cell: any) => {
+    cell.dispatchEvent(
+      new harness.window.MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 }),
+    );
+    return Array.from(document.querySelectorAll('#menu .menu-item')) as any[];
+  };
+
+  const formulaItems = itemsOf(formulaCell);
+  const reveal = formulaItems.find(item => item.textContent === '定位到引用表');
+  assert.ok(reveal !== undefined, '取到值的公式单元格有「定位到引用表」');
+  assert.equal(reveal.disabled, false);
+
+  reveal.dispatchEvent(new harness.window.MouseEvent('click', { bubbles: true }));
+  const message = plain(harness.posted.filter(entry => entry.type === 'reveal').pop()) as any;
+  assert.deepEqual(message, {
+    type: 'reveal',
+    formula: '=REF("lang.csv", "name", "value")',
+    row: 1,
+    column: 1,
+  });
+
+  // 不是公式的格子（宿主没给目标）这一项是灰的。
+  const plainItems = itemsOf(plainCell);
+  const disabled = plainItems.find(item => item.textContent === '定位到引用表');
+  assert.ok(disabled !== undefined, '菜单项始终在，取不到值时置灰');
+  assert.equal(disabled.disabled, true);
+});
+
+test('收到定位消息后滚动并选中目标单元格', () => {
+  const harness = createHarness();
+  const rows = [['id', 'value']];
+  for (let index = 0; index < 5000; index += 1) {
+    rows.push([String(index), 'x']);
+  }
+  send(harness, updateMessage(rows));
+  const document = harness.window.document;
+  send(harness, { type: 'reveal', row: 4000, column: 1 });
+  const cell = document.querySelector('tbody td.cell[data-row="4000"][data-col="1"]');
+  assert.ok(cell !== null, '目标行进入了渲染窗口');
+  assert.equal(cell.classList.contains('active-cell'), true, '目标格成为当前格');
+  assert.equal(cell.classList.contains('selected'), true, '目标格进入选区');
+  assert.match(document.getElementById('status').textContent, /B4001/);
+});
+
+test('定位到被过滤掉的行时只提示，不改选区', () => {
+  const harness = createHarness();
+  send(harness, updateMessage(SAMPLE));
+  const document = harness.window.document;
+  send(harness, { type: 'reveal', row: 99, column: 0 });
+  assert.equal(document.querySelectorAll('tbody td.cell.selected').length, 0);
+  assert.match(document.getElementById('status').textContent, /定位失败/);
+});
+
+test('点击列号行只选中整列，不触发排序', () => {  const harness = createHarness();
   send(harness, updateMessage(SAMPLE));
   const document = harness.window.document;
   const header = document.querySelector('thead th.head-cell[data-col="1"]');

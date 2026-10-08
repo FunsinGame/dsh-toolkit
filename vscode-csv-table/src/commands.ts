@@ -123,14 +123,52 @@ export async function openInTable(uri?: vscode.Uri): Promise<void> {
 export async function openAsTable(
   uri?: vscode.Uri,
   viewColumn?: vscode.ViewColumn,
-): Promise<void> {
+): Promise<boolean> {
   const target = uri ?? activeResource();
   if (target === undefined || !isCsvResource(target)) {
     void vscode.window.showWarningMessage('请先打开一个 .csv / .tsv 文件。');
-    return;
+    return false;
   }
   const column = viewColumn ?? viewColumnFor(target) ?? vscode.ViewColumn.Active;
   await vscode.commands.executeCommand('vscode.openWith', target, CSV_TABLE_VIEW_TYPE, column);
+  return true;
+}
+
+/**
+ * 打开公式引用的表；只有它确实是 CSV 系列文件时才走表格视图。
+ *
+ * 「定位到引用表」用它来打开目标：表格视图的会话建立后会取走待定位的登记并把
+ * 目标格推给视图，所以这里只负责打开。
+ *
+ * @param uri - 被引用的文件。
+ * @returns 是否以表格视图打开；不是 CSV 时返回 `false`，由调用方改用文本编辑器。
+ */
+export async function openFormulaTarget(uri: vscode.Uri): Promise<boolean> {
+  if (!isCsvResource(uri)) {
+    return false;
+  }
+  return openAsTable(uri, csvViewColumn());
+}
+
+/**
+ * 在文本编辑器里打开被引用的文件并跳到某一行。
+ *
+ * 被引用的表不是 CSV（公式写错了路径、指到了别的文件）时的兜底：至少把文件打开、
+ * 光标停在目标行，让用户自己看。
+ *
+ * @param uri - 被引用的文件。
+ * @param row - 目标行下标（从 0 开始）。
+ */
+export async function revealInTextEditor(uri: vscode.Uri, row: number): Promise<void> {
+  const document = await vscode.workspace.openTextDocument(uri);
+  const line = Math.max(0, Math.min(document.lineCount - 1, row));
+  const editor = await vscode.window.showTextDocument(document, { preview: false });
+  const position = new vscode.Position(line, 0);
+  editor.selection = new vscode.Selection(position, position);
+  editor.revealRange(
+    new vscode.Range(position, position),
+    vscode.TextEditorRevealType.InCenterIfOutsideViewport,
+  );
 }
 
 /**
@@ -220,5 +258,8 @@ export function registerCsvCommands(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('dshCsv.showText', (uri?: vscode.Uri) => openAsText(uri)),
     vscode.commands.registerCommand('dshCsv.toggleView', () => toggleView()),
     vscode.commands.registerCommand('dshCsv.toggleDefaultEditor', () => toggleDefaultEditor()),
+    // 「定位到引用表」由表格视图的右键菜单触发：webview 把请求发给会话，命令本身
+    // 只是占个位（便于在命令面板里发现），主进程侧不做任何事。
+    vscode.commands.registerCommand('dshCsv.revealTarget', () => undefined),
   );
 }

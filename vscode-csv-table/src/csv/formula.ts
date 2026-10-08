@@ -132,6 +132,73 @@ export interface FormulaKey {
   readonly key: string;
 }
 
+/** 一条公式在**被引用文件**里读的那个单元格。 */
+export interface FormulaTarget {
+  /** 公式里写的路径，原样返回，交给调用方去解析成文件。 */
+  readonly path: string;
+  /** 目标单元格的行下标（从 0 开始，与文件行号一致）。 */
+  readonly row: number;
+  /** 目标单元格的列下标（从 0 开始）。 */
+  readonly column: number;
+}
+
+/**
+ * 算出一条公式在别的文件里读的是哪一格。
+ *
+ * 用来实现「定位到引用表」：`=CELL` 直接给出行列；`=LOOKUP` / `=REF` / `=SUM` /
+ * `=FILTER` 先在目标文件里按键定位到行，再取取值列。列名与键列都要在**目标文件**
+ * 里解析，所以列号可能拿不到，这时返回 `null`，由调用方提示「定位失败」。
+ *
+ * @param site - 公式在本表里的位置。
+ * @param rows - 本文件的行，用来取值引用写法里的键。
+ * @param external - 路径 → 被引用的表；缺了某张表就定位不到。
+ * @returns 目标单元格；定位不到时为 `null`。
+ */
+export function findFormulaTarget(
+  site: FormulaSite,
+  rows: readonly (readonly string[])[],
+  external: ReadonlyMap<string, FormulaTable>,
+): FormulaTarget | null {
+  const formula = site.formula;
+  const table = external.get(normalizeFormulaPath(formula.path));
+  if (table === undefined) {
+    return null;
+  }
+  if (formula.kind === 'cell') {
+    const parts = cellParts(formula.cell);
+    if (parts === null) {
+      return null;
+    }
+    const column = resolveColumnIndex(table, parts.column);
+    if (column === null) {
+      return null;
+    }
+    return {
+      path: formula.path,
+      row: Number(parts.row) - FIRST_DOCUMENT_ROW,
+      column,
+    };
+  }
+
+  const key = formulaKey(site, rows);
+  if (key === null || key.key.trim() === '') {
+    return null;
+  }
+  const keyColumn = resolveColumnIndex(table, key.keyColumn);
+  if (keyColumn === null) {
+    return null;
+  }
+  const valueColumn = resolveColumnIndex(table, formula.valueColumn);
+  if (valueColumn === null) {
+    return null;
+  }
+  const row = findRow(table, keyColumn, key.key);
+  if (row === null) {
+    return null;
+  }
+  return { path: formula.path, row, column: valueColumn };
+}
+
 /**
  * 求出公式实际使用的键。
  *

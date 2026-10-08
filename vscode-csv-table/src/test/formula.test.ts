@@ -16,6 +16,7 @@ import {
   bindSites,
   collectFormulaPaths,
   evaluateFormula,
+  findFormulaTarget,
   firstDataRowOf,
   isFormulaText,
   normalizeFormulaPath,
@@ -304,6 +305,76 @@ test('%C 写的公式整列一样，行被移动后依然对上', () => {
   assert.equal(fixedResult.columns[3][1], '天使光环', 'C2 永远指向第 2 行');
 });
 
+test('findFormulaTarget 给出被引用文件里被读的那一格', () => {
+  const local: FormulaTable = {
+    rows: [
+      ['##var', 'id', '名称ID', '名字'],
+      ['', '61001', 'hero_buff_name_42000001', ''],
+      ['', '61002', 'hero_buff_name_42000002', ''],
+    ],
+    firstDataRow: 1,
+  };
+  const external = new Map(Object.entries({ 'lang.csv': LANGUAGE }));
+  const bind = (text: string, row: number, column: number) => {
+    const rows = local.rows.map(line => line.slice());
+    while (rows[row].length <= column) {
+      rows[row].push('');
+    }
+    rows[row][column] = text;
+    const site = bindSites(rows).find(entry => entry.row === row && entry.column === column);
+    assert.ok(site !== undefined, `应当能绑定：${text}`);
+    return { site, rows };
+  };
+
+  // `%C`：目标行随公式所在行变化。
+  const percent = bind('=REF("lang.csv", "id", %C, "value")', 1, 3);
+  assert.deepEqual(findFormulaTarget(percent.site, percent.rows, external), {
+    path: 'lang.csv',
+    row: 4,
+    column: 2,
+  });
+  const percentRow2 = bind('=REF("lang.csv", "id", %C, "value")', 2, 3);
+  assert.equal(findFormulaTarget(percentRow2.site, percentRow2.rows, external)?.row, 5);
+
+  // `=CELL` 按文档行号定位，取的是目标文件的列名。
+  const cell = bind('=CELL("lang.csv", "C6")', 1, 3);
+  assert.deepEqual(findFormulaTarget(cell.site, cell.rows, external), {
+    path: 'lang.csv',
+    row: 5,
+    column: 2,
+  });
+
+  // `=LOOKUP` 走键匹配。
+  const lookup = bind('=LOOKUP("lang.csv", "id", "hero_buff_name_42000001", "value")', 1, 3);
+  assert.equal(findFormulaTarget(lookup.site, lookup.rows, external)?.row, 4);
+
+  // 定位不到的情况：文件没读到、列名写错、key 匹配不上。
+  assert.equal(findFormulaTarget(percent.site, percent.rows, new Map()), null);
+  const badColumn = bind('=REF("lang.csv", "没有这一列", %C, "value")', 1, 3);
+  assert.equal(findFormulaTarget(badColumn.site, badColumn.rows, external), null);
+  const missingKey = bind('=LOOKUP("lang.csv", "id", "不存在", "value")', 1, 3);
+  assert.equal(findFormulaTarget(missingKey.site, missingKey.rows, external), null);
+});
+
+test('样例配表：每一行都能定位到语言表里的那一格', () => {
+  const buff = sample('buff_效果.csv');
+  const language = sample(path.join('本地化', 'Language_CN_42_HeroBuff.csv'));
+  const external = new Map([
+    [normalizeFormulaPath('本地化/Language_CN_42_HeroBuff.csv'), language],
+  ]);
+  const firstData = firstDataRowOf(buff.rows);
+  const sites = bindSites(buff.rows);
+  assert.equal(sites.length, buff.rows.length - firstData, '每个数据行一条公式');
+
+  const first = sites[0];
+  const target = findFormulaTarget(first, buff.rows, external);
+  assert.ok(target !== null, '第一行应当能定位');
+  // 语言表里 id 在第 2 列（下标 1）、value 在第 3 列（下标 2）；目标值要对得上。
+  assert.equal(target.column, 2);
+  assert.equal(language.rows[target.row][1], buff.rows[first.row][2]);
+  assert.equal(language.rows[target.row][2], '庇护');
+});
+
 test('=SUM 与 =FILTER 汇总所有匹配行', () => {
   const numbers: FormulaTable = {
     rows: [['##var', 'key', 'amount'], ['', 'a', '1'], ['', 'a', '2'], ['', 'b', '5']],
@@ -336,8 +407,7 @@ test('引用不到的文件与列给出中文原因', () => {
   );
 });
 
-test('collectFormulaPaths 去重并保持书写原样', () => {
-  const rows = [
+test('collectFormulaPaths 去重并保持书写原样', () => {  const rows = [
     ['=REF("a.csv", "id", "value")', '=REF("./A.csv", "id", "value")'],
     ['=LOOKUP("b.csv", "id", "x", "value")', ''],
   ];

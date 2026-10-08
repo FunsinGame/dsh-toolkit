@@ -135,6 +135,12 @@
         "command": "dshCsv.toggleDefaultEditor",
         "title": "设置或取消：.csv 默认用表格视图打开",
         "category": "CSV"
+      },
+      {
+        "command": "dshCsv.revealTarget",
+        "title": "定位到引用表",
+        "category": "CSV",
+        "icon": "$(go-to-file)"
       }
     ],
     "menus": {
@@ -195,6 +201,10 @@
         {
           "command": "dshCsv.openFileInTable",
           "when": "false"
+        },
+        {
+          "command": "dshCsv.revealTarget",
+          "when": "dshCsv.canRevealTarget"
         }
       ],
       "explorer/context": [

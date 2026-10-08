@@ -91,6 +91,8 @@
     columnPrefix: '列',
     readOnly: '（只读）',
     formulaFailed: '公式取值失败：',
+    revealTarget: '定位到引用表',
+    revealFailed: '定位失败：找不到被引用的单元格。',
   };
 
   /** 提示条里最多列出多少条公式失败原因。 */
@@ -120,6 +122,8 @@
     filterError: '',
     /** 公式单元格算出来的显示值：列序号 → 与 rows 对齐的文本。 */
     resolved: {},
+    /** 能定位到引用表的公式单元格：列序号 → 与 rows 对齐的 [行号, 列号]。 */
+    formulaTargets: {},
     /** 公式求值失败的说明，显示在提示条里。 */
     formulaErrors: [],
     delimiter: ',',
@@ -1600,6 +1604,64 @@
   }
 
   /**
+   * 一个单元格能不能「定位到引用表」。
+   *
+   * @param {number} row - 绝对行索引。
+   * @param {number} column - 列索引。
+   * @returns {number[]|null} 被引用表里的 `[行号, 列号]`；不能定位时为 `null`。
+   */
+  function revealTargetAt(row, column) {
+    const columnTargets = model.formulaTargets[column];
+    if (columnTargets === undefined) {
+      return null;
+    }
+    const target = columnTargets[row];
+    return Array.isArray(target) && target.length === 2 ? target : null;
+  }
+
+  /**
+   * 请宿主打开公式引用的表并定位到取值的那一格。
+   *
+   * @param {number} row - 公式所在的绝对行索引。
+   * @param {number} column - 公式所在的列索引。
+   */
+  function revealReference(row, column) {
+    const formula = (model.rows[row] || [])[column];
+    if (formula === undefined || revealTargetAt(row, column) === null) {
+      toast(t('revealFailed'));
+      return;
+    }
+    vscode.postMessage({ type: 'reveal', formula: formula, row: row, column: column });
+  }
+
+  /**
+   * 滚动并选中某个单元格。
+   *
+   * 这是「定位到引用表」的落点：被引用的表打开后，宿主把目标行列推回来。
+   * 目标行被过滤掉、或者列号超出表格范围时只提示，不会硬把选区设到看不见的地方。
+   *
+   * @param {number} row - 目标单元格的行索引。
+   * @param {number} column - 目标单元格的列索引。
+   */
+  function revealCell(row, column) {
+    const validColumn =
+      Number.isInteger(column) && column >= 0 && column < model.columnCount ? column : null;
+    if (validColumn === null || row < 0 || model.rows[row] === undefined) {
+      toast(t('revealFailed'));
+      return;
+    }
+    const index = displayRows().indexOf(row);
+    if (index < 0) {
+      toast(t('revealFailed'));
+      return;
+    }
+    scrollIntoView(index);
+    // 滚动只是改了 scrollTop，正文要重建一次才会按新窗口渲染出目标行。
+    renderBody();
+    selectCell(row, validColumn, false);
+  }
+
+  /**
    * 在指定位置显示上下文菜单。
    *
    * @param {number} x - 视口 x 坐标。
@@ -1649,11 +1711,20 @@
     const multipleRows = rect !== null && rect.r2 > rect.r1;
     const selectedRows = rect !== null && row >= rect.r1 && row <= rect.r2;
     const value = (model.rows[row] || [])[column];
+    // 取到值的公式单元格才能定位：宿主随 resolved 一起给了目标格的行列。
+    const target = revealTargetAt(row, column);
     const items = [
       { label: t('edit'), run: function () { startEdit(row, column); }, disabled: model.readOnly },
       { label: t('copy'), run: copySelection },
       { label: t('paste'), run: beginPaste, disabled: model.readOnly },
       { label: t('copyMarkdown'), run: copySelectionAsMarkdown },
+      {
+        label: t('revealTarget'),
+        run: function () {
+          revealReference(row, column);
+        },
+        disabled: target === null,
+      },
       { separator: true },
       {
         label: t('insertRowAbove'),
@@ -2657,6 +2728,10 @@
     model.filterError = message.filterError || '';
     model.resolved =
       message.resolved && typeof message.resolved === 'object' ? message.resolved : {};
+    model.formulaTargets =
+      message.formulaTargets && typeof message.formulaTargets === 'object'
+        ? message.formulaTargets
+        : {};
     model.formulaErrors = Array.isArray(message.formulaErrors) ? message.formulaErrors : [];
     model.delimiter = message.delimiter || ',';
     model.detectedDelimiter = message.detectedDelimiter || model.delimiter;
@@ -2768,6 +2843,9 @@
           break;
         case 'view':
           applyView(message);
+          break;
+        case 'reveal':
+          revealCell(Number(message.row), Number(message.column));
           break;
         case 'toast':
           toast(message.message || '');

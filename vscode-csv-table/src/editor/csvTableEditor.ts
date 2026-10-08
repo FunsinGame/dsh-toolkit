@@ -7,6 +7,7 @@
 
 import * as vscode from 'vscode';
 
+import { openFormulaTarget, revealInTextEditor } from '../commands';
 import { CsvTableSession, normalizeViewState, viewStateKey } from './session';
 import { MEDIA_DIRECTORY, renderTableHtml } from './webviewHtml';
 
@@ -40,6 +41,13 @@ export class CsvTableEditorProvider implements vscode.CustomTextEditorProvider {
     };
     panel.webview.html = renderTableHtml(panel.webview, this.context.extensionUri);
     const restored = this.context.workspaceState.get<unknown>(viewStateKey(document.uri));
-    new CsvTableSession(this.context, document, panel, normalizeViewState(restored));
+    new CsvTableSession(
+      this.context,
+      document,
+      panel,
+      normalizeViewState(restored),
+      uri => openFormulaTarget(uri),
+      (uri, row) => revealInTextEditor(uri, row),
+    );
   }
 }

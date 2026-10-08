@@ -10,10 +10,14 @@ import * as vscode from 'vscode';
 
 import { parseCsv, serializeCsv, type CsvTable } from '../csv/csv';
 import {
+  bindSites,
   collectFormulaPaths,
+  findFormulaTarget,
   firstDataRowOf,
+  normalizeFormulaPath,
   resolveFormulas,
-  type ResolvedFormulas,
+  type FormulaSite,
+  type FormulaTable,
 } from '../csv/formula';
 import {
   applyOp,
@@ -27,6 +31,7 @@ import {
   type SortDirection,
 } from '../csv/table';
 import { FormulaFiles } from './formulaFiles';
+import { claimReveal, discardReveal, requestReveal, type PendingReveal } from './revealTarget';
 
 /** 首行的处理方式。 */
 export type HeaderMode = 'auto' | 'yes' | 'no';
@@ -60,8 +65,10 @@ export const DEFAULT_VIEW_STATE: ViewState = {
   sort: null,
 };
 
-/** 表格视图发给编辑器的消息。 */
-export type WebviewMessage =
+/** 「定位到引用表」在目标页签已经存在时补推定位消息的等待时间（毫秒）。 */
+const REVEAL_RETRY_DELAY = 300;
+
+/** 表格视图发给编辑器的消息。 */export type WebviewMessage =
   | { readonly type: 'ready' }
   | { readonly type: 'view'; readonly state: ViewState }
   | { readonly type: 'freeze'; readonly frozenRows: number; readonly frozenColumns: number }
@@ -70,6 +77,14 @@ export type WebviewMessage =
   | { readonly type: 'redo' }
   | { readonly type: 'clipboard'; readonly text: string }
   | { readonly type: 'readClipboard' }
+  | {
+      /** 右键「定位到引用表」：请打开公式引用的表并选中取到值的那一格。 */
+      readonly type: 'reveal';
+      /** 公式原文，用来重新算出目标位置。 */
+      readonly formula: string;
+      readonly row: number;
+      readonly column: number;
+    }
   | { readonly type: 'error'; readonly message: string };
 
 /** 视图要渲染的行与元数据。 */
@@ -104,6 +119,13 @@ export interface TableProjection {
   readonly resolved?: Record<number, (string | null)[]>;
   /** 公式求值失败的说明，用于提示条。 */
   readonly formulaErrors?: string[];
+  /**
+   * 能定位到引用表的公式单元格：列序号 → 与 {@link rows} 对齐的 `[行号, 列号]`。
+   *
+   * 只有确实取到值、并且能在被引用文件里定位到那一格时才出现，视图据此在右键菜单
+   * 里提供「定位到引用表」。
+   */
+  readonly formulaTargets?: Record<number, ([number, number] | null)[]>;
 }
 
 /**
@@ -226,6 +248,16 @@ export function viewStateKey(uri: vscode.Uri): string {
   return `dshCsv.view:${uri.toString()}`;
 }
 
+/** 一次公式投影：显示值、失败说明，以及每个能定位的格子的目标位置。 */
+interface FormulaProjection {
+  /** 列序号 → 与行对齐的显示文本。 */
+  readonly columns: Record<number, (string | null)[]>;
+  /** 失败说明，用于提示条。 */
+  readonly errors: string[];
+  /** 列序号 → 与行对齐的 `[行号, 列号]`。 */
+  readonly targets: Record<number, ([number, number] | null)[]>;
+}
+
 /** 驱动一个自定义编辑器面板。 */
 export class CsvTableSession implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
@@ -235,6 +267,12 @@ export class CsvTableSession implements vscode.Disposable {
   private revision = 0;
   private lastPostedText: string | null = null;
   private disposed = false;
+  /** 视图是否已经发过 `ready`；用来决定定位消息是立刻推还是等它加载完。 */
+  private webviewReady = false;
+  /** 已经推给视图、等待它确认滚动的定位请求，防止重复推送。 */
+  private readonly sentReveals = new Set<string>();
+  /** 「定位到引用表」的补推定时器：目标页签已经开着时不会再有 `ready`。 */
+  private revealTimer: ReturnType<typeof setTimeout> | null = null;
   // 消息按顺序到达，但每次修改都要等 `applyEdit`；把它们串起来可以避免后一次
   // 修改在前一次落盘之前就解析文档。
   private queue: Promise<void> = Promise.resolve();
@@ -246,12 +284,16 @@ export class CsvTableSession implements vscode.Disposable {
    * @param document - 正在编辑的 CSV 文本文档。
    * @param panel - 承载表格视图的面板。
    * @param state - 从更早的会话恢复的视图状态（如果有）。
+   * @param openTarget - 打开被引用的表；已经以表格视图打开时返回 `true`。
+   * @param revealInTextEditor - 被引用的文件不是 CSV 时，在文本编辑器里跳到那一行。
    */
   public constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly document: vscode.TextDocument,
     private readonly panel: vscode.WebviewPanel,
     state: ViewState,
+    private readonly openTarget: (uri: vscode.Uri) => Promise<boolean>,
+    private readonly revealInTextEditor: (uri: vscode.Uri, row: number) => Promise<void>,
   ) {
     this.state = state;
     this.formulaFiles = new FormulaFiles(document.uri, () => this.postUpdate(null));
@@ -276,9 +318,98 @@ export class CsvTableSession implements vscode.Disposable {
       return;
     }
     this.disposed = true;
+    if (this.revealTimer !== null) {
+      clearTimeout(this.revealTimer);
+      this.revealTimer = null;
+    }
     for (const disposable of this.disposables.splice(0)) {
       disposable.dispose();
     }
+  }
+
+  /**
+   * 把「定位到引用表」的目标格推给视图。
+   *
+   * @param formula - 公式原文。
+   * @param row - 公式所在的行（文档行号）。
+   * @param column - 公式所在的列。
+   */
+  private async revealTarget(formula: string, row: number, column: number): Promise<void> {
+    const table = this.parse();
+    const site = bindSites(table.rows).find(
+      entry => entry.row === row && entry.column === column,
+    );
+    // 视图给的原文必须与文档里的一致，否则行号可能已经过期，宁可让用户刷新一次。
+    if (site === undefined || table.rows[row]?.[column] !== formula) {
+      void vscode.window.showWarningMessage(
+        'CSV 表格视图：文档已经变化，请先在表格里刷新后再定位。',
+      );
+      return;
+    }
+    // 表格刚刚算过引用值，直接复用那批表；没有再自己去读（读过的会顺手建立监听）。
+    const cached = this.formulaFiles.cached(site.formula.path);
+    const read = cached === null ? await this.formulaFiles.read([site.formula.path]) : null;
+    const external =
+      read === null
+        ? new Map([[normalizeFormulaPath(site.formula.path), cached as FormulaTable]])
+        : read.tables;
+    const target =
+      external.size === 0 ? null : findFormulaTarget(site, table.rows, external);
+    if (target === null) {
+      void vscode.window.showWarningMessage(
+        'CSV 表格视图：定位失败，可能是被引用的文件、列名或 key 匹配不上。',
+      );
+      return;
+    }
+    const uri = await this.formulaFiles.resolve(target.path);
+    if (uri === null) {
+      void vscode.window.showWarningMessage(`CSV 表格视图：找不到被引用的文件 ${target.path}`);
+      return;
+    }
+    const requested = { uri: uri.toString(), row: target.row, column: target.column };
+    // 先登记再打开：目标表的会话建立时会把这条取走并在 `ready` 之后推送。
+    requestReveal(requested);
+    const opened = await this.openTarget(uri);
+    if (!opened) {
+      discardReveal(requested.uri);
+      await this.revealInTextEditor(uri, target.row);
+    }
+  }
+
+  /** 把当前文档待完成的定位推给视图（可能在打开动作之后一会儿才生效）。 */
+  private revealPending(): void {
+    const reveal = claimReveal(this.document.uri.toString());
+    if (reveal === null) {
+      return;
+    }
+    this.postReveal(reveal);
+  }
+
+  /**
+   * 推送一条定位消息；视图还没就绪时稍后重试一次。
+   *
+   * 目标页签本来就开着时不会重新加载 webview，也就不会再发 `ready`，所以这里
+   * 直接推一次、再延时补推一次，最多推两次。
+   *
+   * @param reveal - 要定位的单元格。
+   */
+  private postReveal(reveal: PendingReveal): void {
+    const key = `${reveal.row}:${reveal.column}`;
+    const send = (): void => {
+      if (this.disposed || this.sentReveals.has(key)) {
+        return;
+      }
+      this.sentReveals.add(key);
+      this.panel.webview.postMessage({ type: 'reveal', row: reveal.row, column: reveal.column });
+    };
+    if (this.webviewReady) {
+      send();
+      return;
+    }
+    this.revealTimer = setTimeout(() => {
+      this.revealTimer = null;
+      send();
+    }, REVEAL_RETRY_DELAY);
   }
 
   /**
@@ -326,7 +457,10 @@ export class CsvTableSession implements vscode.Disposable {
     switch (message.type) {
       case 'ready':
         this.lastPostedText = null;
+        this.webviewReady = true;
         this.postUpdate(null);
+        // 如果这次打开是「定位到引用表」发起的，紧跟着把目标格推给视图。
+        this.revealPending();
         return;
       case 'view':
         await this.updateViewState(message.state);
@@ -353,6 +487,9 @@ export class CsvTableSession implements vscode.Disposable {
           type: 'clipboardText',
           text: await vscode.env.clipboard.readText(),
         });
+        return;
+      case 'reveal':
+        await this.revealTarget(message.formula, message.row, message.column);
         return;
       case 'error':
         void vscode.window.showWarningMessage('CSV 表格视图：' + message.message);
@@ -497,7 +634,7 @@ export class CsvTableSession implements vscode.Disposable {
    * @param formulas - 公式投影；不传表示这次不需要算式（例如只重推行视图）。
    * @returns 要发送的投影。
    */
-  private project(table: CsvTable, formulas: ResolvedFormulas | null = null): TableProjection {
+  private project(table: CsvTable, formulas: FormulaProjection | null = null): TableProjection {
     const hasHeader = this.resolveHeader(table.rows);
     const maxRows = configuredMaxRows();
     const truncated = table.rows.length > maxRows;
@@ -542,12 +679,16 @@ export class CsvTableSession implements vscode.Disposable {
       frozenColumns: Math.min(configuredFrozenCount('frozenColumns'), columnTotal),
       ...(formulas === null
         ? {}
-        : { resolved: formulas.columns, formulaErrors: formulas.errors }),
+        : {
+            resolved: formulas.columns,
+            formulaErrors: formulas.errors,
+            formulaTargets: formulas.targets,
+          }),
     };
   }
 
   /**
-   * 算出文档里所有公式的显示值。
+   * 算出文档里所有公式的显示值与「引用到哪一格」。
    *
    * 被引用的文件先一次读齐（读过的文件会建立监听，之后改动会自动重推），
    * 公式写错、文件不存在或匹配不上时保留公式原文，并把原因汇总到提示条。
@@ -555,16 +696,69 @@ export class CsvTableSession implements vscode.Disposable {
    * @param table - 解析后的文档。
    * @returns 公式投影。
    */
-  private async resolveFormulaColumns(table: CsvTable): Promise<ResolvedFormulas> {
+  private async resolveFormulaColumns(table: CsvTable): Promise<FormulaProjection> {
     const paths = collectFormulaPaths(table.rows);
     if (paths.length === 0) {
-      return { columns: {}, errors: [] };
+      return { columns: {}, errors: [], targets: {} };
     }
     const read = await this.formulaFiles.read(paths);
-    const resolved = resolveFormulas(table.rows, firstDataRowOf(table.rows), {
-      external: read.tables,
-    });
-    return { columns: resolved.columns, errors: [...read.errors, ...resolved.errors] };
+    const firstDataRow = firstDataRowOf(table.rows);
+    const resolved = resolveFormulas(table.rows, firstDataRow, { external: read.tables });
+    return {
+      columns: resolved.columns,
+      errors: [...read.errors, ...resolved.errors],
+      targets: this.locateFormulaTargets(table.rows, firstDataRow, read.tables),
+    };
+  }
+
+  /**
+   * 为每个能定位的公式单元格记下它在被引用文件里的行列。
+   *
+   * 只认「确实取到值」的格子：取值失败的行在右键菜单里不提供定位。
+   *
+   * @param rows - 本文件的行。
+   * @param firstDataRow - 第一个数据行的行下标。
+   * @param external - 路径 → 被引用的表。
+   * @returns 列序号 → 与行对齐的 `[行号, 列号]`。
+   */
+  private locateFormulaTargets(
+    rows: readonly (readonly string[])[],
+    firstDataRow: number,
+    external: ReadonlyMap<string, FormulaTable>,
+  ): Record<number, ([number, number] | null)[]> {
+    const targets: Record<number, ([number, number] | null)[]> = {};
+    const columns = new Map<number, FormulaSite[]>();
+    for (const site of bindSites(rows)) {
+      const list = columns.get(site.column);
+      if (list === undefined) {
+        columns.set(site.column, [site]);
+      } else {
+        list.push(site);
+      }
+    }
+    const resolved = resolveFormulas(rows, firstDataRow, { external }).columns;
+    for (const [column, sites] of columns) {
+      const byRow = new Map<number, FormulaSite>();
+      for (const site of sites) {
+        byRow.set(site.row, site);
+      }
+      const applyAll =
+        sites.find(site => site.formula.kind === 'ref' && site.formula.valueArgument === undefined) ??
+        null;
+      const columnTargets: ([number, number] | null)[] = [];
+      for (let row = 0; row < rows.length; row += 1) {
+        const site = byRow.get(row) ?? (applyAll === null || row < firstDataRow ? null : { ...applyAll, row });
+        const value = resolved[column]?.[row] ?? null;
+        if (site === null || value === null) {
+          columnTargets.push(null);
+          continue;
+        }
+        const target = findFormulaTarget(site, rows, external);
+        columnTargets.push(target === null ? null : [target.row, target.column]);
+      }
+      targets[column] = columnTargets;
+    }
+    return targets;
   }
 
   /**
