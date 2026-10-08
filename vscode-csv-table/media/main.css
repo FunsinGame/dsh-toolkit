@@ -266,13 +266,7 @@ select {
   cursor: pointer;
 }
 
-.csv-table tbody tr:hover td {
-  background: var(--vscode-list-hoverBackground);
-}
-
-.csv-table tbody tr:hover td.rownum {
-  background: var(--vscode-list-hoverBackground);
-}
+/* 悬停不给整行加底色：只有真正选中的行列才显示选中色，鼠标划过时不出现"预选中"效果。 */
 
 /* 锁定的列：横向粘性定位，偏移由脚本按实际列宽写入。 */
 .csv-table td.frozen-column {
@@ -299,12 +293,8 @@ select {
   background-color: var(--vscode-editorGutter-background, var(--vscode-editor-background));
 }
 
-.csv-table tbody tr.frozen-row:hover > td.rownum {
-  background-color: var(--vscode-list-hoverBackground);
-}
-
 /* 锁定行、锁定列的单元格再叠一层淡色，让用户一眼看出哪些行列被锁住。
-   只改 background-image，悬停与选中规则用的是 background 简写，仍然优先。 */
+   只改 background-image，选中规则用的是 background 简写，仍然优先。 */
 .csv-table td.frozen-cell,
 .csv-table th.frozen-cell {
   background-image: linear-gradient(var(--frozen-tint), var(--frozen-tint));
@@ -313,6 +303,15 @@ select {
 .csv-table td.selected {
   background: var(--vscode-editor-selectionBackground);
   color: inherit;
+  /* 选中的锁定行列不再叠淡色底纹，否则蓝色会被灰底压住。 */
+  background-image: none;
+}
+
+/* 整行选中时行号列也要变蓝；放在锁定行、锁定列的规则之后，保证压在它们的底色之上。 */
+.csv-table td.rownum.selected,
+.csv-table tbody tr.frozen-row > td.rownum.selected {
+  background: var(--vscode-editor-selectionBackground);
+  color: var(--vscode-editor-foreground);
 }
 
 .csv-table td.active-cell {

@@ -379,6 +379,69 @@ test('大表格只渲染可见的窗口', () => {
   assert.match(harness.window.document.getElementById('toolbar').textContent, /5001 行/);
 });
 
+test('公式单元格显示算出来的值，真实内容仍是公式', () => {
+  const harness = createHarness();
+  const rows = [
+    ['name', 'text'],
+    ['hero_buff_name_42000001', '=REF("lang.csv", "name", "value")'],
+    ['hero_buff_name_42000002', '=LOOKUP("lang.csv", "name", "missing", "value")'],
+  ];
+  send(
+    harness,
+    updateMessage(rows, {
+      // 第 2 行取到了值，第 3 行没取到（null）→ 显示公式原文。
+      resolved: { 1: [null, '庇护', null] },
+      formulaErrors: ['第 3 行第 B 列：没有找到匹配的行：missing'],
+    }),
+  );
+  const document = harness.window.document;
+  const cell = document.querySelector('tbody td.cell[data-row="1"][data-col="1"]');
+  assert.equal(cell.textContent, '庇护', '显示解析出来的多语言文本');
+  assert.equal(cell.getAttribute('title'), '=REF("lang.csv", "name", "value")', '悬停看到公式原文');
+  assert.equal(cell.getAttribute('data-display'), '庇护');
+  assert.equal(cell.classList.contains('selected'), false);
+
+  const unresolved = document.querySelector('tbody td.cell[data-row="2"][data-col="1"]');
+  assert.equal(unresolved.textContent, '=LOOKUP("lang.csv", "name", "missing", "value")');
+  assert.equal(unresolved.getAttribute('data-display'), null, '没有显示值时不带这个属性');
+  assert.match(document.getElementById('banner').textContent, /公式取值失败：第 3 行第 B 列/);
+});
+
+test('公式单元格的选区刷新与状态栏都用显示值', () => {
+  const harness = createHarness();
+  const rows = [
+    ['name', 'text'],
+    ['hero_buff_name_42000001', '=REF("lang.csv", "name", "value")'],
+  ];
+  send(harness, updateMessage(rows, { resolved: { 1: [null, '庇护'] } }));
+  const document = harness.window.document;
+  const cell = document.querySelector('tbody td.cell[data-row="1"][data-col="1"]');
+  cell.dispatchEvent(
+    new harness.window.MouseEvent('mousedown', { bubbles: true, clientX: 10, clientY: 10 }),
+  );
+  document.dispatchEvent(new harness.window.MouseEvent('mouseup', { bubbles: true }));
+  assert.equal(cell.textContent, '庇护', '就地刷新选区时不会把显示值换回公式');
+  assert.match(document.getElementById('status').textContent, /庇护/);
+});
+
+test('双击公式单元格时输入框里是公式原文', () => {
+  const harness = createHarness();
+  const rows = [
+    ['name', 'text'],
+    ['hero_buff_name_42000001', '=REF("lang.csv", "name", "value")'],
+  ];
+  send(harness, updateMessage(rows, { resolved: { 1: [null, '庇护'] } }));
+  const document = harness.window.document;
+  const cell = document.querySelector('tbody td.cell[data-row="1"][data-col="1"]');
+  cell.dispatchEvent(new harness.window.MouseEvent('dblclick', { bubbles: true }));
+  const input = cell.querySelector('input.cell-input');
+  assert.ok(input !== null, '双击进入编辑');
+  assert.equal(input.value, '=REF("lang.csv", "name", "value")', '编辑时写的是公式');
+  // 直接失焦提交原样内容时，显示要回到算出来的值。
+  input.dispatchEvent(new harness.window.Event('blur', { bubbles: true }));
+  assert.equal(cell.textContent, '庇护');
+});
+
 test('点击列号行只选中整列，不触发排序', () => {
   const harness = createHarness();
   send(harness, updateMessage(SAMPLE));
@@ -439,22 +502,27 @@ test('拖拽行号把选中的行移动到落点', () => {
   const harness = createHarness();
   send(harness, updateMessage(SAMPLE));
   const document = harness.window.document;
-  const rows = document.querySelectorAll('tbody tr');
   // jsdom 既没有排版也没有命中测试，这里给第 3 行一个确定的矩形并让命中测试落到它上面。
-  rows[2].getBoundingClientRect = () => ({
-    top: 52,
-    bottom: 78,
-    height: 26,
-    left: 0,
-    right: 300,
-    width: 300,
-  });
-  document.elementFromPoint = () => rows[2].querySelector('td.cell');
+  // 选中行会重建正文，所以每次重建后都要重新给新节点装上替身。
+  const mockDropRow = () => {
+    const drop = document.querySelectorAll('tbody tr')[2];
+    drop.getBoundingClientRect = () => ({
+      top: 52,
+      bottom: 78,
+      height: 26,
+      left: 0,
+      right: 300,
+      width: 300,
+    });
+    document.elementFromPoint = () => drop.querySelector('td.cell');
+  };
+  mockDropRow();
 
   const handle = document.querySelector('tbody td.rownum[data-row="1"]');
   handle.dispatchEvent(
     new harness.window.MouseEvent('mousedown', { bubbles: true, clientX: 20, clientY: 30 }),
   );
+  mockDropRow();
   document.dispatchEvent(
     new harness.window.MouseEvent('mousemove', { bubbles: true, clientX: 20, clientY: 70 }),
   );
@@ -608,6 +676,64 @@ test('锁定单元格有独立的淡色底纹样式', () => {
   assert.ok(start >= 0, 'main.css 里应有 .frozen-cell 规则');
   const block = css.slice(css.indexOf('{', start), css.indexOf('}', start));
   assert.match(block, /background-image: linear-gradient\(var\(--frozen-tint\)/);
+});
+
+test('悬停不给任何行加底色，只有选中才有选中效果', () => {
+  const css = readFileSync(path.join(PACKAGE_ROOT, 'media', 'main.css'), 'utf8');
+  // 表格行上的 hover 规则一律不再改背景，鼠标划过时也就不会出现"预选中"；
+  // 唯一保留的 tr:hover 是拖拽选中过程中的整行高亮，它只作用于已选中的单元格。
+  const hoverRules = css.match(/\.csv-table[^{]*tr:hover[^{]*\{[^}]*\}/g) ?? [];
+  for (const rule of hoverRules) {
+    assert.match(rule, /td\.selected/, `悬停规则只能作用于已选中的单元格：${rule}`);
+  }
+  assert.equal(hoverRules.length, 1, '只剩拖拽选中期间的那一条 hover 高亮');
+  assert.match(hoverRules[0], /\.selecting/);
+});
+
+test('选中整行时行号列一起变蓝', () => {
+  const harness = createHarness();
+  send(harness, updateMessage(SAMPLE));
+  const document = harness.window.document;
+  document
+    .querySelector('tbody td.rownum[data-row="1"]')
+    .dispatchEvent(new harness.window.MouseEvent('mousedown', { bubbles: true, clientX: 20, clientY: 40 }));
+  document.dispatchEvent(new harness.window.MouseEvent('mouseup', { bubbles: true }));
+
+  const rownum = document.querySelector('tbody td.rownum[data-row="1"]');
+  assert.ok(rownum.classList.contains('selected'), '行号列属于整行选区');
+  assert.equal(document.querySelectorAll('tbody td.cell.selected').length, 3, '该行三个数据单元格都选中');
+  assert.equal(
+    document.querySelector('tbody td.rownum[data-row="0"]').classList.contains('selected'),
+    false,
+    '其他行的行号列不受影响',
+  );
+  // 选中色必须能盖过行号列的粘性底色。
+  const css = readFileSync(path.join(PACKAGE_ROOT, 'media', 'main.css'), 'utf8');
+  assert.match(css, /\.csv-table td\.rownum\.selected/);
+});
+
+test('选中整列时顶部锁定的行一起变蓝', () => {
+  const harness = createHarness();
+  send(harness, updateMessage(SAMPLE, { frozenRows: 2, frozenColumns: 1 }));
+  const document = harness.window.document;
+  assert.equal(document.querySelectorAll('tbody tr.frozen-row').length, 2);
+
+  document
+    .querySelector('thead th.head-cell[data-col="0"]')
+    .dispatchEvent(new harness.window.MouseEvent('click', { bubbles: true }));
+
+  for (const row of document.querySelectorAll('tbody tr')) {
+    assert.ok(
+      row.querySelector('td.cell[data-col="0"]').classList.contains('selected'),
+      '该列每一行都选中，锁定行也不例外',
+    );
+  }
+  assert.equal(document.querySelectorAll('tbody tr.frozen-row td.frozen-column.selected').length, 2);
+  assert.equal(
+    document.querySelector('tbody td.cell[data-col="1"]').classList.contains('selected'),
+    false,
+    '相邻列不受影响',
+  );
 });
 
 test('锁定行在滚动到很远处时依然渲染在最前面', async () => {

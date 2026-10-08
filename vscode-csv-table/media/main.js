@@ -90,7 +90,11 @@
     freezeColumns: '锁定的列数',
     columnPrefix: '列',
     readOnly: '（只读）',
+    formulaFailed: '公式取值失败：',
   };
+
+  /** 提示条里最多列出多少条公式失败原因。 */
+  const FORMULA_ERROR_LIMIT = 4;
 
   /**
    * 取一条界面文案。
@@ -114,6 +118,10 @@
     truncated: false,
     readOnly: false,
     filterError: '',
+    /** 公式单元格算出来的显示值：列序号 → 与 rows 对齐的文本。 */
+    resolved: {},
+    /** 公式求值失败的说明，显示在提示条里。 */
+    formulaErrors: [],
     delimiter: ',',
     detectedDelimiter: ',',
     delimiterIsAuto: true,
@@ -370,6 +378,29 @@
   }
 
   /**
+   * 判断一个单元格是否落在当前选区内。
+   *
+   * 行号列当成第一列参与判断：整行选中（选区覆盖全部数据列）时它也算选中。
+   * 锁定的行与列都按绝对行列号判断，因此选区同样会盖到它们上面。
+   *
+   * @param {number} rowIndex - 绝对行索引。
+   * @param {number} column - 列索引。
+   * @returns {boolean} 该单元格是否选中。
+   */
+  function cellIsSelected(rowIndex, column) {
+    const rect = selectionRect();
+    if (rect === null) {
+      return false;
+    }
+    const width = Math.max(model.columnCount, 1);
+    if (column === -1) {
+      // 行号列：只有选区横跨全部列（整行选中）时才高亮。
+      return rowIndex >= rect.r1 && rowIndex <= rect.r2 && rect.c1 === 0 && rect.c2 >= width - 1;
+    }
+    return rowIndex >= rect.r1 && rowIndex <= rect.r2 && column >= rect.c1 && column <= rect.c2;
+  }
+
+  /**
    * 渲染一行正文。
    *
    * @param {number} rowIndex - 绝对行索引。
@@ -379,15 +410,16 @@
    */
   function rowMarkup(rowIndex, displayIndex, frozen) {
     const row = model.rows[rowIndex] || [];
-    const rect = selectionRect();
     const active = view.selection ? view.selection.focus : null;
     const frozenColumns = Math.min(view.frozenColumns, model.columnCount);
+    const rowSelected = cellIsSelected(rowIndex, -1);
     let markup =
       '<tr data-display="' +
       displayIndex +
       '"' +
       (frozen ? ' class="frozen-row"' : '') +
       '><td class="rownum' +
+      (rowSelected ? ' selected' : '') +
       (frozen ? ' frozen-cell' : '') +
       '" data-row="' +
       rowIndex +
@@ -404,12 +436,16 @@
       if (frozen || column < frozenColumns) {
         classes += ' frozen-cell';
       }
-      if (rect && rowIndex >= rect.r1 && rowIndex <= rect.r2 && column >= rect.c1 && column <= rect.c2) {
+      if (cellIsSelected(rowIndex, column)) {
         classes += ' selected';
       }
       if (active && active.row === rowIndex && active.col === column) {
         classes += ' active-cell';
       }
+      const shown = displayValue(rowIndex, column, value);
+      // 只有显示文本和真实内容不同（也就是公式算出了值）时才带这个属性，
+      // 之后就地刷新选区 / 状态栏都靠它取显示文本。
+      const displayAttribute = shown === value ? '' : ' data-display="' + escapeAttr(shown) + '"';
       markup +=
         '<td class="' +
         classes +
@@ -417,13 +453,35 @@
         rowIndex +
         '" data-col="' +
         column +
-        '" title="' +
+        '"' +
+        displayAttribute +
+        ' title="' +
         escapeAttr(value) +
         '">' +
-        escapeHtml(value) +
+        escapeHtml(shown) +
         '</td>';
     }
     return markup + '</tr>';
+  }
+
+  /**
+   * 一个单元格真实内容之外要显示的文本。
+   *
+   * 公式单元格显示算出来的值（宿主随 `resolved` 一起发来）；读不到时退回公式
+   * 原文，让用户至少看得见自己写了什么。
+   *
+   * @param {number} rowIndex - 绝对行索引。
+   * @param {number} column - 列索引。
+   * @param {string} raw - 单元格的真实内容。
+   * @returns {string} 要显示的文本。
+   */
+  function displayValue(rowIndex, column, raw) {
+    const texts = model.resolved[column];
+    if (texts === undefined) {
+      return raw;
+    }
+    const text = texts[rowIndex];
+    return typeof text === 'string' ? text : raw;
   }
 
   /** 渲染正文中可见的那一段。 */
@@ -449,14 +507,62 @@
     padBottom.style.height = Math.max(0, (total - end) * ROW_HEIGHT) + 'px';
 
     let markup = '';
+    // 锁定行的标记先攒起来：正文写进 DOM 后这些节点会失效，但选区状态的更新
+    // 还必须落在它们身上，否则选中的列盖不住顶部锁定的行。
+    let frozenMarkup = '';
     for (let index = 0; index < frozenRows; index += 1) {
-      markup += rowMarkup(rows[index], index, true);
+      frozenMarkup += rowMarkup(rows[index], index, true);
     }
     for (let index = start; index < end; index += 1) {
       markup += rowMarkup(rows[index], index, false);
     }
-    tbody.innerHTML = markup;
+    tbody.innerHTML = frozenMarkup + markup;
+    const stickyCells = [];
+    for (const row of tbody.querySelectorAll('tr.frozen-row')) {
+      for (const cell of row.querySelectorAll('td')) {
+        stickyCells.push(cell);
+      }
+    }
+    paintStickySelection(stickyCells);
     applyStickyOffsets();
+  }
+
+  /**
+   * 让选区外的粘性单元格（行号列、顶部锁定的行）跟随当前选区。
+   *
+   * @param {Element[]} cells - 行号列或锁定行里的单元格。
+   */
+  function paintStickySelection(cells) {
+    for (const cell of cells) {
+      const row = Number(cell.getAttribute('data-row'));
+      if (cell.classList.contains('rownum')) {
+        cell.classList.toggle('selected', cellIsSelected(row, -1));
+        continue;
+      }
+      const column = Number(cell.getAttribute('data-col'));
+      cell.classList.toggle('selected', cellIsSelected(row, column));
+      // 公式单元格里放的显示值也要跟着一起刷新。
+      setCellText(cell, row, column);
+    }
+  }
+
+  /**
+   * 把单元格的显示文本设成它该有的样子（公式值或原文）。
+   *
+   * @param {Element} cell - 目标单元格。
+   * @param {number} row - 绝对行索引。
+   * @param {number} column - 列索引。
+   */
+  function setCellText(cell, row, column) {
+    const texts = model.resolved[column];
+    if (texts === undefined) {
+      return;
+    }
+    const raw = (model.rows[row] || [])[column];
+    const shown = displayValue(row, column, raw === undefined ? '' : raw);
+    if (cell.textContent !== shown) {
+      cell.textContent = shown;
+    }
   }
 
   /**
@@ -556,10 +662,12 @@
     const rows = model.rows;
     const limit = Math.min(rows.length, AUTOFIT_SAMPLE_ROWS);
     for (let index = 0; index < limit; index += 1) {
-      const value = rows[index][column];
-      if (value === undefined) {
+      const cell = rows[index][column];
+      if (cell === undefined) {
         continue;
       }
+      // 量的是实际显示出来的文本：公式列量算出来的值，不是公式本身。
+      const value = displayValue(index, column, cell);
       const width = measureText(value.length > 80 ? value.slice(0, 80) : value);
       if (width > widest) {
         widest = width;
@@ -856,6 +964,13 @@
     if (model.filterError) {
       message = model.filterError;
       isError = true;
+    } else if (model.formulaErrors.length > 0) {
+      // 公式读不到值时保留公式原文显示，原因在这里说明。
+      message = t('formulaFailed') + model.formulaErrors.slice(0, FORMULA_ERROR_LIMIT).join('；');
+      if (model.formulaErrors.length > FORMULA_ERROR_LIMIT) {
+        message += '；…';
+      }
+      isError = true;
     } else if (model.truncated) {
       message = t('truncated').replace('{n}', String(model.rows.length));
     }
@@ -876,7 +991,9 @@
       const absolute = focus.row;
       address.textContent = columnLetter(focus.col) + String(absolute + 1);
       const row = model.rows[absolute] || [];
-      value.textContent = row[focus.col] === undefined ? '' : row[focus.col];
+      const raw = row[focus.col] === undefined ? '' : row[focus.col];
+      // 状态栏跟着单元格显示：公式单元格显示算出来的值。
+      value.textContent = displayValue(absolute, focus.col, raw);
     } else {
       address.textContent = t('noSelection');
     }
@@ -1000,9 +1117,10 @@
     const value = editing.input.value;
     // 输入框是直接写进单元格的，因此这里必须把内容换回文本：视图只在数据变化
     // 时才重建正文，不会再顺手清掉输入框。
-    const shown = commit ? value : editing.original;
-    editing.cell.textContent = shown;
-    editing.cell.setAttribute('title', shown);
+    const raw = commit ? value : editing.original;
+    // 单元格里要显示的是公式算出来的值（如果有），但真实内容始终是公式原文。
+    editing.cell.textContent = displayValue(editing.row, editing.column, raw);
+    editing.cell.setAttribute('title', raw);
     if (commit && value !== editing.original) {
       sendOp({ kind: 'setCell', row: editing.row, column: editing.column, value: value });
     }
@@ -1115,31 +1233,39 @@
    * 就地刷新选区的样式。
    *
    * 选中单元格时不能重建正文：两次点击之间一旦换掉单元格节点，浏览器就会把
-   * 点击计数重置为 1，`dblclick`（双击进入编辑）也就永远不会触发。
+   * 点击计数重置为 1，`dblclick`（双击进入编辑）也就永远不会触发。整行 / 整列
+   * 选中需要改行号列与顶部锁定行的节点，因此那里改用 {@link renderBody}。
+   *
+   * 行号列与顶部锁定行不参与 `tbody.innerHTML` 的日常重绘，这里同样要补刷一遍。
    */
   function paintSelection() {
     if (table === null) {
       return;
     }
-    const rect = selectionRect();
     const active = view.selection ? view.selection.focus : null;
     scroll.classList.toggle('selecting', cellSelect !== null && cellSelect.active);
     const cells = tbody.querySelectorAll('td.cell');
     for (const cell of cells) {
       const row = Number(cell.getAttribute('data-row'));
       const column = Number(cell.getAttribute('data-col'));
-      const selected =
-        rect !== null &&
-        row >= rect.r1 &&
-        row <= rect.r2 &&
-        column >= rect.c1 &&
-        column <= rect.c2;
-      cell.classList.toggle('selected', selected);
+      cell.classList.toggle('selected', cellIsSelected(row, column));
       cell.classList.toggle(
         'active-cell',
         active !== null && active.row === row && active.col === column,
       );
+      setCellText(cell, row, column);
     }
+    // 行号列与顶部锁定的行不在 td.cell 里，单独刷一遍，保证选区颜色完整。
+    const extras = [];
+    for (const rownum of tbody.querySelectorAll('td.rownum')) {
+      extras.push(rownum);
+    }
+    for (const row of tbody.querySelectorAll('tr.frozen-row')) {
+      for (const cell of row.querySelectorAll('td.cell')) {
+        extras.push(cell);
+      }
+    }
+    paintStickySelection(extras);
   }
 
   /**
@@ -1168,7 +1294,8 @@
       anchor: anchor,
       focus: { row: row, col: Math.max(0, model.columnCount - 1) },
     };
-    paintSelection();
+    // 行号列的高亮要跟着整行选区一起变，所以这里重建正文而不是就地刷样式。
+    renderBody();
     renderStatus();
   }
 
@@ -1183,12 +1310,14 @@
     if (rows.length === 0) {
       return;
     }
-    const anchor = extend && view.selection ? view.selection.anchor : { row: rows[0], col: column };
+    // 锚点从第 0 行（而不是第一行可见行）开始：顶部锁定的行属于整张表，
+    // 整列选中必须把它们的颜色也带上。
+    const anchor = extend && view.selection ? view.selection.anchor : { row: 0, col: column };
     view.selection = {
       anchor: anchor,
       focus: { row: rows[rows.length - 1], col: column },
     };
-    paintSelection();
+    renderBody();
     renderStatus();
   }
 
@@ -1826,7 +1955,8 @@
       }
       if (rownum) {
         const row = Number(rownum.getAttribute('data-row'));
-        selectCell(row, 0, false);
+        // 与按下行号列一致：右键选中的是整行，行号列也一起高亮。
+        selectRow(row, false);
         showMenu(
           event.clientX,
           event.clientY,
@@ -2525,6 +2655,9 @@
     model.truncated = message.truncated === true;
     model.readOnly = message.readOnly === true;
     model.filterError = message.filterError || '';
+    model.resolved =
+      message.resolved && typeof message.resolved === 'object' ? message.resolved : {};
+    model.formulaErrors = Array.isArray(message.formulaErrors) ? message.formulaErrors : [];
     model.delimiter = message.delimiter || ',';
     model.detectedDelimiter = message.detectedDelimiter || model.delimiter;
     model.delimiterIsAuto = message.delimiterIsAuto !== false;

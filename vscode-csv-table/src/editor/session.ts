@@ -10,6 +10,12 @@ import * as vscode from 'vscode';
 
 import { parseCsv, serializeCsv, type CsvTable } from '../csv/csv';
 import {
+  collectFormulaPaths,
+  firstDataRowOf,
+  resolveFormulas,
+  type ResolvedFormulas,
+} from '../csv/formula';
+import {
   applyOp,
   columnCount,
   detectHeader,
@@ -20,6 +26,7 @@ import {
   type RowFilter,
   type SortDirection,
 } from '../csv/table';
+import { FormulaFiles } from './formulaFiles';
 
 /** 首行的处理方式。 */
 export type HeaderMode = 'auto' | 'yes' | 'no';
@@ -88,6 +95,15 @@ export interface TableProjection {
   readonly frozenRows: number;
   /** 左侧固定显示的列数（来自用户设置）。 */
   readonly frozenColumns: number;
+  /**
+   * 公式单元格的显示值：列序号 → 与 {@link rows} 对齐的文本。
+   *
+   * `null` 表示这一行没有可用的取值（读不到文件、匹配不上、或者本来就不是公式），
+   * 视图此时显示公式原文。
+   */
+  readonly resolved?: Record<number, (string | null)[]>;
+  /** 公式求值失败的说明，用于提示条。 */
+  readonly formulaErrors?: string[];
 }
 
 /**
@@ -213,6 +229,8 @@ export function viewStateKey(uri: vscode.Uri): string {
 /** 驱动一个自定义编辑器面板。 */
 export class CsvTableSession implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
+  /** 公式引用的外部文件；用它读取内容并监听改动。 */
+  private readonly formulaFiles: FormulaFiles;
   private state: ViewState;
   private revision = 0;
   private lastPostedText: string | null = null;
@@ -236,7 +254,9 @@ export class CsvTableSession implements vscode.Disposable {
     state: ViewState,
   ) {
     this.state = state;
+    this.formulaFiles = new FormulaFiles(document.uri, () => this.postUpdate(null));
     this.disposables.push(
+      this.formulaFiles,
       this.panel.webview.onDidReceiveMessage((message: WebviewMessage) => {
         this.enqueue(() => this.handleMessage(message));
       }),
@@ -267,7 +287,12 @@ export class CsvTableSession implements vscode.Disposable {
    * @param event - 文本文档改动事件。
    */
   private handleDocumentChange(event: vscode.TextDocumentChangeEvent): void {
-    if (event.document.uri.toString() !== this.document.uri.toString()) {
+    const uri = event.document.uri.toString();
+    if (uri !== this.document.uri.toString()) {
+      // 被公式引用的文件正在编辑器里改：不必等保存，直接重算引用值。
+      if (this.formulaFiles.knows(vscode.Uri.parse(uri))) {
+        this.postUpdate(null);
+      }
       return;
     }
     if (event.document.getText() === this.lastPostedText) {
@@ -465,7 +490,14 @@ export class CsvTableSession implements vscode.Disposable {
    * @param table - 解析后的文档。
    * @returns 要发送的投影。
    */
-  private project(table: CsvTable): TableProjection {
+  /**
+   * 构造视图要渲染的行与元数据。
+   *
+   * @param table - 解析后的文档。
+   * @param formulas - 公式投影；不传表示这次不需要算式（例如只重推行视图）。
+   * @returns 要发送的投影。
+   */
+  private project(table: CsvTable, formulas: ResolvedFormulas | null = null): TableProjection {
     const hasHeader = this.resolveHeader(table.rows);
     const maxRows = configuredMaxRows();
     const truncated = table.rows.length > maxRows;
@@ -508,7 +540,31 @@ export class CsvTableSession implements vscode.Disposable {
       // 锁定数量来自用户设置；超过表格范围时按实际大小收敛。
       frozenRows: Math.min(configuredFrozenCount('frozenRows'), visible.length),
       frozenColumns: Math.min(configuredFrozenCount('frozenColumns'), columnTotal),
+      ...(formulas === null
+        ? {}
+        : { resolved: formulas.columns, formulaErrors: formulas.errors }),
     };
+  }
+
+  /**
+   * 算出文档里所有公式的显示值。
+   *
+   * 被引用的文件先一次读齐（读过的文件会建立监听，之后改动会自动重推），
+   * 公式写错、文件不存在或匹配不上时保留公式原文，并把原因汇总到提示条。
+   *
+   * @param table - 解析后的文档。
+   * @returns 公式投影。
+   */
+  private async resolveFormulaColumns(table: CsvTable): Promise<ResolvedFormulas> {
+    const paths = collectFormulaPaths(table.rows);
+    if (paths.length === 0) {
+      return { columns: {}, errors: [] };
+    }
+    const read = await this.formulaFiles.read(paths);
+    const resolved = resolveFormulas(table.rows, firstDataRowOf(table.rows), {
+      external: read.tables,
+    });
+    return { columns: resolved.columns, errors: [...read.errors, ...resolved.errors] };
   }
 
   /**
@@ -523,9 +579,13 @@ export class CsvTableSession implements vscode.Disposable {
     const text = this.document.getText();
     this.lastPostedText = text;
     this.revision += 1;
-    this.panel.webview.postMessage({
-      type: 'update',
-      revision: this.revision,
+    const revision = this.revision;
+    const table = this.parse();
+    // 公式要在读到被引用的文件之后才能算出来，期间视图先按公式原文渲染一次。
+    const preliminary = this.project(table);
+    const payload = {
+      type: 'update' as const,
+      revision,
       opId,
       documentUri: this.document.uri.toString(),
       // 视图在第一次更新时用它恢复各个控件，这样带筛选重新打开文档时，工具栏
@@ -537,8 +597,24 @@ export class CsvTableSession implements vscode.Disposable {
         columnWidths: this.state.columnWidths,
         sort: this.state.sort,
       },
-      ...this.project(this.parse()),
-    });
+    };
+    this.panel.webview.postMessage({ ...payload, ...preliminary });
+    void this.resolveFormulaColumns(table)
+      .then(formulas => {
+        if (this.disposed || this.revision !== revision) {
+          return;
+        }
+        this.panel.webview.postMessage({
+          ...payload,
+          ...this.project(table, formulas),
+        });
+      })
+      .catch((error: unknown) => {
+        void vscode.window.showErrorMessage(
+          'CSV 表格视图读取公式引用失败：' +
+            (error instanceof Error ? error.message : String(error)),
+        );
+      });
   }
 
   /** 只重新推送行投影，不重发行本身。 */
