@@ -69,7 +69,16 @@ export const DEFAULT_VIEW_STATE: ViewState = {
 const REVEAL_RETRY_DELAY = 350;
 const REVEAL_MAX_ATTEMPTS = 6;
 
-/** 表格视图发给编辑器的消息。 */export type WebviewMessage =
+/**
+ * 当前打开的表格视图会话，按文档 URI 索引。
+ *
+ * 「定位到引用表」要把目标格投给**目标表那一份** webview：那张表已经开着时不会
+ * 再新建会话、也不会再发 `ready`，只能在这里找到它、直接把定位消息送过去。
+ */
+const sessions = new Map<string, CsvTableSession>();
+
+/** 表格视图发给编辑器的消息。 */
+export type WebviewMessage =
   | { readonly type: 'ready' }
   | { readonly type: 'view'; readonly state: ViewState }
   | { readonly type: 'freeze'; readonly frozenRows: number; readonly frozenColumns: number }
@@ -306,6 +315,8 @@ export class CsvTableSession implements vscode.Disposable {
   ) {
     this.state = state;
     this.formulaFiles = new FormulaFiles(document.uri, () => this.postUpdate(null));
+    // 登记自己：「定位到引用表」要能找到已经打开的这张表并把目标格投过来。
+    sessions.set(document.uri.toString(), this);
     this.disposables.push(
       this.formulaFiles,
       this.panel.webview.onDidReceiveMessage((message: WebviewMessage) => {
@@ -331,9 +342,39 @@ export class CsvTableSession implements vscode.Disposable {
       clearTimeout(this.revealTimer);
       this.revealTimer = null;
     }
+    const key = this.document.uri.toString();
+    if (sessions.get(key) === this) {
+      sessions.delete(key);
+    }
     for (const disposable of this.disposables.splice(0)) {
       disposable.dispose();
     }
+  }
+
+  /**
+   * 直接给这份表格视图投一个定位（目标表已经开着时用）。
+   *
+   * 自己给自己发消息也一样走这条：先记下目标格，再立刻推一条 `reveal`；如果这时
+   * webview 还没就绪，定时重推会接上。
+   *
+   * @param row - 目标单元格的行索引。
+   * @param column - 目标单元格的列索引。
+   */
+  public deliverReveal(row: number, column: number): void {
+    if (this.disposed) {
+      return;
+    }
+    this.pendingReveal = { uri: this.document.uri.toString(), row, column };
+    this.revealAttempts = 1;
+    this.panel.reveal(this.panel.viewColumn, false);
+    this.panel.webview.postMessage({ type: 'reveal', row, column });
+    if (this.revealTimer !== null) {
+      clearTimeout(this.revealTimer);
+    }
+    this.revealTimer = setTimeout(() => {
+      this.revealTimer = null;
+      this.revealTick();
+    }, REVEAL_RETRY_DELAY);
   }
 
   /**
@@ -376,7 +417,19 @@ export class CsvTableSession implements vscode.Disposable {
       return;
     }
     const requested = { uri: uri.toString(), row: target.row, column: target.column };
-    // 先登记再打开：目标表的会话建立时会把这条取走并在 `ready` 之后推送。
+    // 公式指向本文件：没有别的人会来认领这条登记，直接投给自己。
+    if (requested.uri === this.document.uri.toString()) {
+      this.deliverReveal(requested.row, requested.column);
+      return;
+    }
+    // 目标表已经开着：不会有新会话、也不会再有 `ready`，直接把定位投给那一份视图。
+    const existing = sessions.get(requested.uri);
+    if (existing !== undefined && existing !== this) {
+      existing.deliverReveal(requested.row, requested.column);
+      await this.openTarget(uri);
+      return;
+    }
+    // 否则先登记再打开：目标表的会话建立后会把这条取走，随更新消息一起选中。
     requestReveal(requested);
     const opened = await this.openTarget(uri);
     if (!opened) {
