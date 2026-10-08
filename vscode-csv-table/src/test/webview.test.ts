@@ -777,6 +777,17 @@ test('悬停不给任何行加底色，只有选中才有选中效果', () => {
   assert.match(hoverRules[0], /\.selecting/);
 });
 
+test('滚动容器关掉滚动锚定，虚拟滚动的占位块不会被浏览器二次补偿', () => {
+  const css = readFileSync(path.join(PACKAGE_ROOT, 'media', 'main.css'), 'utf8');
+  const start = css.indexOf('.grid-scroll {');
+  assert.ok(start >= 0, 'main.css 里应有 .grid-scroll 规则');
+  const block = css.slice(css.indexOf('{', start), css.indexOf('}', start));
+  // 滚动时正文整段重建、上下占位块一起变高变矮：Chromium 的滚动锚定会把占位块
+  // 增高当成"视口上方插入了内容"再补偿一次，而占位块本来就已经把这段偏移算进去了。
+  // 补偿叠在滚轮自己的位移上会越滚越大（实测第 4 格起每格窜几千像素，轻轻一拨就到底）。
+  assert.match(block, /overflow-anchor:\s*none/, '虚拟滚动必须关掉滚动锚定');
+});
+
 test('选中整行时行号列一起变蓝', () => {
   const harness = createHarness();
   send(harness, updateMessage(SAMPLE));
