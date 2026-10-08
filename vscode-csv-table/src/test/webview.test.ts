@@ -509,6 +509,27 @@ test('定位到被过滤掉的行时只提示，不改选区', () => {
   assert.match(document.getElementById('status').textContent, /定位失败/);
 });
 
+test('更新消息里带目标格时，渲染完就选中它', () => {
+  const harness = createHarness();
+  const rows = [['id', 'value']];
+  for (let index = 0; index < 5000; index += 1) {
+    rows.push([String(index), 'x']);
+  }
+  // 宿主打开被引用的表时把目标格随更新一起下发，视图渲染完就该直接选中。
+  send(harness, updateMessage(rows, { revealCell: [4000, 1] }));
+  const document = harness.window.document;
+  const cell = document.querySelector('tbody td.cell[data-row="4000"][data-col="1"]');
+  assert.ok(cell !== null, '目标行已渲染');
+  assert.equal(cell.classList.contains('active-cell'), true, '目标格成为当前格');
+  assert.equal(cell.classList.contains('selected'), true, '目标格进入选区');
+  assert.match(document.getElementById('status').textContent, /B4001/);
+  // 应用成功要回报，宿主据此停止重推。
+  assert.ok(
+    harness.posted.some(entry => entry.type === 'revealAck'),
+    '视图回传 revealAck',
+  );
+});
+
 test('点击列号行只选中整列，不触发排序', () => {  const harness = createHarness();
   send(harness, updateMessage(SAMPLE));
   const document = harness.window.document;

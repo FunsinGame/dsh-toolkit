@@ -65,8 +65,9 @@ export const DEFAULT_VIEW_STATE: ViewState = {
   sort: null,
 };
 
-/** 「定位到引用表」在目标页签已经存在时补推定位消息的等待时间（毫秒）。 */
-const REVEAL_RETRY_DELAY = 300;
+/** 「定位到引用表」重推定位消息的间隔与次数上限。 */
+const REVEAL_RETRY_DELAY = 350;
+const REVEAL_MAX_ATTEMPTS = 6;
 
 /** 表格视图发给编辑器的消息。 */export type WebviewMessage =
   | { readonly type: 'ready' }
@@ -85,6 +86,7 @@ const REVEAL_RETRY_DELAY = 300;
       readonly row: number;
       readonly column: number;
     }
+  | { readonly type: 'revealAck' }
   | { readonly type: 'error'; readonly message: string };
 
 /** 视图要渲染的行与元数据。 */
@@ -126,6 +128,13 @@ export interface TableProjection {
    * 里提供「定位到引用表」。
    */
   readonly formulaTargets?: Record<number, ([number, number] | null)[]>;
+  /**
+   * 本次打开要定位的目标格 `[行号, 列号]`。
+   *
+   * 随更新消息一起下发，视图渲染完这张表就顺手选中它——比单独发一条定位消息更
+   * 可靠，因为更新消息一定是视图就绪之后才发的。
+   */
+  readonly revealCell?: [number, number];
 }
 
 /**
@@ -267,11 +276,11 @@ export class CsvTableSession implements vscode.Disposable {
   private revision = 0;
   private lastPostedText: string | null = null;
   private disposed = false;
-  /** 视图是否已经发过 `ready`；用来决定定位消息是立刻推还是等它加载完。 */
-  private webviewReady = false;
-  /** 已经推给视图、等待它确认滚动的定位请求，防止重复推送。 */
-  private readonly sentReveals = new Set<string>();
-  /** 「定位到引用表」的补推定时器：目标页签已经开着时不会再有 `ready`。 */
+  /** 还没被视图确认的定位请求；视图每次 `ready` 与加载慢时都靠它重推。 */
+  private pendingReveal: PendingReveal | null = null;
+  /** 本次定位已经推了几次。 */
+  private revealAttempts = 0;
+  /** 「定位到引用表」的重推定时器。 */
   private revealTimer: ReturnType<typeof setTimeout> | null = null;
   // 消息按顺序到达，但每次修改都要等 `applyEdit`；把它们串起来可以避免后一次
   // 修改在前一次落盘之前就解析文档。
@@ -376,40 +385,49 @@ export class CsvTableSession implements vscode.Disposable {
     }
   }
 
-  /** 把当前文档待完成的定位推给视图（可能在打开动作之后一会儿才生效）。 */
+  /** 把当前文档待完成的定位取过来（可能在打开动作之后一会儿才生效）。 */
   private revealPending(): void {
     const reveal = claimReveal(this.document.uri.toString());
     if (reveal === null) {
       return;
     }
-    this.postReveal(reveal);
-  }
-
-  /**
-   * 推送一条定位消息；视图还没就绪时稍后重试一次。
-   *
-   * 目标页签本来就开着时不会重新加载 webview，也就不会再发 `ready`，所以这里
-   * 直接推一次、再延时补推一次，最多推两次。
-   *
-   * @param reveal - 要定位的单元格。
-   */
-  private postReveal(reveal: PendingReveal): void {
-    const key = `${reveal.row}:${reveal.column}`;
-    const send = (): void => {
-      if (this.disposed || this.sentReveals.has(key)) {
-        return;
-      }
-      this.sentReveals.add(key);
-      this.panel.webview.postMessage({ type: 'reveal', row: reveal.row, column: reveal.column });
-    };
-    if (this.webviewReady) {
-      send();
-      return;
-    }
+    // 先记下目标格：紧接着发出的更新消息会带上它，视图渲染完这张表就顺手选中；
+    // 之后的重推只是兜底（页签本来就开着、不会再走首次渲染时用得上）。
+    this.pendingReveal = reveal;
+    this.panel.reveal(this.panel.viewColumn, false);
+    this.revealAttempts = 0;
     this.revealTimer = setTimeout(() => {
       this.revealTimer = null;
-      send();
+      this.revealTick();
     }, REVEAL_RETRY_DELAY);
+  }
+
+  /** 推一次定位消息，并按需安排下一次重推。 */
+  private revealTick(): void {
+    const reveal = this.pendingReveal;
+    if (this.disposed || reveal === null) {
+      return;
+    }
+    if (this.revealAttempts < REVEAL_MAX_ATTEMPTS) {
+      this.revealAttempts += 1;
+      this.panel.webview.postMessage({ type: 'reveal', row: reveal.row, column: reveal.column });
+      this.revealTimer = setTimeout(() => {
+        this.revealTimer = null;
+        this.revealTick();
+      }, REVEAL_RETRY_DELAY);
+      return;
+    }
+    // 推了几次都没收到确认：不再打扰用户，清掉状态。
+    this.pendingReveal = null;
+  }
+
+  /** 视图确认已经选中目标格，停止重推。 */
+  private acknowledgeReveal(): void {
+    this.pendingReveal = null;
+    if (this.revealTimer !== null) {
+      clearTimeout(this.revealTimer);
+      this.revealTimer = null;
+    }
   }
 
   /**
@@ -457,10 +475,9 @@ export class CsvTableSession implements vscode.Disposable {
     switch (message.type) {
       case 'ready':
         this.lastPostedText = null;
-        this.webviewReady = true;
-        this.postUpdate(null);
-        // 如果这次打开是「定位到引用表」发起的，紧跟着把目标格推给视图。
+        // 先取走待定位的目标格，紧接的更新消息就会带上它（视图渲染完顺手选中）。
         this.revealPending();
+        this.postUpdate(null);
         return;
       case 'view':
         await this.updateViewState(message.state);
@@ -490,6 +507,9 @@ export class CsvTableSession implements vscode.Disposable {
         return;
       case 'reveal':
         await this.revealTarget(message.formula, message.row, message.column);
+        return;
+      case 'revealAck':
+        this.acknowledgeReveal();
         return;
       case 'error':
         void vscode.window.showWarningMessage('CSV 表格视图：' + message.message);
@@ -791,6 +811,10 @@ export class CsvTableSession implements vscode.Disposable {
         columnWidths: this.state.columnWidths,
         sort: this.state.sort,
       },
+      // 「定位到引用表」打开这张表时，目标格随更新一起下去，渲染完就被选中。
+      ...(this.pendingReveal === null
+        ? {}
+        : { revealCell: [this.pendingReveal.row, this.pendingReveal.column] as [number, number] }),
     };
     this.panel.webview.postMessage({ ...payload, ...preliminary });
     void this.resolveFormulaColumns(table)

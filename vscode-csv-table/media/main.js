@@ -1648,17 +1648,24 @@
       Number.isInteger(column) && column >= 0 && column < model.columnCount ? column : null;
     if (validColumn === null || row < 0 || model.rows[row] === undefined) {
       toast(t('revealFailed'));
+      vscode.postMessage({ type: 'revealAck' });
       return;
     }
     const index = displayRows().indexOf(row);
     if (index < 0) {
       toast(t('revealFailed'));
+      vscode.postMessage({ type: 'revealAck' });
       return;
     }
     scrollIntoView(index);
     // 滚动只是改了 scrollTop，正文要重建一次才会按新窗口渲染出目标行。
     renderBody();
     selectCell(row, validColumn, false);
+    // 把键盘焦点交给表格，否则选区画出来了但用户看不出来（尤其是刚打开这张表时）。
+    if (typeof scroll.focus === 'function') {
+      scroll.focus({ preventScroll: true });
+    }
+    vscode.postMessage({ type: 'revealAck' });
   }
 
   /**
@@ -2753,6 +2760,10 @@
     render();
     if (model.columnCount > 0 && Object.keys(view.columnWidths).length === 0) {
       autoFitAll();
+    }
+    // 「定位到引用表」打开这张表时，目标格随更新一起下来：渲染完就选中它。
+    if (Array.isArray(message.revealCell) && message.revealCell.length === 2) {
+      revealCell(Number(message.revealCell[0]), Number(message.revealCell[1]));
     }
   }
 
