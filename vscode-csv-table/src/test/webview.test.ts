@@ -397,7 +397,8 @@ test('公式单元格显示算出来的值，真实内容仍是公式', () => {
   const document = harness.window.document;
   const cell = document.querySelector('tbody td.cell[data-row="1"][data-col="1"]');
   assert.equal(cell.textContent, '庇护', '显示解析出来的多语言文本');
-  assert.equal(cell.getAttribute('title'), '=REF("lang.csv", "name", "value")', '悬停看到公式原文');
+  // 公式单元格不挂原生 title，公式改由悬浮提示的下半部分展示（见后面的用例）。
+  assert.equal(cell.getAttribute('title'), null);
   assert.equal(cell.getAttribute('data-display'), '庇护');
   assert.equal(cell.classList.contains('selected'), false);
 
@@ -422,6 +423,53 @@ test('公式单元格的选区刷新与状态栏都用显示值', () => {
   document.dispatchEvent(new harness.window.MouseEvent('mouseup', { bubbles: true }));
   assert.equal(cell.textContent, '庇护', '就地刷新选区时不会把显示值换回公式');
   assert.match(document.getElementById('status').textContent, /庇护/);
+});
+
+test('公式单元格的悬浮提示上半是结果、下半是公式', () => {
+  const harness = createHarness();
+  const rows = [
+    ['name', 'text'],
+    ['hero_buff_name_42000001', '=REF("lang.csv", "name", "value")'],
+  ];
+  send(harness, updateMessage(rows, { resolved: { 1: [null, '庇护'] } }));
+  const document = harness.window.document;
+  const tooltip = document.querySelector('.cell-tooltip');
+  assert.ok(tooltip !== null, '表格里有悬浮提示的浮层');
+  assert.equal(tooltip.hidden, true, '一开始不显示');
+
+  const formulaCell = document.querySelector('tbody td.cell[data-row="1"][data-col="1"]');
+  formulaCell.dispatchEvent(
+    new harness.window.MouseEvent('mouseover', { bubbles: true, clientX: 120, clientY: 60 }),
+  );
+  assert.equal(tooltip.hidden, false, '悬浮公式单元格时显示');
+  const value = tooltip.querySelector('.tooltip-value');
+  const formula = tooltip.querySelector('.tooltip-formula');
+  assert.equal(value.textContent, '庇护', '上半是查询结果');
+  assert.equal(formula.textContent, '=REF("lang.csv", "name", "value")', '下半是完整公式');
+
+  // 普通单元格不显示。
+  const plainCell = document.querySelector('tbody td.cell[data-row="1"][data-col="0"]');
+  plainCell.dispatchEvent(new harness.window.MouseEvent('mouseover', { bubbles: true }));
+  assert.equal(tooltip.hidden, true, '非公式单元格不显示');
+});
+
+test('悬浮提示在移出表格时收起', () => {
+  const harness = createHarness();
+  const rows = [
+    ['name', 'text'],
+    ['hero_buff_name_42000001', '=REF("lang.csv", "name", "value")'],
+  ];
+  send(harness, updateMessage(rows, { resolved: { 1: [null, '庇护'] } }));
+  const document = harness.window.document;
+  const tooltip = document.querySelector('.cell-tooltip');
+  const cell = document.querySelector('tbody td.cell[data-row="1"][data-col="1"]');
+  cell.dispatchEvent(new harness.window.MouseEvent('mouseover', { bubbles: true }));
+  assert.equal(tooltip.hidden, false);
+
+  document
+    .getElementById('scroll')
+    .dispatchEvent(new harness.window.MouseEvent('mouseleave', { bubbles: false }));
+  assert.equal(tooltip.hidden, true, '移出表格后收起');
 });
 
 test('双击公式单元格时输入框里是公式原文', () => {

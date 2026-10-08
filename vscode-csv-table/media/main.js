@@ -183,6 +183,20 @@
   dropLine.hidden = true;
   document.body.appendChild(dropLine);
 
+  /**
+   * 公式单元格的悬浮提示。
+   *
+   * 原生 `title` 只能显示一行纯文本，装不下「查询结果 + 完整公式」两部分，所以
+   * 这里用自己的浮层：上面是算出来的值，下面是公式原文。
+   */
+  const tooltip = document.createElement('div');
+  tooltip.className = 'cell-tooltip';
+  tooltip.hidden = true;
+  document.body.appendChild(tooltip);
+
+  /** 悬浮提示对应的单元格；`null` 表示当前没显示。 */
+  let tooltipCell = null;
+
   const controls = {};
 
   /* -------------------------------------------------------------- 辅助函数 */
@@ -447,9 +461,14 @@
         classes += ' active-cell';
       }
       const shown = displayValue(rowIndex, column, value);
-      // 只有显示文本和真实内容不同（也就是公式算出了值）时才带这个属性，
-      // 之后就地刷新选区 / 状态栏都靠它取显示文本。
-      const displayAttribute = shown === value ? '' : ' data-display="' + escapeAttr(shown) + '"';
+      // 只有显示文本和真实内容不同（也就是公式算出了值）时才带这个属性，之后就地
+      // 刷新选区、状态栏与悬浮提示都靠它判断；公式单元格不再挂原生 title，免得
+      // 过一会儿又弹出一个只有公式的默认提示。
+      const isFormulaCell = shown !== value;
+      const displayAttribute = isFormulaCell ? ' data-display="' + escapeAttr(shown) + '"' : '';
+      const titleAttribute = isFormulaCell
+        ? ''
+        : ' title="' + escapeAttr(value) + '"';
       markup +=
         '<td class="' +
         classes +
@@ -459,9 +478,8 @@
         column +
         '"' +
         displayAttribute +
-        ' title="' +
-        escapeAttr(value) +
-        '">' +
+        titleAttribute +
+        '>' +
         escapeHtml(shown) +
         '</td>';
     }
@@ -1595,6 +1613,71 @@
     }, 4000);
   }
 
+  /* -------------------------------------------------------- 公式悬浮提示 */
+
+  /**
+   * 显示公式单元格的悬浮提示：上面是查询结果，下面是完整公式。
+   *
+   * @param {Element} cell - 公式单元格。
+   * @param {number} row - 绝对行索引。
+   * @param {number} column - 列索引。
+   * @param {MouseEvent} event - 触发显示的事件，用来定位浮层。
+   */
+  function showCellTooltip(cell, row, column, event) {
+    const raw = (model.rows[row] || [])[column];
+    if (raw === undefined) {
+      return;
+    }
+    const shown = displayValue(row, column, raw);
+    const markup =
+      '<div class="tooltip-value">' +
+      escapeHtml(shown) +
+      '</div><div class="tooltip-formula">' +
+      escapeHtml(raw) +
+      '</div>';
+    if (tooltipCell !== cell || tooltip.innerHTML !== markup) {
+      tooltip.innerHTML = markup;
+    }
+    tooltipCell = cell;
+    tooltip.hidden = false;
+    positionTooltip(event);
+  }
+
+  /**
+   * 把浮层放在指针右下方；贴到窗口边缘时自动翻到另一侧。
+   *
+   * @param {MouseEvent} event - 指针事件。
+   */
+  function positionTooltip(event) {
+    if (tooltip.hidden || event === undefined) {
+      return;
+    }
+    const margin = 14;
+    const rect = tooltip.getBoundingClientRect();
+    const width = window.innerWidth || 800;
+    const height = window.innerHeight || 600;
+    let left = event.clientX + margin;
+    let top = event.clientY + margin;
+    if (rect.width > 0 && left + rect.width > width - 4) {
+      left = Math.max(4, event.clientX - margin - rect.width);
+    }
+    if (rect.height > 0 && top + rect.height > height - 4) {
+      top = Math.max(4, event.clientY - margin - rect.height);
+    }
+    tooltip.style.left = left + 'px';
+    tooltip.style.top = top + 'px';
+  }
+
+  /** 隐藏悬浮提示。 */
+  function hideCellTooltip() {
+    if (tooltipCell === null && tooltip.hidden) {
+      return;
+    }
+    tooltipCell = null;
+    tooltip.hidden = true;
+    tooltip.textContent = '';
+  }
+
   /* ----------------------------------------------------------- 上下文菜单 */
 
   /** 隐藏上下文菜单。 */
@@ -1935,10 +2018,38 @@
   /** 绑定表格上委托的指针与键盘处理函数。 */
   function wireGrid() {
     scroll.addEventListener('scroll', function () {
+      // 滚动之后浮层的位置与目标单元格都对不上了，直接收起来。
+      hideCellTooltip();
       raf(function () {
         renderBody();
       });
     });
+
+    // 公式单元格的悬浮提示：进入表格时判断，指针移动时跟随。
+    scroll.addEventListener('mouseover', function (event) {
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+      const cell = target.closest('td.cell');
+      if (!cell || !cell.hasAttribute('data-display')) {
+        hideCellTooltip();
+        return;
+      }
+      showCellTooltip(
+        cell,
+        Number(cell.getAttribute('data-row')),
+        Number(cell.getAttribute('data-col')),
+        event,
+      );
+    });
+    scroll.addEventListener('mousemove', function (event) {
+      if (tooltipCell !== null) {
+        positionTooltip(event);
+      }
+    });
+    scroll.addEventListener('mouseleave', hideCellTooltip);
+    scroll.addEventListener('mousedown', hideCellTooltip);
 
     scroll.addEventListener('mousedown', function (event) {
       const target = event.target;

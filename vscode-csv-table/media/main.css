@@ -409,6 +409,42 @@ body.dragging * {
   user-select: none;
 }
 
+/* ---------------------------------------------------------- 公式悬浮提示 */
+
+/* 公式单元格的浮层：上面是查询结果，下面是完整公式。用 fixed 定位，直接吃指针的
+   视口坐标；pointer-events 关掉，免得它挡住底下的单元格。 */
+.cell-tooltip {
+  position: fixed;
+  z-index: 60;
+  max-width: 640px;
+  padding: 6px 8px;
+  border: 1px solid var(--vscode-editorHoverWidget-border, var(--grid-border));
+  border-radius: 3px;
+  background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background));
+  color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36));
+  font-size: var(--vscode-editor-font-size, 13px);
+  pointer-events: none;
+}
+
+/* 上：算出来的值，按表格宽度换行，长文本也能看全。 */
+.cell-tooltip .tooltip-value {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 下：公式原文，用等宽字体并淡一档，跟结果区分开。 */
+.cell-tooltip .tooltip-formula {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--grid-border);
+  color: var(--vscode-descriptionForeground);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.92em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* 落点指示线：用 fixed 定位，直接使用视口坐标。 */
 .drop-line {
   position: fixed;
