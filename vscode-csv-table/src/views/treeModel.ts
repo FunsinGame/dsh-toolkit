@@ -244,30 +244,6 @@ export function pathIsAbsolute(value: string): boolean {
 }
 
 /**
- * 计算「在编辑区右侧打开」应该用哪一列。
- *
- * 不能直接用 `ViewColumn.Beside`：它是相对**活动列**计算的，而侧边栏里的点击并
- * 不保证活动列就是最右边那一列，结果会覆盖掉活动列的内容。
- *
- * 规则：
- *
- * - 一个标签组都没有，或者所有标签组都是空的（编辑区里没有打开任何东西）：
- *   用最左边那一列，也就是侧边栏旁边；
- * - 否则用**最右边那一列的右边一列**，不碰用户已经在编辑的内容。
- *
- * @param groups - 当前标签组的视图列，以及每组里有没有标签。
- * @returns 供 `vscode.openWith` 使用的视图列序号。
- */
-export function openBesideColumn(
-  groups: readonly { readonly viewColumn: number; readonly tabCount: number }[],
-): number {
-  if (groups.length === 0 || groups.every(group => group.tabCount === 0)) {
-    return groups.reduce((min, group) => Math.min(min, group.viewColumn), 1);
-  }
-  return groups.reduce((max, group) => Math.max(max, group.viewColumn), 1) + 1;
-}
-
-/**
  * 从资源路径里取出相对工作区文件夹的路径。
  *
  * 比较必须是**大小写不敏感**的：在 Windows 上 `findFiles` 返回的路径是

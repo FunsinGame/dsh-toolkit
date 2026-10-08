@@ -9,7 +9,6 @@
 import * as vscode from 'vscode';
 
 import { CSV_TABLE_VIEW_TYPE } from './editor/csvTableEditor';
-import { openBesideColumn } from './views/treeModel';
 
 /** 表格视图接管的文件扩展名。 */
 export const CSV_EXTENSIONS: readonly string[] = ['.csv', '.tsv', '.tab'];
@@ -95,27 +94,15 @@ function viewColumnFor(uri: vscode.Uri): vscode.ViewColumn | undefined {
 /**
  * 选择打开 CSV 的标签组。
  *
- * 表格视图注册为「可选」编辑器，如果直接沿用当前标签组，在用户已经把资源管理
- * 器停靠到侧边时会替换掉左侧编辑区里的页签，所以这里总是要求新开一列。具体选
- * 哪一列由 {@link openBesideColumn} 决定，这里只负责把当前标签组的状态喂给它。
+ * 从侧边栏点文件时，编辑区不拆分、也不新开一列：表格就作为一个普通页签在当前
+ * 活动的那个标签组里打开（没有编辑器打开时就是侧边栏旁边那一列），行为和资源管
+ * 理器里点文件一致。如果这个文件已经在某个标签组里打开着，{@link openAsTable}
+ * 会沿用那一列，先把它的页签替换成表格。
  *
  * @returns 供 `vscode.openWith` 使用的视图列。
  */
 function csvViewColumn(): vscode.ViewColumn {
-  const groups = vscode.window.tabGroups.all.map(group => ({
-    viewColumn: group.viewColumn,
-    tabCount: group.tabs.length,
-  }));
-  return openBesideColumn(groups) as vscode.ViewColumn;
-}
-
-/**
- * 暴露给诊断脚本：当前会选中的目标列。
- *
- * @returns {@link csvViewColumn} 的结果。
- */
-export function debugCsvViewColumn(): vscode.ViewColumn {
-  return csvViewColumn();
+  return vscode.window.tabGroups.activeTabGroup.viewColumn;
 }
 
 /**

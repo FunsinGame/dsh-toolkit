@@ -179,17 +179,19 @@ suite('CSV 表格视图', () => {
     assert.equal(document.getText().includes('李安安'), true);
   });
 
-  test('从侧边栏点开文件时在右侧新开一列，而不是替换掉正在编辑的文件', async () => {
+  test('从侧边栏点开文件时不拆分编辑区，就在当前列作为一个普通页签打开', async () => {
     // 用一层子目录，顺便验证嵌套目录里的文件点开时同样正确。
     const folder = vscode.workspace.workspaceFolders?.[0];
     assert.ok(folder, '集成测试必须把 samples 目录作为工作区打开');
     const uri = vscode.Uri.joinPath(folder.uri, '配置', '战斗', 'drop-table.tsv');
 
-    // 先占用第一列，这样「右侧」的含义是确定的：必须是一个新的标签组。
-    await vscode.commands.executeCommand('dshCsv.showText', uri);
+    // 先在第一列打开一个别的文件并让编辑器获得焦点，这样「拆分 / 替换」的差别
+    // 才是有意义的：点开 CSV 之后不应该多出第二个编辑列。
+    const other = sample('people.csv');
+    await vscode.commands.executeCommand('dshCsv.showText', other);
     await waitFor(
-      () => vscode.window.activeTextEditor?.document.uri.toString() === uri.toString(),
-      '文本编辑器在左侧打开该样例',
+      () => vscode.window.activeTextEditor?.document.uri.toString() === other.toString(),
+      '文本编辑器在第一列打开另一个样例',
     );
 
     try {
@@ -197,14 +199,14 @@ suite('CSV 表格视图', () => {
       await waitFor(tableIsActive, '表格视图成为活动页签');
       assert.ok(tableIsActive(), '活动页签承载 CSV 表格视图');
 
-      const active = vscode.window.tabGroups.activeTabGroup;
-      assert.notEqual(
-        active.viewColumn,
-        vscode.ViewColumn.One,
-        '侧边栏打开的文件不能替换掉第一列，而要开在它右边',
+      assert.equal(
+        vscode.window.tabGroups.all.length,
+        1,
+        '从侧边栏点开文件不允许拆分编辑区',
       );
-      // 被点开的文件必须就在活动列里，并且是表格视图。
-      const opened = active.tabs.some(tab => {
+      const group = vscode.window.tabGroups.activeTabGroup;
+      assert.equal(group.viewColumn, vscode.ViewColumn.One, '表格就在当前这一列里');
+      const opened = group.tabs.some(tab => {
         const input = tab.input;
         return (
           input instanceof vscode.TabInputCustom &&
@@ -212,7 +214,7 @@ suite('CSV 表格视图', () => {
           input.uri.toString() === uri.toString()
         );
       });
-      assert.ok(opened, '表格视图必须开在新的那一列里');
+      assert.ok(opened, '表格视图必须作为当前列里的页签出现');
     } finally {
       await vscode.commands.executeCommand('workbench.action.closeAllGroups');
     }

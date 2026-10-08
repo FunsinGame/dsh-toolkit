@@ -16,7 +16,6 @@ import {
   childNodesOf,
   folderKey,
   isDirectChild,
-  openBesideColumn,
   parentPath,
   relativeToFolder,
   relativeUriPath,
@@ -211,32 +210,6 @@ test('不属于该文件夹的资源会被排除', () => {
   assert.equal(relativeUriPath('/c:/ws/other/a.csv', '/C:/ws/one'), undefined);
   assert.equal(relativeUriPath('/C:/ws/one', '/C:/ws/one'), undefined);
   assert.equal(relativeUriPath('/C:/ws/one/a.csv', '/C:/ws/one/'), 'a.csv');
-});
-
-test('「在右侧打开」的列号（编辑区为空时用第一列）', () => {
-  // 没有任何标签组。
-  assert.equal(openBesideColumn([]), 1);
-  // 只剩一个空标签组：VS Code 关掉所有编辑器后就是这个样子。
-  assert.equal(openBesideColumn([{ viewColumn: 1, tabCount: 0 }]), 1);
-  // 第一列被占用 -> 右边新开一列。
-  assert.equal(openBesideColumn([{ viewColumn: 1, tabCount: 1 }]), 2);
-  // 中间有空列，但右边已经被占用 -> 仍然在最右边再开一列，不填空隙。
-  assert.equal(
-    openBesideColumn([
-      { viewColumn: 1, tabCount: 1 },
-      { viewColumn: 2, tabCount: 0 },
-      { viewColumn: 3, tabCount: 2 },
-    ]),
-    4,
-  );
-  // 视图列不连续（用户拖拽过标签组）时取最大值 + 1。
-  assert.equal(
-    openBesideColumn([
-      { viewColumn: 2, tabCount: 1 },
-      { viewColumn: 5, tabCount: 1 },
-    ]),
-    6,
-  );
 });
 
 test('占位节点标识带原因', () => {

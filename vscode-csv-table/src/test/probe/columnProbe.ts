@@ -1,20 +1,21 @@
 /**
- * 诊断脚本：`openWith` 到底把文件放进了哪一列。
+ * 诊断脚本：从侧边栏点开一个文件之后，标签组到底是什么样子。
  *
- * 依次尝试几种「在右侧打开」的写法，把标签组的分布打出来对照。
+ * 目的是验证「不拆分、单个页签」这条要求：点开后不能多出一个编辑列，表格应该
+ * 作为普通页签落在活动的那一列里，并且会在同一列把该文件已有的页签替换掉。
  *
  * `@vscode/test-electron` 会在扩展宿主里 `import` 本模块并调用 `run()`。
  */
 
 import * as vscode from 'vscode';
 
-import { debugCsvViewColumn } from '../../commands';
+import { openInTable } from '../../commands';
 import { CSV_TABLE_VIEW_TYPE } from '../../editor/csvTableEditor';
 
 /**
  * 把当前所有标签组压成一行可读文本。
  *
- * @returns 形如 `1:[people.csv, table:quoted.csv] 2:[semicolon.csv]` 的描述。
+ * @returns 形如 `1:[people.csv, 表格:quoted.csv] 2:[semicolon.csv]` 的描述。
  */
 function describeGroups(): string {
   return vscode.window.tabGroups.all
@@ -36,14 +37,7 @@ function describeGroups(): string {
 }
 
 /**
- * 关闭所有标签组，回到「编辑区为空」的状态。
- */
-async function reset(): Promise<void> {
-  await vscode.commands.executeCommand('workbench.action.closeAllEditors');
-}
-
-/**
- * 依次尝试几种写法。
+ * 依次跑三种点开场景。
  *
  * @returns 诊断结束时的 Promise。
  */
@@ -58,34 +52,23 @@ export async function run(): Promise<void> {
   const quoted = file('quoted.csv');
   const semicolon = file('semicolon.csv');
 
-  console.log('=== 标签组诊断开始');
+  console.log('=== 打开方式诊断开始');
 
-  await reset();
-  console.log('重置后 groups:', vscode.window.tabGroups.all.length, describeGroups());
-  console.log('此时 csvViewColumn() =', debugCsvViewColumn());
-  await vscode.commands.executeCommand('vscode.openWith', people, CSV_TABLE_VIEW_TYPE, debugCsvViewColumn());
-  console.log('空编辑区打开后:', describeGroups());
+  // 1) 编辑区全空：应该只出现一个标签组。
+  await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+  console.log('编辑区全空:', describeGroups());
+  await openInTable(people);
+  console.log('空编辑区点开 people.csv:', describeGroups());
 
-  await reset();
+  // 2) 第一列已经有别的文件：应该还是只有一个标签组，且原有页签仍在。
   await vscode.window.showTextDocument(quoted, { viewColumn: vscode.ViewColumn.One });
-  console.log('第一列放文本后:', describeGroups());
-  console.log('此时 csvViewColumn() =', debugCsvViewColumn());
-  await vscode.commands.executeCommand('vscode.openWith', people, CSV_TABLE_VIEW_TYPE, debugCsvViewColumn());
-  console.log('用 csvViewColumn() 打开表格:', describeGroups());
+  console.log('第一列先打开 quoted.csv:', describeGroups());
+  await openInTable(semicolon);
+  console.log('再点开 semicolon.csv:', describeGroups());
 
-  await reset();
-  await vscode.window.showTextDocument(quoted, { viewColumn: vscode.ViewColumn.One });
-  await vscode.commands.executeCommand('vscode.openWith', semicolon, CSV_TABLE_VIEW_TYPE, 2);
-  console.log('硬编码 2 打开表格:', describeGroups());
+  // 3) 同一个文件已经在第一列以文本打开：应该原地替换成表格。
+  await openInTable(semicolon);
+  console.log('再点一次同一个文件:', describeGroups());
 
-  await reset();
-  await vscode.window.showTextDocument(quoted, { viewColumn: vscode.ViewColumn.One });
-  await vscode.commands.executeCommand('workbench.action.newGroupRight');
-  console.log('newGroupRight 之后:', describeGroups());
-  await vscode.commands.executeCommand('vscode.openWith', people, CSV_TABLE_VIEW_TYPE, debugCsvViewColumn());
-  console.log('newGroupRight 后用 csvViewColumn() 打开:', describeGroups());
-
-  await reset();
-  console.log('结束（closeAllEditors 后）:', describeGroups());
-  console.log('=== 标签组诊断结束');
+  console.log('=== 打开方式诊断结束');
 }

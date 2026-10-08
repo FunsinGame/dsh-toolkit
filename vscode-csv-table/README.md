@@ -22,7 +22,7 @@
 - 左侧活动栏上有一个 **CSV 配置表** 图标（`.csv` / `.tsv` / `.tab` 的表格图标）。点击它打开主侧边栏，里面按**文件夹树**列出当前工作区下的所有 CSV 配置表。
 - 树的结构就是磁盘上的目录结构：多个工作区文件夹各占一个根节点，子目录按需展开，同一层里文件夹排在文件前，名字按中文、数字感知的顺序排列（`item2` 在 `item10` 前面）。
 - 「CSV 配置表」是主侧边栏视图，可以和资源管理器、搜索等视图并排或互换位置。
-- **点击一个文件就在右侧打开表格视图**：编辑区里什么都没有时用第一列（也就是侧边栏旁边），否则在最右边那一列的右边新开一列，不会替换掉你正在编辑的文件。
+- **点击一个文件就在当前编辑区打开表格视图**：不拆分编辑区，表格就是当前那一列里的一个普通页签（编辑区里什么都没有时，就是侧边栏旁边那一列）。和资源管理器里点文件的行为一致；如果这个文件已经在某个标签组里打开着，就在那一列把它的页签换成表格。
 - 标题栏有 **$(refresh) 刷新 CSV 列表**（手动重新扫描工作区）。工作区里的 CSV 增删会自动刷新，扫描结果会按 `files.exclude` 排除文件。
 - 文件右键菜单：**打开表格视图**、**在文件资源管理器中显示**、**在侧边资源管理器中显示**、**复制路径**。
 - 工作区是空的、或者一个 CSV 都没有时，侧边栏里会给出对应的提示文案。
@@ -130,20 +130,20 @@ media/
 npm install
 npm run compile           # tsc → out/
 npm test                  # 单元测试：解析、表格操作、文件树模型 + jsdom 加载真实 webview 脚本的 DOM 测试
-npm run test:integration  # 在真实 VS Code 中验证激活、custom editor 注册、视图/文本切换、侧边栏在右侧打开
+npm run test:integration  # 在真实 VS Code 中验证激活、custom editor 注册、视图/文本切换、侧边栏点开不拆分编辑区
 npm run package           # 生成 VSIX
 ```
 
 `npm test` 里的 webview 测试会从 `src/editor/webviewHtml.ts` 中取出真实的外壳 HTML，把 `media/main.js` 载入 jsdom，然后断言渲染结果与回传的消息（虚拟滚动、顶部列号条、单元格编辑、`Delete` 清空、过滤、视图状态恢复、空文件、只读）。文件树测试（`src/test/treeModel.test.ts`）只依赖 `src/views/treeModel.ts` 里的纯函数，因此不需要真实工作区就能断言「扫到这些文件之后，每一层应该出现什么」。
 
-`npm run test:integration` 会通过 `@vscode/test-electron` 下载 VS Code（缓存在 `.vscode-test/`）并运行 `src/test/integration/`，其中包括「即使 `*.csv` 已关联到表格视图，`dshCsv.showText` 仍然能回到文本编辑器」这一回归用例，以及「侧边栏点开文件时在右侧新开一列、而不是替换掉第一列」。该运行会临时写入并复位 `samples/.vscode/settings.json`（已在 `.gitignore` 与 `.vscodeignore` 中忽略）。
+`npm run test:integration` 会通过 `@vscode/test-electron` 下载 VS Code（缓存在 `.vscode-test/`）并运行 `src/test/integration/`，其中包括「即使 `*.csv` 已关联到表格视图，`dshCsv.showText` 仍然能回到文本编辑器」这一回归用例，以及「侧边栏点开文件时不拆分编辑区、就在当前列作为一个普通页签打开」。该运行会临时写入并复位 `samples/.vscode/settings.json`（已在 `.gitignore` 与 `.vscodeignore` 中忽略）。
 
 排查「某个目录下的文件扫不到」这类问题时，可以用诊断脚本把任意目录当作工作区打开，直接观察扩展真正走的代码路径：
 
 ```sh
 node out/test/runProbe.js "C:\某个目录" treeProbe    # 驱动生产环境的 CsvTreeDataProvider，打印每一层节点
 node out/test/runProbe.js "C:\某个目录" scanProbe    # 只对照几种 findFiles 模式的命中数量
-node out/test/runProbe.js samples columnProbe         # 观察 openWith 把文件放进了哪一列
+node out/test/runProbe.js samples columnProbe         # 观察点开文件后标签组有没有被拆分
 ```
 
 从 VS Code 扩展宿主内的终端运行集成测试时，`ELECTRON_RUN_AS_NODE` 会让被启动的 Electron 退化成普通 Node，`src/test/runIntegration.ts` 会先清除该变量。
