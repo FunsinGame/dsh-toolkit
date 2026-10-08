@@ -9,6 +9,7 @@
 import * as vscode from 'vscode';
 
 import { CSV_TABLE_VIEW_TYPE } from './editor/csvTableEditor';
+import { openBesideColumn } from './views/treeModel';
 
 /** 表格视图接管的文件扩展名。 */
 export const CSV_EXTENSIONS: readonly string[] = ['.csv', '.tsv', '.tab'];
@@ -92,17 +93,56 @@ function viewColumnFor(uri: vscode.Uri): vscode.ViewColumn | undefined {
 }
 
 /**
+ * 选择打开 CSV 的标签组。
+ *
+ * 表格视图注册为「可选」编辑器，如果直接沿用当前标签组，在用户已经把资源管理
+ * 器停靠到侧边时会替换掉左侧编辑区里的页签，所以这里总是要求新开一列。具体选
+ * 哪一列由 {@link openBesideColumn} 决定，这里只负责把当前标签组的状态喂给它。
+ *
+ * @returns 供 `vscode.openWith` 使用的视图列。
+ */
+function csvViewColumn(): vscode.ViewColumn {
+  const groups = vscode.window.tabGroups.all.map(group => ({
+    viewColumn: group.viewColumn,
+    tabCount: group.tabs.length,
+  }));
+  return openBesideColumn(groups) as vscode.ViewColumn;
+}
+
+/**
+ * 暴露给诊断脚本：当前会选中的目标列。
+ *
+ * @returns {@link csvViewColumn} 的结果。
+ */
+export function debugCsvViewColumn(): vscode.ViewColumn {
+  return csvViewColumn();
+}
+
+/**
+ * 从侧边栏的 CSV 列表打开一个文件。
+ *
+ * @param uri - 被点击的文件；省略则使用当前页签。
+ */
+export async function openInTable(uri?: vscode.Uri): Promise<void> {
+  await openAsTable(uri, csvViewColumn());
+}
+
+/**
  * 以表格视图打开资源。
  *
  * @param uri - 来自菜单的资源；省略则使用当前页签。
+ * @param viewColumn - 打开的标签组；省略时沿用文件当前所在的标签组。
  */
-export async function openAsTable(uri?: vscode.Uri): Promise<void> {
+export async function openAsTable(
+  uri?: vscode.Uri,
+  viewColumn?: vscode.ViewColumn,
+): Promise<void> {
   const target = uri ?? activeResource();
   if (target === undefined || !isCsvResource(target)) {
     void vscode.window.showWarningMessage('请先打开一个 .csv / .tsv 文件。');
     return;
   }
-  const column = viewColumnFor(target) ?? vscode.ViewColumn.Active;
+  const column = viewColumn ?? viewColumnFor(target) ?? vscode.ViewColumn.Active;
   await vscode.commands.executeCommand('vscode.openWith', target, CSV_TABLE_VIEW_TYPE, column);
 }
 
@@ -189,6 +229,7 @@ export function updateContextKeys(): void {
 export function registerCsvCommands(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand('dshCsv.showTable', (uri?: vscode.Uri) => openAsTable(uri)),
+    vscode.commands.registerCommand('dshCsv.openInTable', (uri?: vscode.Uri) => openInTable(uri)),
     vscode.commands.registerCommand('dshCsv.showText', (uri?: vscode.Uri) => openAsText(uri)),
     vscode.commands.registerCommand('dshCsv.toggleView', () => toggleView()),
     vscode.commands.registerCommand('dshCsv.toggleDefaultEditor', () => toggleDefaultEditor()),

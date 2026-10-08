@@ -16,6 +16,9 @@ coverage/
 # Workspace settings file written (and reset) by the extension integration run.
 vscode-csv-table/samples/.vscode/
 
+# 手工放进样例目录里的调试数据（例如真实的配置表），不进仓库。
+vscode-csv-table/samples/测试/
+
 # Logs
 logs/
 *.log

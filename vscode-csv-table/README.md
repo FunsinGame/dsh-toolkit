@@ -17,12 +17,23 @@
 
 ## 功能
 
+### 活动栏入口与「CSV 配置表」侧边栏
+
+- 左侧活动栏上有一个 **CSV 配置表** 图标（`.csv` / `.tsv` / `.tab` 的表格图标）。点击它打开主侧边栏，里面按**文件夹树**列出当前工作区下的所有 CSV 配置表。
+- 树的结构就是磁盘上的目录结构：多个工作区文件夹各占一个根节点，子目录按需展开，同一层里文件夹排在文件前，名字按中文、数字感知的顺序排列（`item2` 在 `item10` 前面）。
+- 「CSV 配置表」是主侧边栏视图，可以和资源管理器、搜索等视图并排或互换位置。
+- **点击一个文件就在右侧打开表格视图**：编辑区里什么都没有时用第一列（也就是侧边栏旁边），否则在最右边那一列的右边新开一列，不会替换掉你正在编辑的文件。
+- 标题栏有 **$(refresh) 刷新 CSV 列表**（手动重新扫描工作区）。工作区里的 CSV 增删会自动刷新，扫描结果会按 `files.exclude` 排除文件。
+- 文件右键菜单：**打开表格视图**、**在文件资源管理器中显示**、**在侧边资源管理器中显示**、**复制路径**。
+- 工作区是空的、或者一个 CSV 都没有时，侧边栏里会给出对应的提示文案。
+- **扫不到文件时怎么看**：输出面板里选「CSV 配置表」，每次扫描都会记录扫了哪些工作区、用了什么模式、命中与收录了多少个，以及被跳过的原因（扩展名不符 / 不在任何工作区文件夹下）。
+
 ### 页签栏视图 / 文本切换
 
 - 打开一个 CSV 后，页签栏右侧出现 **$(table) 表格视图** 按钮，点击即在当前标签组把该文件切换为表格视图。
 - 处于表格视图时，同一个位置变成 **$(code) 文本模式** 按钮，点击切回文本编辑器。
 - 键盘：`Ctrl+K V`（macOS：`Cmd+K V`），即 `dshCsv.toggleView`。
-- 命令面板：`CSV: 表格视图`、`CSV: 文本模式`、`CSV: 切换表格视图 / 文本模式`。
+- 命令面板：`CSV: 表格视图`、`CSV: 文本模式`、`CSV: 切换表格视图 / 文本模式`、`CSV: 刷新 CSV 列表`。
 - 资源管理器右键：`表格视图`。
 - 命令 `CSV: 设置或取消：.csv 默认用表格视图打开` 会写入 `workbench.editorAssociations`，让 `.csv` / `.tsv` 默认以表格打开（再次执行则恢复文本编辑器）。
 
@@ -69,7 +80,7 @@ code --install-extension dsh-csv-table-0.1.0.vsix
 
 ### 开发模式
 
-用 VS Code 打开本目录，按 `F5`（`运行 CSV 表格视图扩展`），会以 `samples/` 作为工作区启动一个扩展开发宿主。`samples/` 中有普通 CSV、分号分隔、带引号与换行的样例。
+用 VS Code 打开本目录，按 `F5`（`运行 CSV 表格视图扩展`），会以 `samples/` 作为工作区启动一个扩展开发宿主。`samples/` 中有普通 CSV、分号分隔、带引号与换行的样例，以及 `samples/配置/`（含 `配置/战斗/`）两层子目录，用来验证侧边栏的文件夹树。
 
 ## 配置
 
@@ -88,16 +99,20 @@ code --install-extension dsh-csv-table-0.1.0.vsix
 
 ```
 src/
-  extension.ts              activate：注册 custom editor、上下文键、命令
-  commands.ts               showTable / showText / toggleView / toggleDefaultEditor
+  extension.ts              activate：注册 custom editor、侧边栏文件树、上下文键、命令
+  commands.ts               showTable / openInTable / showText / toggleView / toggleDefaultEditor
   csv/csv.ts                RFC 4180 解析、分隔符检测、最小引号序列化
   csv/table.ts              纯函数表格操作（单元格/行列增删、排序、筛选）
   editor/csvTableEditor.ts  CustomTextEditorProvider
   editor/session.ts         一个表格视图的宿主侧：解析、应用编辑、消息协议
   editor/webviewHtml.ts     webview 外壳（CSP + nonce）
+  views/treeModel.ts        侧边栏文件树的层级模型（纯函数，可单元测试）
+  views/csvTreeProvider.ts  TreeDataProvider：扫描工作区、渲染节点、扫描诊断日志
+  views/csvExplorer.ts      活动栏入口：视图、文件系统监听、树的命令
 media/
   main.js                   表格视图渲染、虚拟滚动、编辑、右键菜单、快捷键
   main.css                  全部使用 VS Code 主题变量
+  activity.svg              活动栏图标
 ```
 
 **职责划分**：宿主负责解析 / 序列化 / 排序 / 筛选，是文件内容的唯一真相来源；webview 只负责渲染与交互，不自行解析 CSV，因此两端不需要就 `"a,b"` 还是 `a,b` 达成一致。
@@ -114,14 +129,22 @@ media/
 ```sh
 npm install
 npm run compile           # tsc → out/
-npm test                  # 单元测试：解析、表格操作 + jsdom 加载真实 webview 脚本的 DOM 测试
-npm run test:integration  # 在真实 VS Code 中验证激活、custom editor 注册、视图/文本切换
+npm test                  # 单元测试：解析、表格操作、文件树模型 + jsdom 加载真实 webview 脚本的 DOM 测试
+npm run test:integration  # 在真实 VS Code 中验证激活、custom editor 注册、视图/文本切换、侧边栏在右侧打开
 npm run package           # 生成 VSIX
 ```
 
-`npm test` 里的 webview 测试会从 `src/editor/webviewHtml.ts` 中取出真实的外壳 HTML，把 `media/main.js` 载入 jsdom，然后断言渲染结果与回传的消息（虚拟滚动、顶部列号条、单元格编辑、`Delete` 清空、过滤、视图状态恢复、空文件、只读）。
+`npm test` 里的 webview 测试会从 `src/editor/webviewHtml.ts` 中取出真实的外壳 HTML，把 `media/main.js` 载入 jsdom，然后断言渲染结果与回传的消息（虚拟滚动、顶部列号条、单元格编辑、`Delete` 清空、过滤、视图状态恢复、空文件、只读）。文件树测试（`src/test/treeModel.test.ts`）只依赖 `src/views/treeModel.ts` 里的纯函数，因此不需要真实工作区就能断言「扫到这些文件之后，每一层应该出现什么」。
 
-`npm run test:integration` 会通过 `@vscode/test-electron` 下载 VS Code（缓存在 `.vscode-test/`）并运行 `src/test/integration/`，其中包括「即使 `*.csv` 已关联到表格视图，`dshCsv.showText` 仍然能回到文本编辑器」这一回归用例。该运行会临时写入并复位 `samples/.vscode/settings.json`（已在 `.gitignore` 与 `.vscodeignore` 中忽略）。
+`npm run test:integration` 会通过 `@vscode/test-electron` 下载 VS Code（缓存在 `.vscode-test/`）并运行 `src/test/integration/`，其中包括「即使 `*.csv` 已关联到表格视图，`dshCsv.showText` 仍然能回到文本编辑器」这一回归用例，以及「侧边栏点开文件时在右侧新开一列、而不是替换掉第一列」。该运行会临时写入并复位 `samples/.vscode/settings.json`（已在 `.gitignore` 与 `.vscodeignore` 中忽略）。
+
+排查「某个目录下的文件扫不到」这类问题时，可以用诊断脚本把任意目录当作工作区打开，直接观察扩展真正走的代码路径：
+
+```sh
+node out/test/runProbe.js "C:\某个目录" treeProbe    # 驱动生产环境的 CsvTreeDataProvider，打印每一层节点
+node out/test/runProbe.js "C:\某个目录" scanProbe    # 只对照几种 findFiles 模式的命中数量
+node out/test/runProbe.js samples columnProbe         # 观察 openWith 把文件放进了哪一列
+```
 
 从 VS Code 扩展宿主内的终端运行集成测试时，`ELECTRON_RUN_AS_NODE` 会让被启动的 Electron 退化成普通 Node，`src/test/runIntegration.ts` 会先清除该变量。
 
