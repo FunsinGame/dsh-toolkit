@@ -21,6 +21,8 @@
   const MIN_COLUMN_WIDTH = 56;
   const MAX_COLUMN_WIDTH_DEFAULT = 480;
   const AUTOFIT_SAMPLE_ROWS = 120;
+  /** 鼠标停在公式单元格上多久才弹出悬浮提示，避免划过时到处闪。 */
+  const TOOLTIP_DELAY = 450;
 
   const raf =
     typeof window.requestAnimationFrame === 'function'
@@ -196,6 +198,12 @@
 
   /** 悬浮提示对应的单元格；`null` 表示当前没显示。 */
   let tooltipCell = null;
+  /** 等待弹出提示的定时器。 */
+  let tooltipTimer = null;
+  /** 已经进入、但还没到时间弹出的公式单元格。 */
+  let tooltipCandidate = null;
+  /** 最近一次指针位置，用来把提示放在指针旁边并在停留期间跟随。 */
+  let tooltipCursor = null;
 
   const controls = {};
 
@@ -1632,14 +1640,59 @@
   /* -------------------------------------------------------------- 公式悬浮提示 */
 
   /**
+   * 指针停在公式单元格上：等够 `TOOLTIP_DELAY` 再弹出提示。
+   *
+   * 划过一行行的单元格时不该到处闪提示，所以先记下候选格与指针位置、起一个定时器；
+   * 期间指针离开或移到别的格子都会取消（见 {@link cancelCellTooltip}）。
+   *
+   * @param {Element} cell - 公式单元格。
+   * @param {number} row - 绝对行索引。
+   * @param {number} column - 列索引。
+   * @param {MouseEvent} event - 触发显示的指针事件。
+   */
+  function scheduleCellTooltip(cell, row, column, event) {
+    tooltipCursor = { clientX: event.clientX, clientY: event.clientY };
+    // 同一格里移动指针：已经显示了就让它跟着走，还没到时间就继续等。
+    if (tooltipCell === cell) {
+      positionTooltip(event);
+      return;
+    }
+    if (tooltipCandidate === cell && tooltipTimer !== null) {
+      return;
+    }
+    // 先收起上一个格子的提示（`hideCellTooltip` 会取消等待中的定时器），再重新排期。
+    hideCellTooltip();
+    tooltipCandidate = cell;
+    tooltipTimer = window.setTimeout(function () {
+      tooltipTimer = null;
+      const pending = tooltipCandidate;
+      tooltipCandidate = null;
+      if (pending === null) {
+        return;
+      }
+      // 延迟期间指针可能稍微动过，用最后一次位置来定位。
+      showCellTooltip(pending, row, column, tooltipCursor);
+    }, TOOLTIP_DELAY);
+  }
+
+  /** 取消等待中的提示（指针离开公式单元格、开始拖拽或滚动时）。 */
+  function cancelCellTooltip() {
+    if (tooltipTimer !== null) {
+      window.clearTimeout(tooltipTimer);
+      tooltipTimer = null;
+    }
+    tooltipCandidate = null;
+  }
+
+  /**
    * 显示公式单元格的悬浮提示：上面是查询结果，下面是完整公式。
    *
    * @param {Element} cell - 公式单元格。
    * @param {number} row - 绝对行索引。
    * @param {number} column - 列索引。
-   * @param {MouseEvent} event - 触发显示的事件，用来定位浮层。
+   * @param {{clientX: number, clientY: number}|null} pointer - 指针位置，用来定位浮层。
    */
-  function showCellTooltip(cell, row, column, event) {
+  function showCellTooltip(cell, row, column, pointer) {
     const raw = (model.rows[row] || [])[column];
     if (raw === undefined) {
       return;
@@ -1656,36 +1709,38 @@
     }
     tooltipCell = cell;
     tooltip.hidden = false;
-    positionTooltip(event);
+    positionTooltip(pointer);
   }
 
   /**
    * 把浮层放在指针右下方；贴到窗口边缘时自动翻到另一侧。
    *
-   * @param {MouseEvent} event - 指针事件。
+   * @param {{clientX: number, clientY: number}|null} pointer - 指针位置。
    */
-  function positionTooltip(event) {
-    if (tooltip.hidden || event === undefined) {
+  function positionTooltip(pointer) {
+    if (tooltip.hidden || pointer === null || pointer === undefined) {
       return;
     }
     const margin = 14;
     const rect = tooltip.getBoundingClientRect();
     const width = window.innerWidth || 800;
     const height = window.innerHeight || 600;
-    let left = event.clientX + margin;
-    let top = event.clientY + margin;
+    let left = pointer.clientX + margin;
+    let top = pointer.clientY + margin;
     if (rect.width > 0 && left + rect.width > width - 4) {
-      left = Math.max(4, event.clientX - margin - rect.width);
+      left = Math.max(4, pointer.clientX - margin - rect.width);
     }
     if (rect.height > 0 && top + rect.height > height - 4) {
-      top = Math.max(4, event.clientY - margin - rect.height);
+      top = Math.max(4, pointer.clientY - margin - rect.height);
     }
     tooltip.style.left = left + 'px';
     tooltip.style.top = top + 'px';
   }
 
-  /** 隐藏悬浮提示。 */
+  /** 隐藏悬浮提示，并取消还在等待中的那次弹出。 */
   function hideCellTooltip() {
+    cancelCellTooltip();
+    tooltipCursor = null;
     if (tooltipCell === null && tooltip.hidden) {
       return;
     }
@@ -2041,7 +2096,7 @@
       });
     });
 
-    // 公式单元格的悬浮提示：进入表格时判断，指针移动时跟随。
+    // 公式单元格的悬浮提示：停在格子上够久才弹，指针移动时跟随。
     scroll.addEventListener('mouseover', function (event) {
       const target = event.target;
       if (!(target instanceof Element)) {
@@ -2052,7 +2107,7 @@
         hideCellTooltip();
         return;
       }
-      showCellTooltip(
+      scheduleCellTooltip(
         cell,
         Number(cell.getAttribute('data-row')),
         Number(cell.getAttribute('data-col')),
@@ -2060,6 +2115,8 @@
       );
     });
     scroll.addEventListener('mousemove', function (event) {
+      // 指针位置一直记着：还没到时间的那次弹出要用它定位。
+      tooltipCursor = { clientX: event.clientX, clientY: event.clientY };
       if (tooltipCell !== null) {
         positionTooltip(event);
       }

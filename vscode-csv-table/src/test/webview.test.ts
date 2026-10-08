@@ -425,7 +425,7 @@ test('公式单元格的选区刷新与状态栏都用显示值', () => {
   assert.match(document.getElementById('status').textContent, /庇护/);
 });
 
-test('公式单元格的悬浮提示上半是结果、下半是公式', () => {
+test('公式单元格的悬浮提示要停留一会儿才显示，上半是结果、下半是公式', async () => {
   const harness = createHarness();
   const rows = [
     ['name', 'text'],
@@ -441,7 +441,11 @@ test('公式单元格的悬浮提示上半是结果、下半是公式', () => {
   formulaCell.dispatchEvent(
     new harness.window.MouseEvent('mouseover', { bubbles: true, clientX: 120, clientY: 60 }),
   );
-  assert.equal(tooltip.hidden, false, '悬浮公式单元格时显示');
+  // 刚划过去不弹，免得一排排扫过去时到处闪。
+  assert.equal(tooltip.hidden, true, '停留时间没到之前不显示');
+
+  await new Promise(resolve => setTimeout(resolve, 600));
+  assert.equal(tooltip.hidden, false, '停留够久后显示');
   const value = tooltip.querySelector('.tooltip-value');
   const formula = tooltip.querySelector('.tooltip-formula');
   assert.equal(value.textContent, '庇护', '上半是查询结果');
@@ -451,6 +455,25 @@ test('公式单元格的悬浮提示上半是结果、下半是公式', () => {
   const plainCell = document.querySelector('tbody td.cell[data-row="1"][data-col="0"]');
   plainCell.dispatchEvent(new harness.window.MouseEvent('mouseover', { bubbles: true }));
   assert.equal(tooltip.hidden, true, '非公式单元格不显示');
+});
+
+test('还没到时间就离开公式单元格不会弹提示', async () => {
+  const harness = createHarness();
+  const rows = [
+    ['name', 'text'],
+    ['hero_buff_name_42000001', '=REF("lang.csv", "name", "value")'],
+  ];
+  send(harness, updateMessage(rows, { resolved: { 1: [null, '庇护'] } }));
+  const document = harness.window.document;
+  const tooltip = document.querySelector('.cell-tooltip');
+  const formulaCell = document.querySelector('tbody td.cell[data-row="1"][data-col="1"]');
+  formulaCell.dispatchEvent(new harness.window.MouseEvent('mouseover', { bubbles: true }));
+
+  // 立刻移到普通单元格：等待中的那次弹出要取消。
+  const plainCell = document.querySelector('tbody td.cell[data-row="1"][data-col="0"]');
+  plainCell.dispatchEvent(new harness.window.MouseEvent('mouseover', { bubbles: true }));
+  await new Promise(resolve => setTimeout(resolve, 600));
+  assert.equal(tooltip.hidden, true, '取消后不会再弹出来');
 });
 
 test('编辑时在输入框里点击不会退出编辑，可以定位光标', () => {
@@ -491,7 +514,7 @@ test('编辑时在输入框里打字不会触发表格快捷键', () => {
   assert.deepEqual(plain(harness.posted.filter(message => message.type === 'op')), []);
 });
 
-test('悬浮提示在移出表格时收起', () => {
+test('悬浮提示在移出表格时收起', async () => {
   const harness = createHarness();
   const rows = [
     ['name', 'text'],
@@ -502,6 +525,7 @@ test('悬浮提示在移出表格时收起', () => {
   const tooltip = document.querySelector('.cell-tooltip');
   const cell = document.querySelector('tbody td.cell[data-row="1"][data-col="1"]');
   cell.dispatchEvent(new harness.window.MouseEvent('mouseover', { bubbles: true }));
+  await new Promise(resolve => setTimeout(resolve, 600));
   assert.equal(tooltip.hidden, false);
 
   document
@@ -510,7 +534,8 @@ test('悬浮提示在移出表格时收起', () => {
   assert.equal(tooltip.hidden, true, '移出表格后收起');
 });
 
-test('双击公式单元格时输入框里是公式原文', () => {  const harness = createHarness();
+test('双击公式单元格时输入框里是公式原文', () => {
+  const harness = createHarness();
   const rows = [
     ['name', 'text'],
     ['hero_buff_name_42000001', '=REF("lang.csv", "name", "value")'],
