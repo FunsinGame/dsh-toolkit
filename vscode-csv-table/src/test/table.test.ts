@@ -12,9 +12,11 @@ import {
   detectHeader,
   EMPTY_FILTER,
   filterRows,
+  movedSpan,
   sortRows,
   toNumber,
   withDelimiter,
+  type CsvOp,
   type RowFilter,
 } from '../csv/table';
 
@@ -155,6 +157,74 @@ test('moveRows 没有有效序号时返回副本', () => {
   const rows = applyOp(TABLE, { kind: 'moveRows', indices: [9], to: 0 });
   assert.deepEqual(rows, TABLE);
   assert.notEqual(rows, TABLE);
+});
+
+test('movedSpan 给出移动之后这几行 / 列落在哪一段', () => {
+  assert.deepEqual(movedSpan(TABLE, { kind: 'moveRow', from: 3, to: 1 }), {
+    axis: 'row',
+    from: 1,
+    to: 1,
+  });
+  assert.deepEqual(movedSpan(TABLE, { kind: 'moveRows', indices: [1, 2], to: 4 }), {
+    axis: 'row',
+    from: 2,
+    to: 3,
+  });
+  assert.deepEqual(movedSpan(TABLE, { kind: 'moveRows', indices: [2, 3], to: 0 }), {
+    axis: 'row',
+    from: 0,
+    to: 1,
+  });
+  assert.deepEqual(movedSpan(TABLE, { kind: 'moveColumns', indices: [0], to: 2 }), {
+    axis: 'column',
+    from: 1,
+    to: 1,
+  });
+  assert.deepEqual(movedSpan(TABLE, { kind: 'moveColumns', indices: [0, 1], to: 3 }), {
+    axis: 'column',
+    from: 1,
+    to: 2,
+  });
+});
+
+test('movedSpan 的区间正好套住被移动的那几行', () => {
+  // 先给每一行编号，移动之后按编号找回它现在待在哪一段。
+  const marked = TABLE.map((row, index) => [String(index), ...row]);
+  const cases: { op: CsvOp; moved: string[] }[] = [
+    { op: { kind: 'moveRow', from: 3, to: 1 }, moved: ['3'] },
+    { op: { kind: 'moveRows', indices: [1, 2], to: 4 }, moved: ['1', '2'] },
+    { op: { kind: 'moveRows', indices: [2, 3], to: 0 }, moved: ['2', '3'] },
+    // 越界与重复序号按 `applyOp` 的规则剔掉，剩下一行照样算得对。
+    { op: { kind: 'moveRows', indices: [4, -1, 1, 1], to: 3 }, moved: ['1'] },
+  ];
+  for (const entry of cases) {
+    const span = movedSpan(marked, entry.op);
+    assert.ok(span !== null, `移动操作应当给出区间：${JSON.stringify(entry.op)}`);
+    const after = applyOp(marked, entry.op);
+    assert.deepEqual(
+      after.slice(span.from, span.to + 1).map(row => row[0]),
+      entry.moved,
+      `区间应当正好套住被移动的行：${JSON.stringify(entry.op)}`,
+    );
+  }
+});
+
+test('movedSpan 的区间正好套住被移动的那几列', () => {
+  const marked = TABLE.map((row, index) => row.map((_cell, column) => `${index}-${column}`));
+  const op: CsvOp = { kind: 'moveColumns', indices: [0, 1], to: 3 };
+  const span = movedSpan(marked, op);
+  assert.deepEqual(span, { axis: 'column', from: 1, to: 2 });
+  const after = applyOp(marked, op);
+  assert.ok(span !== null);
+  assert.deepEqual(after[0].slice(span.from, span.to + 1), ['0-0', '0-1']);
+});
+
+test('movedSpan 对不是移动的修改、以及没有有效序号时返回 null', () => {
+  assert.equal(movedSpan(TABLE, { kind: 'deleteRows', indices: [1] }), null);
+  assert.equal(movedSpan(TABLE, { kind: 'moveRows', indices: [9], to: 0 }), null);
+  assert.equal(movedSpan(TABLE, { kind: 'moveColumns', indices: [], to: 0 }), null);
+  assert.equal(movedSpan(TABLE, { kind: 'moveRow', from: 9, to: 0 }), null);
+  assert.equal(movedSpan([], { kind: 'moveRow', from: 0, to: 0 }), null);
 });
 
 test('insertColumns 拓宽每一行，包括较短的行', () => {

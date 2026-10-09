@@ -16,7 +16,7 @@ import { JSDOM, VirtualConsole } from 'jsdom';
 const PACKAGE_ROOT = path.join(__dirname, '..', '..');
 
 /** `main.js` 会在外壳里查找的 id，它们必须出现在真实 HTML 中。 */
-const SHELL_IDS = ['app', 'toolbar', 'chips', 'banner', 'scroll', 'status', 'menu'];
+const SHELL_IDS = ['app', 'toolbar', 'chips', 'banner', 'editbar', 'scroll', 'status', 'menu'];
 
 /** 视图回传给编辑器的一条消息。 */
 interface PostedMessage {
@@ -762,6 +762,64 @@ test('拖拽列号把选中的列移动到落点', () => {
   assert.deepEqual(plain(op?.op), { kind: 'moveColumns', indices: [0], to: 3 });
 });
 
+test('编辑器算好的新区间让选区跟着移动后的行列走', () => {
+  const harness = createHarness();
+  const rows = [
+    ['h1', 'h2', 'h3'],
+    ['a', '1', 'x'],
+    ['b', '2', 'y'],
+    ['c', '3', 'z'],
+    ['d', '4', 'w'],
+  ];
+  send(harness, updateMessage(rows));
+  const document = harness.window.document;
+  const rownum = (row: number) =>
+    document.querySelector('tbody td.rownum[data-row="' + row + '"]') as any;
+
+  // 拖动之前：在行号列上按下第 2 行，选区就是它。
+  rownum(2).dispatchEvent(
+    new harness.window.MouseEvent('mousedown', { bubbles: true, clientX: 20, clientY: 82 }),
+  );
+  document.dispatchEvent(new harness.window.MouseEvent('mouseup', { bubbles: true }));
+  assert.ok(rownum(2).classList.contains('selected'), '按下时选中的是第 2 行');
+
+  // 移动落定：编辑器按同一套规则算好区间随更新下发，选区跟着被拖走的那两行走。
+  send(harness, updateMessage(rows, { selectRange: { axis: 'row', from: 3, to: 4 } }));
+  assert.ok(rownum(3).classList.contains('selected'), '移动后的第 3 行接着选中');
+  assert.ok(rownum(4).classList.contains('selected'), '移动后的第 4 行接着选中');
+  assert.equal(rownum(2).classList.contains('selected'), false, '原来那个序号上不再选中');
+
+  // 列轴同理：被拖走的列在新的列区间上继续选中。
+  send(harness, updateMessage(rows, { selectRange: { axis: 'column', from: 1, to: 2 } }));
+  assert.equal(document.querySelectorAll('tbody td.cell[data-col="0"].selected').length, 0);
+  assert.equal(
+    document.querySelectorAll('tbody td.cell[data-col="1"].selected').length,
+    rows.length,
+    '第 1 列整列选中',
+  );
+  assert.equal(
+    document.querySelectorAll('tbody td.cell[data-col="2"].selected').length,
+    rows.length,
+    '第 2 列整列选中',
+  );
+});
+
+test('行区间里夹着被过滤掉的行时，选区只覆盖显示出来的那些', () => {
+  const harness = createHarness();
+  const rows = [['h'], ['a'], ['b'], ['c'], ['d']];
+  // 第 2 行被过滤掉了：显示出来的是 0、1、3、4。
+  send(harness, updateMessage(rows, { visible: [0, 1, 3, 4] }));
+  send(
+    harness,
+    updateMessage(rows, { visible: [0, 1, 3, 4], selectRange: { axis: 'row', from: 1, to: 4 } }),
+  );
+
+  const selected = Array.from(
+    harness.window.document.querySelectorAll('tbody td.rownum.selected'),
+  ).map((cell: any) => cell.getAttribute('data-row'));
+  assert.deepEqual(selected, ['1', '3', '4'], '被过滤掉的那一行不在选区里');
+});
+
 test('按住 Shift 扩展整行选区后可以整块拖动', () => {
   const harness = createHarness();
   send(
@@ -1035,6 +1093,174 @@ test('按 Escape 取消编辑且不回传任何修改', () => {
   input.value = 'changed';
   input.dispatchEvent(
     new harness.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+  );
+  assert.deepEqual(plain(harness.posted.filter(message => message.type === 'op')), []);
+});
+
+test('选中单元格后编辑条显示原始内容，回车写回', () => {
+  const harness = createHarness();
+  send(harness, updateMessage(SAMPLE));
+  const document = harness.window.document;
+  const bar = document.getElementById('editbar');
+  const input = document.getElementById('edit-input');
+  assert.equal(bar.hidden, true, '没有选中单元格时整行不显示');
+
+  clickCell(harness, 2, 1);
+  assert.equal(bar.hidden, false, '选中单元格后显示');
+  assert.equal(document.querySelector('.edit-address').textContent, 'B3', '左边是单元格地址');
+  assert.equal(input.value, '9', '输入框里是单元格的原始内容');
+
+  input.value = '10';
+  input.dispatchEvent(
+    new harness.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
+  );
+  const op = harness.posted.filter(message => message.type === 'op').pop();
+  assert.deepEqual(plain(op?.op), { kind: 'setCell', row: 2, column: 1, value: '10' });
+
+  // 宿主把修改回推之后，焦点离开时不会再发一次同样的修改。
+  send(harness, updateMessage([SAMPLE[0], SAMPLE[1], ['bob', '10', 'amsterdam']]));
+  input.dispatchEvent(new harness.window.Event('blur'));
+  assert.equal(
+    harness.posted.filter(message => message.type === 'op').length,
+    1,
+    '内容已经写回，失焦不再重复提交',
+  );
+});
+
+test('编辑条显示公式原文，而不是算出来的值', () => {
+  const harness = createHarness();
+  const rows = [
+    ['name', 'text'],
+    ['hero_buff_name_42000001', '=REF("lang.csv", "name", "value")'],
+  ];
+  send(harness, updateMessage(rows, { resolved: { 1: [null, '庇护'] } }));
+  clickCell(harness, 1, 1);
+  assert.equal(
+    harness.window.document.getElementById('edit-input').value,
+    '=REF("lang.csv", "name", "value")',
+    '编辑的是真实内容',
+  );
+});
+
+test('编辑条按 Escape 放弃修改，失焦时写回', () => {
+  const harness = createHarness();
+  send(harness, updateMessage(SAMPLE));
+  const document = harness.window.document;
+  const input = document.getElementById('edit-input');
+  clickCell(harness, 1, 0);
+  assert.equal(input.value, 'ann');
+
+  input.value = 'anna';
+  input.dispatchEvent(
+    new harness.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+  );
+  assert.equal(input.value, 'ann', 'Escape 恢复成单元格里的内容');
+  assert.deepEqual(plain(harness.posted.filter(message => message.type === 'op')), [], '放弃时不发修改');
+
+  input.value = 'anna';
+  input.dispatchEvent(new harness.window.Event('blur'));
+  const op = harness.posted.filter(message => message.type === 'op').pop();
+  assert.deepEqual(plain(op?.op), { kind: 'setCell', row: 1, column: 0, value: 'anna' });
+});
+
+test('没有选中单元格时编辑条整行不显示', () => {
+  const harness = createHarness();
+  send(harness, updateMessage(SAMPLE));
+  const document = harness.window.document;
+  const bar = document.getElementById('editbar');
+  assert.equal(bar.hidden, true);
+
+  clickCell(harness, 1, 0);
+  assert.equal(bar.hidden, false);
+
+  document.dispatchEvent(new harness.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  assert.equal(bar.hidden, true, '取消选中后收起');
+});
+
+test('选中整行或整列时不显示编辑条', () => {
+  const harness = createHarness();
+  // 固定列宽：jsdom 量不了文本宽度，坐标换算要有一套确定的几何。
+  send(harness, updateMessage(SAMPLE, { viewState: { columnWidths: { 0: 140, 1: 140, 2: 140 } } }));
+  const document = harness.window.document;
+  const bar = document.getElementById('editbar');
+
+  clickCell(harness, 1, 0);
+  assert.equal(bar.hidden, false, '单选一个单元格时显示');
+
+  // 整行：焦点格落在行尾，拿它当编辑目标会显示"amsterdam"之类无关的内容。
+  document
+    .querySelector('tbody td.rownum[data-row="1"]')
+    .dispatchEvent(new harness.window.MouseEvent('mousedown', { bubbles: true, clientX: 20, clientY: 40 }));
+  document.dispatchEvent(new harness.window.MouseEvent('mouseup', { bubbles: true }));
+  assert.equal(bar.hidden, true, '整行选中时收起');
+
+  // 整列：焦点格落在列尾。
+  document
+    .querySelector('thead th.head-cell[data-col="1"]')
+    .dispatchEvent(new harness.window.MouseEvent('mousedown', { bubbles: true }));
+  document.dispatchEvent(new harness.window.MouseEvent('mouseup', { bubbles: true }));
+  assert.equal(bar.hidden, true, '整列选中时收起');
+
+  // 拖出的矩形选区同样只有一个"角"，不是能编辑的那一格。
+  const grid = stubGridGeometry(harness);
+  const from = centreOf(grid, 1, 0);
+  const to = centreOf(grid, 2, 1);
+  dragOnGrid(harness, { row: 1, column: 0, x: from[0], y: from[1] }, { x: to[0], y: to[1] });
+  assert.equal(bar.hidden, true, '矩形选区也收起');
+
+  // 回到单个单元格后重新出现，编辑条没有被永久关掉。
+  clickCell(harness, 2, 2);
+  assert.equal(bar.hidden, false, '重新单选一个单元格时又显示');
+  assert.equal(document.querySelector('.edit-address').textContent, 'C3');
+  assert.equal(document.getElementById('edit-input').value, 'amsterdam');
+});
+
+test('在编辑条里改完直接点别的单元格：写回原来那一格，编辑条随即跟着新选区走', () => {
+  const harness = createHarness();
+  send(harness, updateMessage(SAMPLE));
+  const document = harness.window.document;
+  const input = document.getElementById('edit-input');
+  clickCell(harness, 1, 0);
+  input.focus();
+  input.value = 'anna';
+  assert.equal(document.activeElement, input);
+
+  // 点别的单元格时表格会把焦点抢过去，编辑条随之失焦：内容写回原来那一格。
+  document
+    .querySelector('tbody td.cell[data-row="2"][data-col="2"]')
+    .dispatchEvent(new harness.window.MouseEvent('mousedown', { bubbles: true }));
+  document.dispatchEvent(new harness.window.MouseEvent('mouseup', { bubbles: true }));
+
+  const op = harness.posted.filter(message => message.type === 'op').pop();
+  assert.deepEqual(plain(op?.op), { kind: 'setCell', row: 1, column: 0, value: 'anna' });
+  assert.equal(document.querySelector('.edit-address').textContent, 'C3');
+  assert.equal(input.value, 'amsterdam', '编辑条换成新选中的单元格');
+});
+
+test('宿主更新不会覆盖正在编辑条里输入的内容', () => {
+  const harness = createHarness();
+  send(harness, updateMessage(SAMPLE));
+  const input = harness.window.document.getElementById('edit-input');
+  clickCell(harness, 1, 0);
+  input.focus();
+  // 编辑条自己也可能变高变矮（比如公式重算），但用户敲进去的字不能被抹掉。
+  assert.equal(harness.window.document.activeElement, input);
+  input.value = 'half-typed';
+  send(harness, updateMessage(SAMPLE));
+  assert.equal(input.value, 'half-typed');
+});
+
+test('只读表格的编辑条只能查看，回车不回传修改', () => {
+  const harness = createHarness();
+  send(harness, updateMessage(SAMPLE, { readOnly: true }));
+  clickCell(harness, 1, 0);
+  const input = harness.window.document.getElementById('edit-input');
+  assert.equal(input.readOnly, true);
+  assert.equal(input.value, 'ann', '仍然能看到原始内容');
+
+  input.value = 'changed';
+  input.dispatchEvent(
+    new harness.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
   );
   assert.deepEqual(plain(harness.posted.filter(message => message.type === 'op')), []);
 });

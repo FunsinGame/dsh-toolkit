@@ -534,6 +534,51 @@ export function applyOp(rows: readonly (readonly string[])[], op: CsvOp): string
   }
 }
 
+/** 一次移动之后，被移动的行 / 列在文档里占据的区间。 */
+export interface MovedSpan {
+  /** 两个序号是行号还是列号。 */
+  readonly axis: 'row' | 'column';
+  readonly from: number;
+  readonly to: number;
+}
+
+/**
+ * 算出一个移动操作结束后，被移动的那几行 / 列落在哪一段。
+ *
+ * 序号规则与 {@link applyOp} 完全一致（去重、排序、剔除越界、按 `to` 折算插入点），
+ * 因此调用方可以直接拿它去更新选区：只按移动前的序号保留选区的话，选区会留在他
+ * 原来待的那个位置上，也就是变成别的行了。
+ *
+ * @param rows - 移动之前的整张表。
+ * @param op - 已经作用在这张表上的修改。
+ * @returns 新的区间；不是移动操作、或没有有效序号时为 `null`。
+ */
+export function movedSpan(rows: readonly (readonly string[])[], op: CsvOp): MovedSpan | null {
+  if (op.kind === 'moveRow') {
+    if (op.from < 0 || op.from >= rows.length) {
+      return null;
+    }
+    // 摘掉这一行之后数组短了一格，`to` 的上限跟着变成 `rows.length - 1`。
+    const target = Math.min(Math.max(op.to, 0), rows.length - 1);
+    return { axis: 'row', from: target, to: target };
+  }
+  if (op.kind !== 'moveRows' && op.kind !== 'moveColumns') {
+    return null;
+  }
+  // 列的后备宽度和 `applyOp` 取的是同一个值，插入点才不会算歪。
+  const size = op.kind === 'moveRows' ? rows.length : columnCount(rows);
+  const moving = normalizeIndices(op.indices, size);
+  if (moving.length === 0) {
+    return null;
+  }
+  const insertAt = insertionPoint(moving, Math.min(Math.max(op.to, 0), size));
+  return {
+    axis: op.kind === 'moveRows' ? 'row' : 'column',
+    from: insertAt,
+    to: insertAt + moving.length - 1,
+  };
+}
+
 /**
  * 改写书写方式中的分隔符，其余排版属性保持不变。
  *

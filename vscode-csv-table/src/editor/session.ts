@@ -25,8 +25,10 @@ import {
   detectHeader,
   EMPTY_FILTER,
   filterRows,
+  movedSpan,
   withDelimiter,
   type CsvOp,
+  type MovedSpan,
   type RowFilter,
   type SortDirection,
 } from '../csv/table';
@@ -144,6 +146,14 @@ export interface TableProjection {
    * 可靠，因为更新消息一定是视图就绪之后才发的。
    */
   readonly revealCell?: [number, number];
+  /**
+   * 这一次更新之后要选中的整行 / 整列区间。
+   *
+   * 拖动行列移动会改掉它们的序号，而视图手里只有移动前的序号；编辑器按同一套移动
+   * 规则算好新的区间随更新下发，视图渲染完就把选区落到那里。不这样做的话，选区会
+   * 留在「原来那个序号」上，用户看到的就变成另外一行 / 一列了。
+   */
+  readonly selectRange?: MovedSpan;
 }
 
 /**
@@ -622,6 +632,9 @@ export class CsvTableSession implements vscode.Disposable {
   private async applyOperation(opId: number, op: CsvOp): Promise<void> {
     const table = this.parse();
     const rows = applyOp(table.rows, op);
+    // 移动会改掉行 / 列的序号：算好移动后的区间随这次更新一起下发，让视图把选区
+    // 挪到被拖走的那几行 / 列上（其他操作不动选区，这里就是 `null`）。
+    const selectRange = movedSpan(table.rows, op);
     const dialect =
       op.kind === 'setDelimiter' ? withDelimiter(table.dialect, op.delimiter) : table.dialect;
     const nextText = serializeCsv(rows, dialect);
@@ -632,7 +645,7 @@ export class CsvTableSession implements vscode.Disposable {
     }
 
     if (nextText === this.document.getText()) {
-      this.postUpdate(opId);
+      this.postUpdate(opId, selectRange);
       return;
     }
 
@@ -654,7 +667,7 @@ export class CsvTableSession implements vscode.Disposable {
         message: '已按该列排序并写入文件，可用 Ctrl+Z 撤销。',
       });
     }
-    this.postUpdate(opId);
+    this.postUpdate(opId, selectRange);
   }
 
   /**
@@ -838,8 +851,10 @@ export class CsvTableSession implements vscode.Disposable {
    * 把整张表发给视图。
    *
    * @param opId - 产生这段文本的修改编号；外部改动传 `null`。
+   * @param selectRange - 这一次更新之后视图要选中的行列区间（刚移动过行列）；
+   * 没有就让视图自己维持原选区。
    */
-  private postUpdate(opId: number | null): void {
+  private postUpdate(opId: number | null, selectRange: MovedSpan | null = null): void {
     if (this.disposed) {
       return;
     }
@@ -868,6 +883,7 @@ export class CsvTableSession implements vscode.Disposable {
       ...(this.pendingReveal === null
         ? {}
         : { revealCell: [this.pendingReveal.row, this.pendingReveal.column] as [number, number] }),
+      ...(selectRange === null ? {} : { selectRange }),
     };
     this.panel.webview.postMessage({ ...payload, ...preliminary });
     void this.resolveFormulaColumns(table)

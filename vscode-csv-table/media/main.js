@@ -60,6 +60,7 @@
     filtered: '已过滤',
     noSelection: '未选中',
     edit: '编辑单元格',
+    editBar: '选中单元格的原始内容：回车写回，Esc 放弃',
     copy: '复制',
     paste: '粘贴',
     pasted: '已粘贴 {rows} × {cols}',
@@ -206,6 +207,25 @@
   let tooltipCursor = null;
 
   const controls = {};
+
+  /**
+   * 表格上方的单元格编辑条。
+   *
+   * 选中单元格时显示那一格的原始内容（公式单元格就是公式原文），回车写回；
+   * 没有选中单元格时整行不显示。
+   */
+  const editBar = {
+    /** 整行容器。 */
+    element: document.getElementById('editbar'),
+    /** 左侧的单元格地址，形如 `C5`。 */
+    address: null,
+    /** 编辑内容的输入框。 */
+    input: null,
+    /** 编辑条当前对应的单元格：失焦提交要写回这一格，不能跟着选区漂移。 */
+    target: null,
+    /** 已经发出、还没等到宿主回推的修改：先按它显示，免得闪回旧内容。 */
+    pending: null,
+  };
 
   /* -------------------------------------------------------------- 辅助函数 */
 
@@ -1040,6 +1060,8 @@
     statusBar.appendChild(address);
     statusBar.appendChild(value);
     statusBar.appendChild(stats);
+    // 选区的每一条变动路径都会走到这里，编辑条跟着一起刷新。
+    syncEditBar();
   }
 
   /** 渲染空文档的占位内容。 */
@@ -1076,6 +1098,123 @@
     renderBody();
     applyStickyOffsets();
     renderStatus();
+  }
+
+  /* -------------------------------------------------------------- 编辑条 */
+
+  /** 构建表格上方的单元格编辑条。 */
+  function buildEditBar() {
+    editBar.address = document.createElement('span');
+    editBar.address.className = 'edit-address';
+
+    editBar.input = document.createElement('input');
+    editBar.input.id = 'edit-input';
+    editBar.input.type = 'text';
+    editBar.input.className = 'edit-input';
+    editBar.input.autocomplete = 'off';
+    editBar.input.spellcheck = false;
+    editBar.input.title = t('editBar');
+    editBar.input.setAttribute('aria-label', t('editBar'));
+    editBar.input.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        event.stopPropagation();
+        commitEditBar();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        revertEditBar();
+      }
+    });
+    // 与就地编辑一致：焦点离开就把编辑条里的内容写回。
+    editBar.input.addEventListener('blur', function () {
+      commitEditBar();
+    });
+
+    // 点地址那一侧也能开始输入，不要求正好点中输入框。
+    editBar.element.addEventListener('mousedown', function (event) {
+      if (event.target !== editBar.input) {
+        event.preventDefault();
+        editBar.input.focus();
+      }
+    });
+
+    editBar.element.appendChild(editBar.address);
+    editBar.element.appendChild(editBar.input);
+  }
+
+  /**
+   * 一个单元格的原始内容。
+   *
+   * 公式单元格在这里拿到的始终是公式原文（`model.rows` 里就是文件内容），
+   * 而不是算出来的显示值。已经写回、但宿主还没回推的修改先按编辑条自己记下的
+   * 值显示，免得闪回旧内容。
+   *
+   * @param {number} row - 绝对行索引。
+   * @param {number} column - 列索引。
+   * @returns {string} 单元格的真实内容。
+   */
+  function editBarValue(row, column) {
+    const pending = editBar.pending;
+    if (pending !== null && pending.row === row && pending.column === column) {
+      return pending.value;
+    }
+    const line = model.rows[row] || [];
+    const raw = line[column];
+    return raw === undefined ? '' : raw;
+  }
+
+  /**
+   * 按当前选区刷新编辑条。
+   *
+   * 只有恰好选中一个单元格时才显示：整行、整列、`Ctrl+A` 与拖动出的矩形选区都
+   * 只有一个"焦点格"，把它当成正在编辑的那一格会误导人（整行选中时那是行尾的
+   * 单元格，整列选中时是列尾的单元格）；没有选中单元格时同样整行不显示。
+   */
+  function syncEditBar() {
+    const rect = selectionRect();
+    const single =
+      rect !== null && model.rows.length > 0 && rect.r1 === rect.r2 && rect.c1 === rect.c2;
+    if (!single) {
+      editBar.element.hidden = true;
+      editBar.target = null;
+      return;
+    }
+    editBar.element.hidden = false;
+    editBar.input.readOnly = model.readOnly;
+    // 正在输入时既不覆盖用户敲进去的内容，也不换目标格：那一格要留给失焦提交。
+    if (document.activeElement === editBar.input) {
+      return;
+    }
+    editBar.target = { row: rect.r1, column: rect.c1 };
+    editBar.address.textContent = columnLetter(rect.c1) + String(rect.r1 + 1);
+    editBar.input.value = editBarValue(rect.r1, rect.c1);
+  }
+
+  /** 把编辑条里的内容写回它对应的单元格；内容没变就不发修改。 */
+  function commitEditBar() {
+    const target = editBar.target;
+    if (target === null) {
+      return;
+    }
+    const value = editBar.input.value;
+    if (!model.readOnly && value !== editBarValue(target.row, target.column)) {
+      // 先记下已经发出的值：宿主回推之前按它显示，紧跟着的失焦提交也不会重复发一次。
+      editBar.pending = { row: target.row, column: target.column, value: value };
+      sendOp({ kind: 'setCell', row: target.row, column: target.column, value: value });
+    }
+    // 失焦提交时焦点已经离开，这里顺带让编辑条跟上新的选区；还在输入框里按回车则
+    // 会被 `syncEditBar` 的输入保护挡回去。
+    syncEditBar();
+  }
+
+  /** 放弃编辑条里的修改，恢复成单元格真正的内容。 */
+  function revertEditBar() {
+    const target = editBar.target;
+    if (target === null) {
+      return;
+    }
+    editBar.input.value = editBarValue(target.row, target.column);
   }
 
   /* ---------------------------------------------------------------- 编辑 */
@@ -1349,6 +1488,51 @@
     };
     renderBody();
     renderStatus();
+  }
+
+  /**
+   * 把选区落到编辑器算好的整行 / 整列区间上。
+   *
+   * 拖动行列移动之后它们的序号会变，而视图手里只有移动前的序号；新区间由编辑器按
+   * 同一套移动规则算好随更新下发，这里负责选中它。行区间里可能夹着被过滤掉的行，
+   * 选区只覆盖真正显示出来的那几行。
+   *
+   * @param {{axis?: string, from?: number, to?: number}} range - 新的行列区间。
+   */
+  function applySelectRange(range) {
+    if (range === null || typeof range !== 'object') {
+      return;
+    }
+    const rows = displayRows();
+    if (rows.length === 0 || model.columnCount === 0) {
+      return;
+    }
+    const from = Number(range.from);
+    const to = Number(range.to);
+    if (!Number.isFinite(from) || !Number.isFinite(to)) {
+      return;
+    }
+    const first = Math.min(from, to);
+    const last = Math.max(from, to);
+    if (range.axis === 'column') {
+      const c1 = Math.max(0, Math.min(first, model.columnCount - 1));
+      const c2 = Math.max(0, Math.min(last, model.columnCount - 1));
+      view.selection = {
+        anchor: { row: 0, col: c1 },
+        focus: { row: rows[rows.length - 1], col: c2 },
+      };
+      return;
+    }
+    const shown = rows.filter(function (row) {
+      return row >= first && row <= last;
+    });
+    if (shown.length === 0) {
+      return;
+    }
+    view.selection = {
+      anchor: { row: shown[0], col: 0 },
+      focus: { row: shown[shown.length - 1], col: Math.max(0, model.columnCount - 1) },
+    };
   }
 
   /**
@@ -2936,6 +3120,13 @@
     } else if (model.columnCount !== previousColumns) {
       view.columnWidths = {};
     }
+    // 这一份更新已经把写回的修改算进去了，编辑条不必再自己记着待回推的值。
+    editBar.pending = null;
+    // 拖动行列移动之后序号变了，编辑器会算好新区间随更新一起下来：先落选区再重绘，
+    // 否则显示出来的会是「原来那个序号」上现在的那一行。
+    if (message.selectRange !== undefined) {
+      applySelectRange(message.selectRange);
+    }
     constrainFreeze();
     constrainSelection();
     render();
@@ -3057,6 +3248,7 @@
 
   /* ---------------------------------------------------------------- 初始化 */
 
+  buildEditBar();
   buildToolbar();
   wireGrid();
   wireDocument();

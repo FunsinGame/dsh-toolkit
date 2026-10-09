@@ -1,7 +1,7 @@
 /**
  * 表格视图的 HTML 外壳。
  *
- * 外壳本身不含任何界面文案：工具栏、表格、状态栏与右键菜单都由
+ * 外壳本身不含任何界面文案：工具栏、单元格编辑条、表格、状态栏与右键菜单都由
  * `media/main.js` 构建，文案统一使用中文。
  */
 
@@ -62,6 +62,7 @@ export function renderTableHtml(webview: vscode.Webview, extensionUri: vscode.Ur
   <div id="toolbar" class="toolbar" role="toolbar"></div>
   <div id="chips" class="chips" hidden></div>
   <div id="banner" class="banner" hidden></div>
+  <div id="editbar" class="edit-bar" hidden></div>
   <div id="scroll" class="grid-scroll" tabindex="0" role="grid"></div>
   <div id="status" class="status" role="status"></div>
   <div id="menu" class="menu" hidden role="menu"></div>
