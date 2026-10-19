@@ -1,7 +1,7 @@
 {
   "name": "dsh-notify-sound",
-  "description": "DSH Web 提示音插件：会话任务完成（回合正常结束或目标完成）时播放提示音，并在智能体向用户提问或请求审批时响铃",
-  "version": "0.2.1",
+  "description": "DSH Web 提示音插件：任何会话任务结束时（会话由运行转为空闲，含后台会话）播放提示音，并在当前会话向用户提问或请求审批时响铃",
+  "version": "0.2.2",
   "type": "module",
   "main": "lib/index.js",
   "exports": {

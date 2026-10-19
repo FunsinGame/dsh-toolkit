@@ -56,7 +56,7 @@ window.__ModuleLoader__.load({
 
 		const NOTIFY_LOCALES = {
 			zh: {
-				description: "会话任务完成或询问用户时播放提示音",
+				description: "会话任务结束时播放提示音，询问用户时也会提醒",
 				completeSound: "完成提示音（URL 或 data URI）",
 				questionSound: "询问提示音（URL 或 data URI）",
 				volume: "音量（0~1）",
@@ -73,7 +73,7 @@ window.__ModuleLoader__.load({
 				saveFailed: "保存失败，请重试",
 			},
 			en: {
-				description: "Play a chime when a task completes or the agent asks you something",
+				description: "Play a chime when a task finishes or the agent asks you something",
 				completeSound: "Completion sound (URL or data URI)",
 				questionSound: "Question sound (URL or data URI)",
 				volume: "Volume (0~1)",
@@ -535,18 +535,28 @@ window.__ModuleLoader__.load({
 			);
 		}
 
-		/** 处理一个“完成”事件（turn/end completed 或 goal/change complete）。 */
-		function notifyComplete(event) {
-			if (!remember(playedEventSeqs, event.seq)) return;
-			if (!isFreshEvent(event)) return;
-			void playChime("complete");
-		}
-
-		/** 处理一个直接询问用户的事件（目前是 approval/asked）。 */
+		/** 处理一个直接询问用户的事件（当前打开会话里的 approval/asked）。 */
 		function notifyQuestionEvent(event) {
 			if (!remember(playedEventSeqs, event.seq)) return;
 			if (!isFreshEvent(event)) return;
 			void playChime("question");
+		}
+
+		/** 会话是否是用户自己的顶层会话（而不是子智能体会话）。 */
+		function isUserFacingSession(sessions, sessionId) {
+			const row = sessions.list.getSnapshot().byId[sessionId];
+			if (row !== undefined) return row.origin !== "subagent";
+			// 列表尚未同步到这一行时，用子智能体地址目录兜底判断。
+			return sessions.subagentAddress(sessionId) === undefined;
+		}
+
+		/**
+		 * 处理一次“会话从运行变为空闲”：该会话的任务已经结束，无论它是当前
+		 * 打开的会话还是后台会话。
+		 */
+		function notifySessionIdle(sessionId, sessions) {
+			if (!isUserFacingSession(sessions, sessionId)) return;
+			void playChime("complete");
 		}
 
 		/** 记录一张提问/审批卡的键，首次出现时播放提示音。 */
@@ -563,36 +573,19 @@ window.__ModuleLoader__.load({
 
 		// ── 对话事件定义 ───────────────────────────────────────────────────
 		//
-		// 每个“完成”事件用一个只负责 start 的 Context。`start` 回调在实时追加
-		// 和历史回放时都会触发；`isFreshEvent` 负责压掉回放产生的提示音。
+		// 只处理“当前打开的会话”里的审批询问：卡片出现时立即提醒。任务结束
+		// 的提示由全局的 `api-session/status` 负责，因此后台会话也能提醒。
 
 		const notifySoundDefinition = {
 			kind: "notify-sound-event",
 			match(event) {
-				if (
-					event.type === "turn/end" &&
-					event.data != null &&
-					event.data.reason != null &&
-					event.data.reason.kind === "completed"
-				) {
-					return { id: String(event.seq), role: "start" };
-				}
-				if (event.type === "goal/change" && event.data != null) {
-					if (event.data.operation === "complete") {
-						return { id: String(event.seq), role: "start" };
-					}
-				}
 				if (event.type === "approval/asked") {
 					return { id: String(event.seq), role: "start" };
 				}
 				return null;
 			},
 			start(_context, match) {
-				if (match.event.type === "approval/asked") {
-					notifyQuestionEvent(match.event);
-				} else {
-					notifyComplete(match.event);
-				}
+				notifyQuestionEvent(match.event);
 				return {};
 			},
 			update(context) {
@@ -606,8 +599,9 @@ window.__ModuleLoader__.load({
 		 * 挂载提示音和它的配置页。
 		 *
 		 * 每个可选服务都通过各自的子注入获取，因此本插件不会因为某个包未组合
-		 * 而卡住 Web 启动：没有 `configForms` 时仍用声明的默认值播放，没有
-		 * `slots`/`locale` 时只是不提供设置页。
+		 * 而卡住 Web 启动：没有 `remote`/`sessions` 时不提示任务结束，没有
+		 * `configForms` 时仍用声明的默认值播放，没有 `slots`/`locale` 时只是
+		 * 不提供设置页。
 		 *
 		 * @param ctx - 浏览器插件上下文。
 		 */
@@ -643,12 +637,25 @@ window.__ModuleLoader__.load({
 				);
 			});
 
-			// 完成事件的匹配器。注册表的生命周期绑定在本插件的 fiber 上，
-			// 热重载时会自动清理。
+			// 任务结束的全局信号：宿主会把**所有**会话的运行状态变化转发到
+			// 浏览器（`api-session/status`），所以后台会话结束时也能立即提醒，
+			// 不需要先把那个会话打开。子智能体会话在这里被过滤掉。
+			ctx.inject(["remote", "sessions"], (child) => {
+				child.effect(
+					() => child.remote.$on("api-session/status", (sessionId, running) => {
+						if (running) return;
+						notifySessionIdle(sessionId, child.sessions);
+					}),
+					"notify-sound: 会话状态",
+				);
+			});
+
+			// 当前打开会话里的审批询问：卡片出现时立即提醒。注册表的生命周期
+			// 绑定在本插件的 fiber 上，热重载时会自动清理。
 			ctx.inject(["uiConversation"], (child) => {
 				child.effect(
 					() => child.uiConversation.events.register(notifySoundDefinition),
-					"notify-sound: 完成事件",
+					"notify-sound: 询问事件",
 				);
 			});
 
