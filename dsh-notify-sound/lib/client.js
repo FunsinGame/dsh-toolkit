@@ -1,3 +1,14 @@
+/**
+ * dsh-notify-sound —— 浏览器半侧。
+ *
+ * 负责三件事：
+ *   1. 用 Web Audio 播放“任务完成 / 需要用户确认”的提示音；
+ *   2. 在 Plugins 页本 bundle 的详情页上提供配置卡片（`plugins.bundle.config`）；
+ *   3. 把本 bundle 的配置行（`notify-sound`）同步为播放参数。
+ *
+ * 本文件是手写的浏览器模块：`window.__ModuleLoader__.load` 只登记工厂，
+ * 模块体在首次 require 时才执行。
+ */
 window.__ModuleLoader__.load({
 	id: "dsh-notify-sound",
 	factory: (require) => {
@@ -5,39 +16,46 @@ window.__ModuleLoader__.load({
 		var exports = module.exports;
 		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 
-		// ── notification chimes ─────────────────────────────────────────────
+		// ── 提示音 ─────────────────────────────────────────────────────────
 
 		const React = require("react");
-		const { useSyncExternalStore, useState } = React;
+		const { useSyncExternalStore, useState, useCallback } = React;
 
-		/** Services this browser half consumes. */
-		const inject = ["uiConversation", "slots", "locale", "settingsScope"];
+		/** 宿主配置行的 id：设置的读写都定位到这一行。 */
+		const ENTRY_ID = "notify-sound";
+
+		/** 本 bundle 在 Plugins 页注册配置页时使用的键（即包名）。 */
+		const BUNDLE_NAME = "dsh-notify-sound";
+
+		/** 本插件拥有的词典命名空间。 */
+		const NS = "notify-sound";
+
+		/** 宿主表单返回之前，以及草稿音量非法时使用的音量。 */
+		const DEFAULT_VOLUME = 0.4;
 
 		/**
-		 * Cards the agent can put in front of the user. `data-question-key` is
-		 * the generic ask_user_question flow, `data-plan-review-key` is the plan
-		 * review variant, and `data-approval-key` is a tool approval request.
+		 * 需要提醒用户的卡片选择器：`data-question-key` 是通用的提问流程，
+		 * `data-plan-review-key` 是计划评审变体，`data-approval-key` 是工具审批请求。
 		 */
 		const NOTIFY_SELECTOR =
 			"[data-question-key], [data-plan-review-key], [data-approval-key]";
 
-		/** Epoch ms when this plugin instance started; used to skip historical replay. */
+		/** 本插件实例启动的时刻（毫秒）；用于跳过历史事件回放。 */
 		const loadedAt = Date.now();
 
-		/** Event seqs already handled (completion and approval/asked chimes). */
+		/** 已处理过的“完成”和“审批”事件 seq。 */
 		const playedEventSeqs = new Set();
 
-		/** Card keys already seen, so one question/approval chimes once. */
+		/** 已见过的卡片键，保证同一张提问/审批卡只响一次。 */
 		const playedCardKeys = new Set();
 
-		// ── settings-surface card ──────────────────────────────────────────
+		/** 去重集合的上限，避免长时间打开的页面无限增长。 */
+		const MAX_REMEMBERED_KEYS = 10_000;
 
-		/** Settings namespace owned by the Host half. */
-		const NOTIFY_SOUND_NS = "notify-sound";
-		const NOTIFY_LOCALE_NS = "notify-sound";
+		// ── 设置页 ─────────────────────────────────────────────────────────
+
 		const NOTIFY_LOCALES = {
 			zh: {
-				title: "提示音",
 				description: "会话任务完成或询问用户时播放提示音",
 				completeSound: "完成提示音（URL 或 data URI）",
 				questionSound: "询问提示音（URL 或 data URI）",
@@ -45,6 +63,8 @@ window.__ModuleLoader__.load({
 				enabled: "启用提示音",
 				unsaved: "未保存",
 				readOnly: "当前设置只读",
+				loading: "正在读取设置…",
+				unavailable: "当前版本未提供该插件的设置",
 				save: "保存",
 				saving: "保存中…",
 				discard: "放弃",
@@ -53,7 +73,6 @@ window.__ModuleLoader__.load({
 				saveFailed: "保存失败，请重试",
 			},
 			en: {
-				title: "Notification sound",
 				description: "Play a chime when a task completes or the agent asks you something",
 				completeSound: "Completion sound (URL or data URI)",
 				questionSound: "Question sound (URL or data URI)",
@@ -61,6 +80,8 @@ window.__ModuleLoader__.load({
 				enabled: "Enable notification sound",
 				unsaved: "Unsaved",
 				readOnly: "Settings are read-only",
+				loading: "Reading settings…",
+				unavailable: "This version does not serve settings for this plugin",
 				save: "Save",
 				saving: "Saving…",
 				discard: "Discard",
@@ -70,34 +91,15 @@ window.__ModuleLoader__.load({
 			},
 		};
 
-		/** Inline styles for the settings card (kept minimal, no CSS build). */
-		const cardStyle = {
-			listStyle: "none",
-			border: "1px solid rgba(128,128,128,0.25)",
-			borderRadius: "8px",
-			marginBottom: "8px",
-			background: "var(--dsw-alias-surface-2, #ffffff)",
-		};
-		const headerStyle = {
-			width: "100%",
+		/** 设置页的内联样式（保持最小化，不引入 CSS 构建）。 */
+		const pageStyle = {
 			display: "flex",
 			flexDirection: "column",
-			alignItems: "flex-start",
-			gap: "2px",
-			padding: "12px 14px",
-			border: "none",
-			background: "none",
-			cursor: "pointer",
-			font: "inherit",
-			textAlign: "left",
-			color: "inherit",
+			gap: "12px",
+			maxWidth: "560px",
 		};
-		const bodyStyle = {
-			padding: "0 14px 14px",
-			display: "flex",
-			flexDirection: "column",
-			gap: "10px",
-		};
+		const hintStyle = { fontSize: "12px", opacity: 0.7, margin: 0 };
+		const errorStyle = { fontSize: "12px", color: "#d64541", margin: 0 };
 		const fieldStyle = {
 			display: "flex",
 			flexDirection: "column",
@@ -116,6 +118,7 @@ window.__ModuleLoader__.load({
 		const footerStyle = {
 			display: "flex",
 			justifyContent: "flex-end",
+			alignItems: "center",
 			gap: "8px",
 			marginTop: "4px",
 		};
@@ -133,47 +136,65 @@ window.__ModuleLoader__.load({
 			fontSize: "12px",
 		};
 
+		/** 草稿里是否包含该字段（显式写入 `undefined` 不算草稿）。 */
+		function hasDraft(drafts, field) {
+			return Object.prototype.hasOwnProperty.call(drafts, field);
+		}
+
 		/**
-		 * The settings card rendered inside the Plugins settings tab.
-		 * Uses the host-registered `notify-sound` settings namespace.
+		 * 本插件的配置页，经 `plugins.bundle.config` 渲染在 Plugins 页的本 bundle
+		 * 详情中。
+		 *
+		 * 修改先在本地暂存，点“保存”时一起写入。可写状态、已接受的值和 revision
+		 * 都由宿主表单提供，这里不保存设置文档的副本。
+		 *
+		 * @param props - 框架注入的本地化 `t`，以及注入的宿主表单。
 		 */
 		function NotifySoundCard(props) {
-			const snapshot = useSyncExternalStore(props.subscribe, props.getSnapshot);
-			const [open, setOpen] = useState(false);
+			const { form, t } = props;
+			// 包一层表单方法：React 会把订阅函数与取值函数当作独立函数调用，
+			// 而宿主表单是类实例，方法需要原来的 this。
+			const subscribe = useCallback(
+				(listener) => form.subscribe(listener),
+				[form],
+			);
+			const getSnapshot = useCallback(() => form.getSnapshot(), [form]);
+			const snapshot = useSyncExternalStore(subscribe, getSnapshot);
 			const [drafts, setDrafts] = useState({});
 			const [saving, setSaving] = useState(false);
 			const [failed, setFailed] = useState(false);
 
-			if (snapshot.status !== "ready") return null;
+			if (snapshot.status === "loading") {
+				return React.createElement("p", { style: hintStyle }, t("loading"));
+			}
+			if (snapshot.status !== "ready") {
+				return React.createElement("p", { style: hintStyle }, t("unavailable"));
+			}
+
 			const value = snapshot.value || {};
-			const writable = snapshot.writable;
+			const writable = snapshot.writable !== false;
 
 			const textValue = (field) => {
-				if (Object.prototype.hasOwnProperty.call(drafts, field)) return drafts[field];
+				if (hasDraft(drafts, field)) return drafts[field];
 				return typeof value[field] === "string" ? value[field] : "";
 			};
-			const volumeValue = () => {
-				if (Object.prototype.hasOwnProperty.call(drafts, "volume")) return drafts.volume;
-				return typeof value.volume === "number" ? String(value.volume) : "";
-			};
-			const enabledValue = () => {
-				if (Object.prototype.hasOwnProperty.call(drafts, "enabled")) return drafts.enabled;
-				return value.enabled !== false;
-			};
+			const volumeText = hasDraft(drafts, "volume")
+				? drafts.volume
+				: typeof value.volume === "number"
+					? String(value.volume)
+					: "";
+			const enabledValue = hasDraft(drafts, "enabled")
+				? drafts.enabled === true
+				: value.enabled !== false;
 			const dirty = Object.keys(drafts).length > 0;
-			const volumeText = volumeValue();
 			const volumeNumber = Number(volumeText);
-			const invalidVolume = volumeText.trim() !== "" && (
-				!Number.isFinite(volumeNumber) || volumeNumber < 0 || volumeNumber > 1
-			);
-			const blocked = !dirty || invalidVolume || saving;
+			const invalidVolume =
+				volumeText.trim() !== "" &&
+				(!Number.isFinite(volumeNumber) || volumeNumber < 0 || volumeNumber > 1);
+			const blocked = !dirty || invalidVolume || saving || !writable;
 
-			const edit = (field, text) => {
-				setDrafts((prev) => ({ ...prev, [field]: text }));
-				setFailed(false);
-			};
-			const toggleEnabled = (checked) => {
-				setDrafts((prev) => ({ ...prev, enabled: checked }));
+			const edit = (field, next) => {
+				setDrafts((prev) => ({ ...prev, [field]: next }));
 				setFailed(false);
 			};
 			const discard = () => {
@@ -181,43 +202,45 @@ window.__ModuleLoader__.load({
 				setFailed(false);
 			};
 			const save = async () => {
-				if (invalidVolume || saving) return;
+				if (blocked) return;
 				setSaving(true);
 				setFailed(false);
-				const writes = Object.entries(drafts).map(([field, draft]) => {
-					if (field === "volume") {
-						const text = String(draft).trim();
-						return text === ""
-							? () => props.unset("volume")
-							: () => props.set("volume", Number(text));
-					}
-					if (field === "enabled") {
-						return () => props.set("enabled", draft === true);
-					}
-					const text = String(draft).trim();
-					return text === ""
-						? () => props.unset(field)
-						: () => props.set(field, text);
-				});
 				let landed = true;
-				for (const write of writes) {
-					await write();
-					const snap = props.getSnapshot();
-					const user = snap.status === "ready" ? (snap.user || {}) : undefined;
-					landed = user !== undefined && landed;
+				for (const [field, draft] of Object.entries(drafts)) {
+					try {
+						if (field === "volume") {
+							const text = String(draft).trim();
+							landed = text === ""
+								? await form.unset("volume")
+								: await form.set("volume", Number(text));
+						} else if (field === "enabled") {
+							landed = await form.set("enabled", draft === true);
+						} else {
+							const text = String(draft).trim();
+							landed = text === ""
+								? await form.unset(field)
+								: await form.set(field, text);
+						}
+					} catch (error) {
+						landed = false;
+					}
+					if (!landed) break;
 				}
 				if (landed) setDrafts({});
 				setSaving(false);
 				setFailed(!landed);
 			};
 
-			/** Preview one chime using the current draft (unsaved values included). */
+			/** 用当前草稿（含未保存的值）试听一次提示音。 */
 			const preview = (kind) => {
-				const volumeText = volumeValue();
-				const parsedVolume = Number(volumeText);
-				const volume = volumeText.trim() !== "" && Number.isFinite(parsedVolume) && parsedVolume >= 0 && parsedVolume <= 1
-					? parsedVolume
-					: DEFAULT_VOLUME;
+				const parsed = Number(volumeText);
+				const volume =
+					volumeText.trim() !== "" &&
+					Number.isFinite(parsed) &&
+					parsed >= 0 &&
+					parsed <= 1
+						? parsed
+						: DEFAULT_VOLUME;
 				const soundKey = kind === "complete" ? "completeSound" : "questionSound";
 				void playChimeWithConfig(kind, {
 					volume,
@@ -225,145 +248,135 @@ window.__ModuleLoader__.load({
 				});
 			};
 
-			return React.createElement(
-				"li",
-				{ style: cardStyle },
+			const soundField = (kind, field, label) =>
 				React.createElement(
-					"button",
+					"div",
+					{ style: fieldStyle },
+					React.createElement(
+						"span",
+						{
+							style: {
+								display: "flex",
+								justifyContent: "space-between",
+								alignItems: "center",
+								gap: "8px",
+							},
+						},
+						React.createElement("span", null, label),
+						React.createElement(
+							"button",
+							{
+								type: "button",
+								style: previewButtonStyle,
+								disabled: !writable,
+								onClick: () => preview(kind),
+							},
+							t("preview"),
+						),
+					),
+					React.createElement("input", {
+						type: "text",
+						style: inputStyle,
+						value: textValue(field),
+						placeholder: "https://... or data:audio/...",
+						disabled: !writable,
+						onChange: (event) => edit(field, event.target.value),
+					}),
+				);
+
+			return React.createElement(
+				"div",
+				{ style: pageStyle },
+				React.createElement("p", { style: hintStyle }, t("description")),
+				!writable ? React.createElement("p", { style: hintStyle }, t("readOnly")) : null,
+				React.createElement(
+					"label",
 					{
-						type: "button",
-						style: headerStyle,
-						"aria-expanded": open,
-						onClick: () => setOpen(!open),
+						style: {
+							...fieldStyle,
+							flexDirection: "row",
+							alignItems: "center",
+							gap: "6px",
+						},
 					},
-					React.createElement("span", { style: { fontWeight: 600 } }, props.t("title")),
-					React.createElement("span", { style: { fontSize: "12px", opacity: 0.7 } }, props.t("description")),
-					dirty ? React.createElement("span", { style: { fontSize: "12px", opacity: 0.8 } }, props.t("unsaved")) : null,
+					React.createElement("input", {
+						type: "checkbox",
+						checked: enabledValue,
+						disabled: !writable,
+						onChange: (event) => edit("enabled", event.target.checked),
+					}),
+					t("enabled"),
 				),
-				open
-					? React.createElement(
-						"div",
-						{ style: bodyStyle },
-						!writable ? React.createElement("p", null, props.t("readOnly")) : null,
-						React.createElement(
-							"div",
-							{ style: fieldStyle },
-							React.createElement(
-								"span",
-								{ style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px" } },
-								React.createElement("span", null, props.t("completeSound")),
-								React.createElement(
-									"button",
-									{
-										type: "button",
-										style: previewButtonStyle,
-										onClick: () => preview("complete"),
-									},
-									props.t("preview"),
-								),
-							),
-							React.createElement("input", {
-								type: "text",
-								style: inputStyle,
-								value: textValue("completeSound"),
-								placeholder: "https://... or data:audio/...",
-								disabled: !writable,
-								onChange: (event) => edit("completeSound", event.target.value),
-							}),
-						),
-						React.createElement(
-							"div",
-							{ style: fieldStyle },
-							React.createElement(
-								"span",
-								{ style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px" } },
-								React.createElement("span", null, props.t("questionSound")),
-								React.createElement(
-									"button",
-									{
-										type: "button",
-										style: previewButtonStyle,
-										onClick: () => preview("question"),
-									},
-									props.t("preview"),
-								),
-							),
-							React.createElement("input", {
-								type: "text",
-								style: inputStyle,
-								value: textValue("questionSound"),
-								placeholder: "https://... or data:audio/...",
-								disabled: !writable,
-								onChange: (event) => edit("questionSound", event.target.value),
-							}),
-						),
-						React.createElement(
-							"label",
-							{ style: fieldStyle },
-							props.t("volume"),
-							React.createElement("input", {
-								type: "text",
-								inputMode: "decimal",
-								style: inputStyle,
-								value: volumeValue(),
-								disabled: !writable,
-								onChange: (event) => edit("volume", event.target.value),
-							}),
-							invalidVolume
-								? React.createElement("span", { style: { color: "#d64541" } }, props.t("invalidVolume"))
-								: null,
-						),
-						React.createElement(
-							"label",
-							{ style: { ...fieldStyle, flexDirection: "row", alignItems: "center", gap: "6px" } },
-							React.createElement("input", {
-								type: "checkbox",
-								checked: enabledValue(),
-								disabled: !writable,
-								onChange: (event) => toggleEnabled(event.target.checked),
-							}),
-							props.t("enabled"),
-						),
-						failed
-							? React.createElement("p", { style: { color: "#d64541", margin: 0 } }, props.t("saveFailed"))
-							: null,
-						React.createElement(
-							"div",
-							{ style: footerStyle },
-							React.createElement(
-								"button",
-								{ type: "button", style: buttonStyle, disabled: !dirty || saving, onClick: discard },
-								props.t("discard"),
-							),
-							React.createElement(
-								"button",
-								{ type: "button", style: buttonStyle, disabled: blocked, onClick: () => { void save() } },
-								saving ? props.t("saving") : props.t("save"),
-							),
-						),
-					)
-					: null,
+				React.createElement(
+					"label",
+					{ style: fieldStyle },
+					t("volume"),
+					React.createElement("input", {
+						type: "text",
+						inputMode: "decimal",
+						style: inputStyle,
+						value: volumeText,
+						disabled: !writable,
+						onChange: (event) => edit("volume", event.target.value),
+					}),
+					invalidVolume
+						? React.createElement("span", { style: errorStyle }, t("invalidVolume"))
+						: null,
+				),
+				soundField("complete", "completeSound", t("completeSound")),
+				soundField("question", "questionSound", t("questionSound")),
+				failed ? React.createElement("p", { style: errorStyle }, t("saveFailed")) : null,
+				React.createElement(
+					"div",
+					{ style: footerStyle },
+					dirty
+						? React.createElement(
+							"span",
+							{ style: { ...hintStyle, marginRight: "auto" } },
+							t("unsaved"),
+						)
+						: null,
+					React.createElement(
+						"button",
+						{ type: "button", style: buttonStyle, disabled: !dirty || saving, onClick: discard },
+						t("discard"),
+					),
+					React.createElement(
+						"button",
+						{
+							type: "button",
+							style: buttonStyle,
+							disabled: blocked,
+							onClick: () => {
+								void save();
+							},
+						},
+						saving ? t("saving") : t("save"),
+					),
+				),
 			);
 		}
 
-		/** Lazy Web Audio context shared by all chimes. */
+		/** 所有提示音共用一个惰性创建的 Web Audio 上下文。 */
 		let audioCtx = null;
 		let warnedNoAudio = false;
-		const DEFAULT_VOLUME = 0.4;
 
-		/** Small gap so an event and its DOM card cannot double-chime. */
+		/** 很小的间隔，避免事件和它对应的 DOM 卡片重复响一次。 */
 		let lastChimeAt = 0;
 		const MIN_CHIME_GAP_MS = 800;
 
-		/** Runtime config supplied from the plugin row (cordis.patch.yml). */
-		let pluginConfig = { volume: DEFAULT_VOLUME };
+		/** 从宿主表单同步过来的运行配置；表单回答之前使用默认值。 */
+		let pluginConfig = {
+			completeSound: "",
+			questionSound: "",
+			volume: DEFAULT_VOLUME,
+			enabled: true,
+		};
 
-		/** Create the AudioContext on first use, or return null when unsupported. */
+		/** 首次使用时创建 AudioContext；浏览器不支持时返回 null。 */
 		function getAudioContext() {
 			if (audioCtx !== null) return audioCtx;
-			const Ctor =
-				window.AudioContext ||
-				window.webkitAudioContext;
+			const Ctor = window.AudioContext || window.webkitAudioContext;
 			if (typeof Ctor !== "function") {
 				if (!warnedNoAudio) {
 					console.warn("[notify-sound] Web Audio API is not available in this browser");
@@ -380,27 +393,24 @@ window.__ModuleLoader__.load({
 			return audioCtx;
 		}
 
-		/** Try to resume a suspended AudioContext (called after user gestures too). */
+		/** 尝试恢复被挂起的 AudioContext（用户操作后也会调用）。 */
 		function resumeAudio() {
 			const ctx = getAudioContext();
 			if (ctx !== null && ctx.state === "suspended") {
 				ctx.resume().catch(() => {
-					// Autoplay policy may keep the context suspended until a gesture.
+					// 自动播放策略可能让上下文一直挂起到下一次用户操作。
 				});
 			}
 		}
 
-		/** Schedule one sine tone on the shared context. */
+		/** 在共享上下文上安排一个正弦音。 */
 		function scheduleTone(ctx, start, frequency, duration, volume) {
 			const osc = ctx.createOscillator();
 			const gain = ctx.createGain();
 			osc.type = "sine";
 			osc.frequency.setValueAtTime(frequency, start);
 			gain.gain.setValueAtTime(0.0001, start);
-			gain.gain.exponentialRampToValueAtTime(
-				Math.max(0.0002, volume),
-				start + 0.02,
-			);
+			gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume), start + 0.02);
 			gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
 			osc.connect(gain);
 			gain.connect(ctx.destination);
@@ -408,7 +418,7 @@ window.__ModuleLoader__.load({
 			osc.stop(start + duration + 0.05);
 		}
 
-		/** Play a configured audio file; resolves true when playback started. */
+		/** 播放配置的音频文件；开始播放时 resolve true。 */
 		function playSoundFile(src, volume) {
 			return new Promise((resolve) => {
 				let audio;
@@ -418,43 +428,44 @@ window.__ModuleLoader__.load({
 					resolve(false);
 					return;
 				}
-				audio.volume = Math.max(0, Math.min(1, Number.isFinite(volume) ? volume : DEFAULT_VOLUME));
+				audio.volume = Math.max(
+					0,
+					Math.min(1, Number.isFinite(volume) ? volume : DEFAULT_VOLUME),
+				);
 				const onError = () => {
 					audio.removeEventListener("error", onError);
 					resolve(false);
 				};
 				audio.addEventListener("error", onError);
-				audio.play().then(() => {
-					audio.removeEventListener("error", onError);
-					resolve(true);
-				}).catch(() => {
-					audio.removeEventListener("error", onError);
-					resolve(false);
-				});
+				audio
+					.play()
+					.then(() => {
+						audio.removeEventListener("error", onError);
+						resolve(true);
+					})
+					.catch(() => {
+						audio.removeEventListener("error", onError);
+						resolve(false);
+					});
 			});
 		}
 
 		/**
-		 * Play one chime from an explicit config object.
-		 * @param kind - "complete" (ascending ding-dong) or "question" (descending).
-		 * @param config - `{ completeSound?, questionSound?, volume? }`; used by
-		 * real notifications (from the settings namespace) and by previews (from
-		 * the card's current draft).
+		 * 用显式配置播放一次提示音。
+		 * @param kind - "complete"（上行叮咚）或 "question"（下行咚叮）。
+		 * @param config - `{ completeSound?, questionSound?, volume? }`；真实提醒
+		 * （来自设置表单）和试听（来自卡片当前草稿）共用这个入口。
 		 */
 		async function playChimeWithConfig(kind, config) {
-			const volume =
-				Number.isFinite(config.volume)
-					? config.volume
-					: DEFAULT_VOLUME;
+			const volume = Number.isFinite(config.volume) ? config.volume : DEFAULT_VOLUME;
 			const soundKey = kind === "complete" ? "completeSound" : "questionSound";
 			const soundSrc = config[soundKey];
 
-			// Custom audio file: a URL or data URI configured in the settings UI
-			// or cordis.patch.yml.
+			// 自定义音频：设置页或 profile patch 里配置的 URL / data URI。
 			if (typeof soundSrc === "string" && soundSrc.length > 0) {
 				const started = await playSoundFile(soundSrc, volume);
 				if (started) return;
-				// Fall back to the built-in chime if the file cannot play.
+				// 文件无法播放时回退到内置提示音。
 			}
 
 			const ctx = getAudioContext();
@@ -463,7 +474,7 @@ window.__ModuleLoader__.load({
 				try {
 					await ctx.resume();
 				} catch (error) {
-					// The browser denied autoplay; wait for the next user gesture.
+					// 浏览器拒绝了自动播放；等下一次用户操作。
 					return;
 				}
 			}
@@ -479,19 +490,43 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * Play the real notification chime from the live settings namespace.
-		 * @param kind - "complete" or "question".
+		 * 用当前生效的设置播放真实提醒。
+		 * @param kind - "complete" 或 "question"。
 		 */
 		async function playChime(kind) {
 			if (pluginConfig.enabled === false) return;
 			const nowWall = Date.now();
 			if (nowWall - lastChimeAt < MIN_CHIME_GAP_MS) return;
 			lastChimeAt = nowWall;
-
 			await playChimeWithConfig(kind, pluginConfig);
 		}
 
-		/** Return true only for events appended around/after this plugin loaded. */
+		/** 用宿主表单已接受的值替换播放配置。 */
+		function adoptSettings(snapshot) {
+			if (snapshot.status !== "ready" || snapshot.value === undefined || snapshot.value === null) {
+				return;
+			}
+			const value = snapshot.value;
+			pluginConfig = {
+				completeSound: typeof value.completeSound === "string" ? value.completeSound : "",
+				questionSound: typeof value.questionSound === "string" ? value.questionSound : "",
+				volume:
+					typeof value.volume === "number" && Number.isFinite(value.volume)
+						? value.volume
+						: DEFAULT_VOLUME,
+				enabled: value.enabled !== false,
+			};
+		}
+
+		/** 记住一个键；集合到达上限时整体清空。 */
+		function remember(set, key) {
+			if (set.has(key)) return false;
+			if (set.size >= MAX_REMEMBERED_KEYS) set.clear();
+			set.add(key);
+			return true;
+		}
+
+		/** 只有在本插件加载前后追加的事件才返回 true。 */
 		function isFreshEvent(event) {
 			return (
 				event != null &&
@@ -500,23 +535,21 @@ window.__ModuleLoader__.load({
 			);
 		}
 
-		/** Handle one completion event (turn/end completed or goal/change complete). */
+		/** 处理一个“完成”事件（turn/end completed 或 goal/change complete）。 */
 		function notifyComplete(event) {
-			if (playedEventSeqs.has(event.seq)) return;
-			playedEventSeqs.add(event.seq);
+			if (!remember(playedEventSeqs, event.seq)) return;
 			if (!isFreshEvent(event)) return;
 			void playChime("complete");
 		}
 
-		/** Handle one event that directly asks the user (currently approval/asked). */
+		/** 处理一个直接询问用户的事件（目前是 approval/asked）。 */
 		function notifyQuestionEvent(event) {
-			if (playedEventSeqs.has(event.seq)) return;
-			playedEventSeqs.add(event.seq);
+			if (!remember(playedEventSeqs, event.seq)) return;
 			if (!isFreshEvent(event)) return;
 			void playChime("question");
 		}
 
-		/** Record a question/approval card key and chime when it is new. */
+		/** 记录一张提问/审批卡的键，首次出现时播放提示音。 */
 		function noteCard(node) {
 			if (node == null || node.nodeType !== 1) return;
 			const key =
@@ -524,16 +557,14 @@ window.__ModuleLoader__.load({
 				node.getAttribute("data-plan-review-key") ||
 				node.getAttribute("data-approval-key");
 			if (key === null || key === "") return;
-			if (playedCardKeys.has(key)) return;
-			playedCardKeys.add(key);
+			if (!remember(playedCardKeys, key)) return;
 			void playChime("question");
 		}
 
-		// ── conversation event definition ──────────────────────────────────
+		// ── 对话事件定义 ───────────────────────────────────────────────────
 		//
-		// Uses one start-only Context per completion event. The `start` callback
-		// fires both for live appends and for historical replay; `isFreshEvent`
-		// suppresses the replay chimes.
+		// 每个“完成”事件用一个只负责 start 的 Context。`start` 回调在实时追加
+		// 和历史回放时都会触发；`isFreshEvent` 负责压掉回放产生的提示音。
 
 		const notifySoundDefinition = {
 			kind: "notify-sound-event",
@@ -546,12 +577,10 @@ window.__ModuleLoader__.load({
 				) {
 					return { id: String(event.seq), role: "start" };
 				}
-				if (
-					event.type === "goal/change" &&
-					event.data != null &&
-					event.data.operation === "complete"
-				) {
-					return { id: String(event.seq), role: "start" };
+				if (event.type === "goal/change" && event.data != null) {
+					if (event.data.operation === "complete") {
+						return { id: String(event.seq), role: "start" };
+					}
 				}
 				if (event.type === "approval/asked") {
 					return { id: String(event.seq), role: "start" };
@@ -571,72 +600,66 @@ window.__ModuleLoader__.load({
 			},
 		};
 
-		// ── plugin body ────────────────────────────────────────────────────
+		// ── 插件主体 ───────────────────────────────────────────────────────
 
-		async function apply(ctx, config = {}) {
-			pluginConfig = {
-				volume: Number.isFinite(config.volume) ? config.volume : DEFAULT_VOLUME,
-				completeSound:
-					typeof config.completeSound === "string" ? config.completeSound : "",
-				questionSound:
-					typeof config.questionSound === "string" ? config.questionSound : "",
-				enabled: config.enabled !== false,
-			};
-
-			const t = ctx.locale.bind(NOTIFY_LOCALE_NS);
-			ctx.effect(
-				() => ctx.locale.register(NOTIFY_LOCALE_NS, NOTIFY_LOCALES),
-				"notify-sound: settings dictionaries",
-			);
-
-			// Bind the Host-registered `notify-sound` settings namespace and keep
-			// the playback config in sync with what the settings UI saves.
-			const scope = ctx.settingsScope.bind({ namespace: NOTIFY_SOUND_NS });
-			const applyScopeToPluginConfig = () => {
-				const snap = scope.getSnapshot();
-				if (snap.status !== "ready" || snap.value === undefined) return;
-				const v = snap.value;
-				pluginConfig = {
-					volume: typeof v.volume === "number" ? v.volume : DEFAULT_VOLUME,
-					completeSound:
-						typeof v.completeSound === "string" ? v.completeSound : "",
-					questionSound:
-						typeof v.questionSound === "string" ? v.questionSound : "",
-					enabled: v.enabled !== false,
+		/**
+		 * 挂载提示音和它的配置页。
+		 *
+		 * 每个可选服务都通过各自的子注入获取，因此本插件不会因为某个包未组合
+		 * 而卡住 Web 启动：没有 `configForms` 时仍用声明的默认值播放，没有
+		 * `slots`/`locale` 时只是不提供设置页。
+		 *
+		 * @param ctx - 浏览器插件上下文。
+		 */
+		function apply(ctx) {
+			// 实时播放设置：宿主的配置表单是唯一来源，设置镜像会在每次写入后刷新。
+			ctx.inject(["configForms"], (child) => {
+				const form = child.configForms.get(ENTRY_ID);
+				const sync = () => {
+					adoptSettings(form.getSnapshot());
 				};
-			};
-			ctx.effect(
-				() => scope.subscribe(applyScopeToPluginConfig),
-				"notify-sound: settings sync",
-			);
-			applyScopeToPluginConfig();
-
-			// Add a configuration card to Settings → Plugins → Plugin configuration.
-			ctx.slots.inject("settings.plugin.item", function* () {
-				yield ctx.slots.register({
-					name: "settings.plugin.item",
-					key: "notify-sound",
-					order: 30,
-					locale: NOTIFY_LOCALE_NS,
-					inject: () => ({
-						getSnapshot: () => scope.getSnapshot(),
-						subscribe: (listener) => scope.subscribe(listener),
-						set: (field, value) => scope.set(field, value),
-						unset: (field) => scope.unset(field),
-						t: (key) => t(key),
-					}),
-				}, NotifySoundCard);
+				child.effect(() => form.subscribe(sync), "notify-sound: 设置同步");
+				sync();
 			});
 
-			// Register the event matcher. The registry ties its lifetime to this
-			// plugin's fiber, so a hot reload cleans it up automatically.
-			ctx.uiConversation.events.register(notifySoundDefinition);
+			// 本 bundle 在 Plugins 页上的配置页。`plugins.bundle.config` 按 npm
+			// 包名分发，因此键就是包名。
+			ctx.inject(["slots", "locale", "configForms"], (child) => {
+				const form = child.configForms.get(ENTRY_ID);
+				child.effect(
+					() => child.locale.register(NS, NOTIFY_LOCALES),
+					"notify-sound: 词典",
+				);
+				child.slots.inject("plugins.bundle.config", () =>
+					child.slots.register(
+						{
+							name: "plugins.bundle.config",
+							key: BUNDLE_NAME,
+							locale: NS,
+							inject: () => ({ form }),
+						},
+						NotifySoundCard,
+					),
+				);
+			});
 
+			// 完成事件的匹配器。注册表的生命周期绑定在本插件的 fiber 上，
+			// 热重载时会自动清理。
+			ctx.inject(["uiConversation"], (child) => {
+				child.effect(
+					() => child.uiConversation.events.register(notifySoundDefinition),
+					"notify-sound: 完成事件",
+				);
+			});
+
+			// 提问 / 计划评审 / 审批卡片，以及解锁 Web Audio 的用户操作监听。
 			ctx.effect(() => {
-				// Seed with cards already on screen so a reload/hot-reload does not
-				// replay a chime for a question that was already visible.
-				const existing = document.querySelectorAll(NOTIFY_SELECTOR);
-				for (const node of existing) {
+				const doc = document;
+				const root = doc.body ?? doc.documentElement;
+
+				// 先把已经在屏幕上的卡片记下来，避免刷新/热重载时对已经可见的
+				// 提问再响一次。
+				for (const node of doc.querySelectorAll(NOTIFY_SELECTOR)) {
 					const key =
 						node.getAttribute("data-question-key") ||
 						node.getAttribute("data-plan-review-key") ||
@@ -653,33 +676,30 @@ window.__ModuleLoader__.load({
 								continue;
 							}
 							if (typeof node.querySelectorAll === "function") {
-								const cards = node.querySelectorAll(NOTIFY_SELECTOR);
-								for (const card of cards) noteCard(card);
+								for (const card of node.querySelectorAll(NOTIFY_SELECTOR)) noteCard(card);
 							}
 						}
 					}
 				});
-				observer.observe(document.body, {
-					childList: true,
-					subtree: true,
-				});
+				observer.observe(root, { childList: true, subtree: true });
 
-				const onPointerDown = () => resumeAudio();
-				document.addEventListener("pointerdown", onPointerDown, { passive: true });
-				document.addEventListener("keydown", onPointerDown, { passive: true });
-				document.addEventListener("touchstart", onPointerDown, { passive: true });
+				const onGesture = () => {
+					resumeAudio();
+				};
+				doc.addEventListener("pointerdown", onGesture, { passive: true });
+				doc.addEventListener("keydown", onGesture, { passive: true });
+				doc.addEventListener("touchstart", onGesture, { passive: true });
 
 				return () => {
 					observer.disconnect();
-					document.removeEventListener("pointerdown", onPointerDown);
-					document.removeEventListener("keydown", onPointerDown);
-					document.removeEventListener("touchstart", onPointerDown);
+					doc.removeEventListener("pointerdown", onGesture);
+					doc.removeEventListener("keydown", onGesture);
+					doc.removeEventListener("touchstart", onGesture);
 				};
-			}, "notify-sound: DOM observer");
+			}, "notify-sound: DOM 监听");
 		}
 
 		exports.apply = apply;
-		exports.inject = inject;
 		return module.exports;
 	},
 });

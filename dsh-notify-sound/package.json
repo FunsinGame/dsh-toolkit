@@ -1,7 +1,7 @@
 {
   "name": "dsh-notify-sound",
-  "description": "DSH Web notification chimes: plays a short audio prompt when a session task completes (completed turn or completed goal) and when the agent asks the user a question or requests approval",
-  "version": "0.1.0",
+  "description": "DSH Web 提示音插件：会话任务完成（回合正常结束或目标完成）时播放提示音，并在智能体向用户提问或请求审批时响铃",
+  "version": "0.2.1",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -15,28 +15,24 @@
     },
     "client": {
       "inject": [
-        "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-locale",
-        "@deepseek-ai/dsh-client-ui-slots",
         "@deepseek-ai/dsh-client-ui-settings",
-        "@deepseek-ai/dsh-client-ui-settings-plugins"
+        "@deepseek-ai/dsh-client-ui-plugin-manager",
+        "@deepseek-ai/dsh-client-ui-conversation"
       ],
       "platform": "web"
     }
   },
   "license": "MIT",
   "dependencies": {
-    "@deepseek-ai/schemastery": "^3.18.1",
-    "react": "^18.2.0"
+    "@deepseek-ai/schemastery": "^3.18.5"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-settings": "^0.1.0-rc.5"
+    "@deepseek-ai/cordis": "^4.0.1"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-settings": "^0.1.0-rc.5",
-    "@deepseek-ai/schemastery": "^3.18.1"
+    "@deepseek-ai/schemastery": "^3.18.5"
   },
   "files": [
     "lib/index.js",
