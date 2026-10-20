@@ -1685,14 +1685,16 @@ function SettingsDialog({ backend, current, onClose, onSaved }: {
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const hydratedRef = useRef(current !== null)
+  const touchedRef = useRef(false)
   useEffect(() => {
-    if (current === null || backend.getSettings === undefined) return
-    void backend.getSettings().then((value) => {
-      setServerUrl(value.serverUrl)
-      setAutoSyncSeconds(String(value.autoSyncSeconds))
-      setQuickSync(value.quickSync)
-    }).catch(() => undefined)
-  }, [backend, current])
+    if (hydratedRef.current || current === null) return
+    hydratedRef.current = true
+    if (touchedRef.current) return
+    setServerUrl(current.serverUrl)
+    setAutoSyncSeconds(String(current.autoSyncSeconds))
+    setQuickSync(current.quickSync)
+  }, [current])
   const test = async (): Promise<void> => {
     setBusy(true)
     setError(null)
@@ -1743,7 +1745,7 @@ function SettingsDialog({ backend, current, onClose, onSaved }: {
     >
       <div className="dsh-notes-field">
         <label>服务器地址</label>
-        <input className="dsh-notes-input" value={serverUrl} placeholder="https://notes.example.com" onChange={(event) => setServerUrl(event.target.value)} />
+        <input className="dsh-notes-input" value={serverUrl} placeholder="https://notes.example.com" onChange={(event) => { touchedRef.current = true; setServerUrl(event.target.value) }} />
         <span className="dsh-notes-hint">例如 https://notes.example.com 或 http://192.168.1.10:8787</span>
       </div>
       <div className="dsh-notes-field">
@@ -1756,10 +1758,10 @@ function SettingsDialog({ backend, current, onClose, onSaved }: {
       </div>
       <div className="dsh-notes-field">
         <label>自动同步间隔（秒）</label>
-        <input className="dsh-notes-input" type="number" min={10} max={3600} value={autoSyncSeconds} onChange={(event) => setAutoSyncSeconds(event.target.value)} />
+        <input className="dsh-notes-input" type="number" min={10} max={3600} value={autoSyncSeconds} onChange={(event) => { touchedRef.current = true; setAutoSyncSeconds(event.target.value) }} />
       </div>
       <label className="dsh-notes-field" style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <input type="checkbox" checked={quickSync} onChange={(event) => setQuickSync(event.target.checked)} />
+        <input type="checkbox" checked={quickSync} onChange={(event) => { touchedRef.current = true; setQuickSync(event.target.checked) }} />
         <span>编辑后快速同步（否则只按间隔/手动同步）</span>
       </label>
       {message !== null && <div className="dsh-notes-success">{message}</div>}

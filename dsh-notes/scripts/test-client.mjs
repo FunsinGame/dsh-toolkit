@@ -175,6 +175,26 @@ try {
     await waitFor(() => (container.querySelector('textarea.dsh-notes-textarea')?.value ?? '').includes('rendered in jsdom'), { label: 'note opens' })
   })
 
+  await step('settings dialog stays within the notes page', async () => {
+    const settingsButton = container.querySelector('button[title="设置"]')
+    assert(settingsButton instanceof window.HTMLButtonElement, 'settings button')
+    settingsButton.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+    await waitFor(() => container.querySelector('.dsh-notes-overlay') !== null, { label: 'settings dialog' })
+    const overlay = container.querySelector('.dsh-notes-overlay')
+    assert(overlay !== null, 'overlay')
+    assert(container.contains(overlay), 'overlay belongs to notes page')
+    assert(overlay.closest('.dsh-notes-root') !== null, 'overlay has notes root')
+    assertEqual(window.getComputedStyle(overlay).position, 'absolute', 'overlay is page-scoped')
+
+    const input = overlay.querySelector('input.dsh-notes-input')
+    assert(input instanceof window.HTMLInputElement, 'server url input')
+
+    const close = overlay.querySelector('button[title="关闭"]')
+    assert(close instanceof window.HTMLButtonElement, 'close button')
+    close.click()
+    await waitFor(() => container.querySelector('.dsh-notes-overlay') === null, { label: 'settings dialog closes' })
+  })
+
   await step('no uncaught render errors', async () => {
     assertEqual(pageErrors.length, 0, `page errors: ${pageErrors.map(String).join('; ')}`)
   })

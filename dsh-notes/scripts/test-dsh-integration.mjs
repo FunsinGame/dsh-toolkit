@@ -170,6 +170,36 @@ try {
     assert(await page.locator('.dsh-notes-sync-pill').count() > 0, 'sync pill')
   })
 
+  await step('settings dialog is scoped to the notes page and keeps typed input', async () => {
+    await page.locator('button[title="设置"]').click()
+    await page.waitForSelector('.dsh-notes-overlay', { timeout: 5000 })
+    const metrics = await page.evaluate(() => {
+      const overlay = document.querySelector('.dsh-notes-overlay')
+      const root = overlay?.closest('.dsh-notes-root')
+      if (overlay === null || root === null) return null
+      const overlayBox = overlay.getBoundingClientRect()
+      const rootBox = root.getBoundingClientRect()
+      return {
+        position: getComputedStyle(overlay).position,
+        overlay: { top: overlayBox.top, bottom: overlayBox.bottom, left: overlayBox.left, right: overlayBox.right },
+        root: { top: rootBox.top, bottom: rootBox.bottom, left: rootBox.left, right: rootBox.right },
+      }
+    })
+    assert(metrics !== null, 'settings overlay metrics')
+    assertEqual(metrics.position, 'absolute', 'settings overlay must not be viewport-fixed')
+    assert(metrics.overlay.top >= metrics.root.top - 2, 'overlay top inside notes page')
+    assert(metrics.overlay.bottom <= metrics.root.bottom + 2, 'overlay bottom inside notes page')
+    assert(metrics.overlay.left >= metrics.root.left - 2, 'overlay left inside notes page')
+    assert(metrics.overlay.right <= metrics.root.right + 2, 'overlay right inside notes page')
+
+    const input = page.locator('.dsh-notes-overlay input.dsh-notes-input').first()
+    await input.fill('http://example.test:8787')
+    await page.waitForTimeout(4200)
+    assertEqual(await input.inputValue(), 'http://example.test:8787', 'typed server URL must survive polling')
+    await page.locator('.dsh-notes-overlay button[title="关闭"]').click()
+    await page.locator('.dsh-notes-overlay').waitFor({ state: 'detached', timeout: 5000 })
+  })
+
   await step('page screenshot', async () => {
     await page.screenshot({ path: join(docs, 'screenshot-dsh.png'), fullPage: true })
   })

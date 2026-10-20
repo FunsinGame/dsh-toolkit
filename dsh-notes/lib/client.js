@@ -18711,6 +18711,7 @@ var CSS = String.raw`
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
   background: var(--notes-bg);
   color: var(--notes-text);
   font-family: var(--notes-font);
@@ -18917,7 +18918,7 @@ var CSS = String.raw`
 .dsh-notes-upload-progress { height: 3px; background: var(--notes-border-soft); border-radius: 2px; overflow: hidden; margin-top: 3px; }
 .dsh-notes-upload-progress > div { height: 100%; background: var(--notes-accent); transition: width .15s; }
 
-.dsh-notes-overlay { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.32); display: grid; place-items: center; padding: 24px; }
+.dsh-notes-overlay { position: absolute; inset: 0; z-index: 50; background: rgba(0,0,0,.32); display: grid; place-items: center; padding: 24px; }
 .dsh-notes-modal { width: 620px; max-width: 100%; max-height: min(86vh, 860px); display: flex; flex-direction: column; border: 1px solid var(--notes-border); border-radius: var(--notes-radius); background: var(--notes-bg-elevated); box-shadow: var(--notes-shadow); overflow: hidden; }
 .dsh-notes-modal.is-wide { width: 860px; }
 .dsh-notes-modal-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--notes-border-soft); font-weight: 600; font-size: 13px; }
@@ -18943,7 +18944,7 @@ var CSS = String.raw`
 .dsh-notes-diff-line.is-remove { background: color-mix(in srgb, var(--notes-danger) 12%, transparent); }
 .dsh-notes-diff-line.is-add { background: color-mix(in srgb, var(--notes-success) 12%, transparent); }
 .dsh-notes-diff-line.is-same { color: var(--notes-text-faint); }
-.dsh-notes-toast-wrap { position: fixed; right: 18px; bottom: 18px; z-index: 60; display: flex; flex-direction: column; gap: 8px; max-width: 360px; }
+.dsh-notes-toast-wrap { position: absolute; right: 18px; bottom: 18px; z-index: 60; display: flex; flex-direction: column; gap: 8px; max-width: 360px; }
 .dsh-notes-toast { padding: 8px 12px; border-radius: 8px; border: 1px solid var(--notes-border); background: var(--notes-bg-elevated); box-shadow: var(--notes-shadow); font-size: 12px; }
 .dsh-notes-toast.is-error { border-color: color-mix(in srgb, var(--notes-danger) 45%, var(--notes-border)); color: var(--notes-danger); }
 .dsh-notes-toast.is-success { border-color: color-mix(in srgb, var(--notes-success) 45%, var(--notes-border)); color: var(--notes-success); }
@@ -20764,14 +20765,16 @@ function SettingsDialog({ backend: backend2, current, onClose, onSaved }) {
   const [error, setError] = (0, import_react.useState)(null);
   const [message, setMessage] = (0, import_react.useState)(null);
   const [busy, setBusy] = (0, import_react.useState)(false);
+  const hydratedRef = (0, import_react.useRef)(current !== null);
+  const touchedRef = (0, import_react.useRef)(false);
   (0, import_react.useEffect)(() => {
-    if (current === null || backend2.getSettings === void 0) return;
-    void backend2.getSettings().then((value) => {
-      setServerUrl(value.serverUrl);
-      setAutoSyncSeconds(String(value.autoSyncSeconds));
-      setQuickSync(value.quickSync);
-    }).catch(() => void 0);
-  }, [backend2, current]);
+    if (hydratedRef.current || current === null) return;
+    hydratedRef.current = true;
+    if (touchedRef.current) return;
+    setServerUrl(current.serverUrl);
+    setAutoSyncSeconds(String(current.autoSyncSeconds));
+    setQuickSync(current.quickSync);
+  }, [current]);
   const test = async () => {
     setBusy(true);
     setError(null);
@@ -20827,7 +20830,10 @@ function SettingsDialog({ backend: backend2, current, onClose, onSaved }) {
       children: [
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dsh-notes-field", children: [
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("label", { children: "\u670D\u52A1\u5668\u5730\u5740" }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("input", { className: "dsh-notes-input", value: serverUrl, placeholder: "https://notes.example.com", onChange: (event) => setServerUrl(event.target.value) }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("input", { className: "dsh-notes-input", value: serverUrl, placeholder: "https://notes.example.com", onChange: (event) => {
+            touchedRef.current = true;
+            setServerUrl(event.target.value);
+          } }),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dsh-notes-hint", children: "\u4F8B\u5982 https://notes.example.com \u6216 http://192.168.1.10:8787" })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dsh-notes-field", children: [
@@ -20844,10 +20850,16 @@ function SettingsDialog({ backend: backend2, current, onClose, onSaved }) {
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dsh-notes-field", children: [
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("label", { children: "\u81EA\u52A8\u540C\u6B65\u95F4\u9694\uFF08\u79D2\uFF09" }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("input", { className: "dsh-notes-input", type: "number", min: 10, max: 3600, value: autoSyncSeconds, onChange: (event) => setAutoSyncSeconds(event.target.value) })
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("input", { className: "dsh-notes-input", type: "number", min: 10, max: 3600, value: autoSyncSeconds, onChange: (event) => {
+            touchedRef.current = true;
+            setAutoSyncSeconds(event.target.value);
+          } })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("label", { className: "dsh-notes-field", style: { flexDirection: "row", alignItems: "center", gap: 8 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("input", { type: "checkbox", checked: quickSync, onChange: (event) => setQuickSync(event.target.checked) }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("input", { type: "checkbox", checked: quickSync, onChange: (event) => {
+            touchedRef.current = true;
+            setQuickSync(event.target.checked);
+          } }),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: "\u7F16\u8F91\u540E\u5FEB\u901F\u540C\u6B65\uFF08\u5426\u5219\u53EA\u6309\u95F4\u9694/\u624B\u52A8\u540C\u6B65\uFF09" })
         ] }),
         message !== null && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dsh-notes-success", children: message }),

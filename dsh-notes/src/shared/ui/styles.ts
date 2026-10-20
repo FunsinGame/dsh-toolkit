@@ -36,6 +36,7 @@ export const CSS = String.raw`
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
   background: var(--notes-bg);
   color: var(--notes-text);
   font-family: var(--notes-font);
@@ -242,7 +243,7 @@ export const CSS = String.raw`
 .dsh-notes-upload-progress { height: 3px; background: var(--notes-border-soft); border-radius: 2px; overflow: hidden; margin-top: 3px; }
 .dsh-notes-upload-progress > div { height: 100%; background: var(--notes-accent); transition: width .15s; }
 
-.dsh-notes-overlay { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.32); display: grid; place-items: center; padding: 24px; }
+.dsh-notes-overlay { position: absolute; inset: 0; z-index: 50; background: rgba(0,0,0,.32); display: grid; place-items: center; padding: 24px; }
 .dsh-notes-modal { width: 620px; max-width: 100%; max-height: min(86vh, 860px); display: flex; flex-direction: column; border: 1px solid var(--notes-border); border-radius: var(--notes-radius); background: var(--notes-bg-elevated); box-shadow: var(--notes-shadow); overflow: hidden; }
 .dsh-notes-modal.is-wide { width: 860px; }
 .dsh-notes-modal-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--notes-border-soft); font-weight: 600; font-size: 13px; }
@@ -268,7 +269,7 @@ export const CSS = String.raw`
 .dsh-notes-diff-line.is-remove { background: color-mix(in srgb, var(--notes-danger) 12%, transparent); }
 .dsh-notes-diff-line.is-add { background: color-mix(in srgb, var(--notes-success) 12%, transparent); }
 .dsh-notes-diff-line.is-same { color: var(--notes-text-faint); }
-.dsh-notes-toast-wrap { position: fixed; right: 18px; bottom: 18px; z-index: 60; display: flex; flex-direction: column; gap: 8px; max-width: 360px; }
+.dsh-notes-toast-wrap { position: absolute; right: 18px; bottom: 18px; z-index: 60; display: flex; flex-direction: column; gap: 8px; max-width: 360px; }
 .dsh-notes-toast { padding: 8px 12px; border-radius: 8px; border: 1px solid var(--notes-border); background: var(--notes-bg-elevated); box-shadow: var(--notes-shadow); font-size: 12px; }
 .dsh-notes-toast.is-error { border-color: color-mix(in srgb, var(--notes-danger) 45%, var(--notes-border)); color: var(--notes-danger); }
 .dsh-notes-toast.is-success { border-color: color-mix(in srgb, var(--notes-success) 45%, var(--notes-border)); color: var(--notes-success); }

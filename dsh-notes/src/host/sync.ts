@@ -31,7 +31,7 @@ export class SyncEngine {
   private remote: RemoteClient | null
   private timer: Timer | null = null
   private quickTimer: Timer | null = null
-  private inflight: Promise<void> | null = null
+  private queue: Promise<void> = Promise.resolve()
   private disposed = false
   private state: SyncStatus
   private serverId: string | null = null
@@ -153,13 +153,12 @@ export class SyncEngine {
       this.emit()
       return
     }
-    if (this.inflight !== null) return this.inflight
-    this.inflight = this.runSync(reason)
-    try {
-      await this.inflight
-    } finally {
-      this.inflight = null
-    }
+    // Queue syncs instead of returning the in-flight one: an edit or delete
+    // made while a sync is running must get its own push pass rather than
+    // waiting for the next timer tick. The queue also keeps syncs serialized.
+    const run = this.queue.then(() => this.runSync(reason))
+    this.queue = run.catch(() => undefined)
+    return run
   }
 
   private async runSync(reason: string): Promise<void> {

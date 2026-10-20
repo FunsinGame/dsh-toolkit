@@ -975,7 +975,7 @@ var SyncEngine = class {
   remote;
   timer = null;
   quickTimer = null;
-  inflight = null;
+  queue = Promise.resolve();
   disposed = false;
   state;
   serverId = null;
@@ -1083,13 +1083,9 @@ var SyncEngine = class {
       this.emit();
       return;
     }
-    if (this.inflight !== null) return this.inflight;
-    this.inflight = this.runSync(reason);
-    try {
-      await this.inflight;
-    } finally {
-      this.inflight = null;
-    }
+    const run = this.queue.then(() => this.runSync(reason));
+    this.queue = run.catch(() => void 0);
+    return run;
   }
   async runSync(reason) {
     if (this.disposed || this.remote === null) return;
