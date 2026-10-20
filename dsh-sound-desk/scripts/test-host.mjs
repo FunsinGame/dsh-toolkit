@@ -11,6 +11,7 @@
 
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
+import { existsSync } from 'node:fs'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -91,9 +92,49 @@ const ctx = {
   webServer: server,
 }
 
-const { apply } = await import(new URL('../lib/index.js', import.meta.url).href)
+const { apply, resolvePackage } = await import(new URL('../lib/index.js', import.meta.url).href)
 apply(ctx)
 assert.equal(routes.length, 1, 'apply() registers exactly one prefix route')
+
+// -- optional dependency resolution --------------------------------------
+
+console.log('optional dependencies')
+{
+  const reference = resolve(root, '..', 'sound-desk')
+  const searchRoots = [reference, join(reference, 'packages', 'engine')]
+
+  const transformers = resolvePackage('@huggingface/transformers', searchRoots)
+  check(
+    'transformers resolves to its package root, not dist/',
+    transformers !== null && transformers.dir.endsWith(join('@huggingface', 'transformers')),
+    transformers?.dir ?? 'not found',
+  )
+  check(
+    'transformers resolves its ESM entry',
+    transformers !== null && transformers.url.endsWith('transformers.node.mjs'),
+    transformers?.url ?? '',
+  )
+  if (transformers !== null) {
+    const lib = await import(transformers.url)
+    check(
+      'transformers exposes the CLAP API the engine calls',
+      typeof lib.AutoTokenizer?.from_pretrained === 'function' &&
+        typeof lib.AutoProcessor?.from_pretrained === 'function' &&
+        typeof lib.env === 'object',
+    )
+  }
+
+  const ffmpegPackage = resolvePackage('ffmpeg-static', searchRoots)
+  check(
+    'ffmpeg-static resolves to its package root',
+    ffmpegPackage !== null && ffmpegPackage.dir.endsWith('ffmpeg-static'),
+    ffmpegPackage?.dir ?? 'not found',
+  )
+  check(
+    'ffmpeg binary exists where the plugin looks for it',
+    ffmpegPackage !== null && existsSync(join(ffmpegPackage.dir, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')),
+  )
+}
 
 // -- a plain HTTP server that dispatches like DSH's -----------------------
 

@@ -11,6 +11,13 @@ import { SoundDeskHost, type ConnectionLike } from './host'
 
 export const name = 'dsh-sound-desk'
 
+/**
+ * Test seam: lets `scripts/test-host.mjs` assert how an optional dependency resolves
+ * in the *shipped* bundle, which is where the pnpm-store layout actually matters.
+ * The plugin loader ignores exports other than `apply`/`inject`/`Config`/`name`.
+ */
+export { resolvePackage } from './deps'
+
 export function apply(ctx: any): void {
   const host = new SoundDeskHost(() => {
     try {

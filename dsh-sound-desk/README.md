@@ -101,7 +101,7 @@ dsh plugin --profile desktop remove dsh-sound-desk
 
 ## 能力与限制
 
-- **语义搜索需要模型**：默认关闭。没有模型时关键词 + UCS 分类仍然完整可用，界面会明说「语义搜索未启用」，而不是假装搜过。
+- **语义搜索需要模型**：默认关闭。没有模型时关键词 + UCS 分类仍然完整可用，界面会明说「语义搜索未启用」，而不是假装搜过。启用后会按「插件自身 `node_modules` → `../sound-desk` → 设置里的参考目录」查找 `@huggingface/transformers`，并使用它自己的 ESM 入口（`transformers.node.mjs`）；加载失败时设置页与日志会给出具体原因，而不是只说「加载失败」。
 - **非 WAV 格式需要 ffmpeg**：FLAC/MP3/AIFF/M4A 能入库，但没有 ffmpeg 就没有波形、指纹和试听。插件会先找设置的路径，再找 `SOUNDDESK_FFMPEG`、PATH 与 `ffmpeg-static`。
 - **写回只支持 WAV/BWF**：与上游一致，并且默认先备份。
 - **拖出**：拖拽带的是可下载 URL（`text/uri-list` / `DownloadURL`），浏览器不能把真实文件交给文件管理器；需要真实文件时用「下载」或「在系统中显示」。DSH 桌面端同样适用。
@@ -145,8 +145,9 @@ node scripts/test-e2e.mjs --screenshot docs/screenshot.png   # 真实数据出�
 
 测试说明：
 
-- `npm run test:host` 用 `apply(ctx)` 装载真实产物，在普通 HTTP 服务上跑通：鉴权、引擎冷启动、UCS 数据集、导入一个真实 WAV、关键词搜索、Range 流、波形、下载、设置与日志。
+- `npm run test:host` 用 `apply(ctx)` 装载真实产物，在普通 HTTP 服务上跑通：鉴权、引擎冷启动、UCS 数据集、导入一个真实 WAV、关键词搜索、Range 流、波形、下载、设置与日志；并断言可选依赖解析到了正确的包根目录与 ESM 入口。
 - `npm run test:client` 在 jsdom 里用假的 DSH slot 宿主加载 `lib/client.js`，挂载活动页、打开设置与导入对话框。
+- `npm run test:model` 用 `loadModel: true` 启动真实产物，断言 `@huggingface/transformers` 从包根目录加载、没有模块加载错误（模型主机指向本地 404，不联网、不下载）。
 - `npm run test:e2e` 在真实 Chrome 里跑完整链路：宿主半侧 + 引擎 + 8 个生成的真实 WAV + 真实 `lib/client.js`，验证浏览、选中、播放、波形、设置对话框，并可 `--screenshot` 出图（README 的图就是这么来的）。
 - `npm run screenshot` 是离线版：`scripts/harness` 把同一份浏览器半侧跑在 Chrome 里，宿主 API 打桩，用于没有引擎/素材时调 UI。
 
@@ -156,7 +157,8 @@ node scripts/test-e2e.mjs --screenshot docs/screenshot.png   # 真实数据出�
 src/host/
   index.ts       插件入口：注册 webServer 路由
   host.ts        /dsh-sound-desk 路由、/host/* 动作、鉴权
-  engine.ts      引擎生命周期、可选依赖解析、完整导入
+  engine.ts      引擎生命周期、可选依赖预加载、完整导入
+  deps.ts        可选依赖解析：包根目录 + exports 的 ESM 入口
   proxy.ts       同源 → 环回端口的流式代理
   settings.ts    settings.json
   log.ts         内存日志（设置页展示）

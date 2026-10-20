@@ -13,14 +13,13 @@
  *   - ffmpeg, without which non-WAV files cannot be decoded for peaks/playback.
  */
 
-import { createRequire } from 'node:module'
 import { stat } from 'node:fs/promises'
 import { basename, dirname, extname, join, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 
 import { createApp, startServer, rowToAsset } from '@sounddesk/engine'
 
+import { resolvePackage } from './deps'
 import { PLUGIN_ROOT, pluginDir } from './paths'
 import type { SettingsStore, SoundDeskSettings } from './settings'
 import type { Logger } from './log'
@@ -38,8 +37,6 @@ export interface EngineHandle {
   server: { port: number; token: string; url: string; close: () => Promise<void> }
 }
 
-const require = createRequire(import.meta.url)
-
 /** Directories searched for the optional heavy packages, in priority order. */
 function dependencyRoots(store: SettingsStore): string[] {
   return [
@@ -51,68 +48,53 @@ function dependencyRoots(store: SettingsStore): string[] {
   ]
 }
 
-/** Resolve a package to its directory by asking Node from each candidate root. */
-function packageDir(specifier: string, roots: readonly string[]): string | null {
-  for (const root of roots) {
-    try {
-      return dirname(createRequire(join(root, 'package.json')).resolve(specifier))
-    } catch {
-      /* not installed under this root */
-    }
-  }
-  return null
-}
-
 /**
  * Publish `@huggingface/transformers` where the bundled engine shim can read it.
  *
  * The engine imports the package dynamically and this build keeps that import
- * resolvable but empty, so the plugin — not the package — decides which copy to
- * use and whether to pay for it at all.
+ * resolvable but empty, so the plugin — not the package — decides which copy to use
+ * and whether to pay for it at all. The package is loaded through its ESM entry
+ * (`transformers.node.mjs`), not its `main` field, because the CJS bundle exposes the
+ * API through `module.exports` rather than named bindings.
  */
 export async function preloadTransformers(
   store: SettingsStore,
   log: Logger,
 ): Promise<{ ok: true; from: string } | { ok: false; error: string }> {
   const roots = dependencyRoots(store)
-  const candidates: string[] = []
+  const failures: string[] = []
+  let found = false
+
   for (const root of roots) {
-    const dir = packageDirFrom(root, '@huggingface/transformers')
-    if (dir !== null && !candidates.includes(dir)) candidates.push(dir)
+    const resolved = resolvePackage('@huggingface/transformers', [root])
+    if (resolved === null) continue
+    found = true
+    try {
+      const mod = (await import(resolved.url)) as Record<string, unknown>
+      const lib = (mod.AutoTokenizer !== undefined ? mod : (mod.default as Record<string, unknown>)) ?? mod
+      if (typeof lib.AutoTokenizer === 'undefined') {
+        throw new Error('模块里没有 AutoTokenizer 导出（可能加载到了错误的入口）')
+      }
+      ;(globalThis as Record<string, unknown>).__DSH_SOUND_DESK_TRANSFORMERS__ = lib
+      log.info(`transformers loaded from ${resolved.dir}`)
+      return { ok: true, from: resolved.dir }
+    } catch (error) {
+      const message = `${resolved.dir}: ${errorMessage(error)}`
+      failures.push(message)
+      log.warn(`transformers failed to load — ${resolved.url}: ${errorMessage(error)}`)
+    }
   }
-  if (candidates.length === 0) {
+
+  if (!found) {
     return {
       ok: false,
       error:
         '未找到 @huggingface/transformers。请安装该依赖，或在插件设置里把「参考目录」指向 sound-desk 检出目录。',
     }
   }
-
-  for (const target of candidates) {
-    try {
-      const pkg = JSON.parse(readFileSync(join(target, 'package.json'), 'utf8')) as {
-        main?: string
-        module?: string
-      }
-      const main = pkg.module ?? pkg.main ?? 'index.js'
-      const url = pathToFileURL(resolve(target, main)).href
-      const mod = (await import(url)) as Record<string, unknown>
-      const lib = (mod.AutoTokenizer !== undefined ? mod : (mod.default as Record<string, unknown>)) ?? mod
-      ;(globalThis as Record<string, unknown>).__DSH_SOUND_DESK_TRANSFORMERS__ = lib
-      log.info(`transformers loaded from ${target}`)
-      return { ok: true, from: target }
-    } catch (error) {
-      log.warn(`transformers at ${target} failed to load: ${errorMessage(error)}`)
-    }
-  }
-  return { ok: false, error: '找到了 @huggingface/transformers，但加载失败；详见插件日志。' }
-}
-
-function packageDirFrom(root: string, specifier: string): string | null {
-  try {
-    return dirname(createRequire(join(root, 'package.json')).resolve(specifier))
-  } catch {
-    return null
+  return {
+    ok: false,
+    error: `找到了 @huggingface/transformers，但加载失败：${failures[0] ?? '未知原因'}`,
   }
 }
 
@@ -130,8 +112,8 @@ export function resolveFfmpeg(settings: SoundDeskSettings, store: SettingsStore,
   const roots = dependencyRoots(store)
   const candidates: string[] = []
   for (const root of roots) {
-    const dir = packageDirFrom(root, 'ffmpeg-static')
-    if (dir !== null) candidates.push(join(dir, exe))
+    const resolved = resolvePackage('ffmpeg-static', [root])
+    if (resolved !== null) candidates.push(join(resolved.dir, exe))
   }
   candidates.push(join(pluginDir(), 'bin', exe))
   for (const candidate of candidates) {

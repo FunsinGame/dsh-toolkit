@@ -31,9 +31,10 @@
     "build": "node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check": "node --check lib/index.js && node --check lib/client.js",
-    "test": "node scripts/test-host.mjs && node scripts/test-client.mjs",
+    "test": "node scripts/test-host.mjs && node scripts/test-client.mjs && node scripts/test-model-load.mjs",
     "test:host": "node scripts/test-host.mjs",
     "test:client": "node scripts/test-client.mjs",
+    "test:model": "node scripts/test-model-load.mjs",
     "test:e2e": "node scripts/test-e2e.mjs",
     "screenshot": "node scripts/screenshot.mjs"
   },
