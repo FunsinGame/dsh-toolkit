@@ -1,0 +1,80 @@
+{
+  "name": "vscode-dsh-send",
+  "displayName": "DSH Send",
+  "description": "Send a file tab or an editor code range into an open DeepSeek Harness composer.",
+  "version": "0.1.0",
+  "publisher": "dsh-toolkit",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "package": "npm run build && vsce package --no-dependencies"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "dshSend.sendFile",
+        "title": "发送文件到 DSH",
+        "category": "DSH"
+      },
+      {
+        "command": "dshSend.sendSelection",
+        "title": "发送代码段到 DSH",
+        "category": "DSH"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "dshSend.sendFile",
+          "when": "resourceScheme == file",
+          "group": "navigation@100"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "dshSend.sendFile",
+          "group": "navigation@100"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "dshSend.sendSelection",
+          "when": "editorTextFocus",
+          "group": "navigation@100"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "DSH Send",
+      "properties": {
+        "dshSend.home": {
+          "type": "string",
+          "default": "",
+          "description": "DSH home directory. Empty follows DSH_HOME, then ~/.dsh."
+        },
+        "dshSend.instance": {
+          "type": "string",
+          "default": "",
+          "description": "Optional exact path to one DSH instance JSON file."
+        }
+      }
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.90.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.0"
+  }
+}
