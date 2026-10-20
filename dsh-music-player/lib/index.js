@@ -20434,9 +20434,27 @@ var MediaService = class {
   }
   /** Proxy a Bilibili image through the same origin. */
   async proxyImage(url, res, signal) {
+    let target = url;
+    for (let depth = 0; depth < 6; depth++) {
+      let candidate;
+      try {
+        candidate = new URL(target, "http://localhost");
+      } catch {
+        try {
+          target = decodeURIComponent(target);
+          candidate = new URL(target, "http://localhost");
+        } catch {
+          break;
+        }
+      }
+      if (!candidate.pathname.endsWith("/dsh-music-player/image")) break;
+      const inner = candidate.searchParams.get("url");
+      if (inner === null || inner === "") break;
+      target = inner;
+    }
     let parsed;
     try {
-      parsed = new URL(url.startsWith("//") ? `https:${url}` : url);
+      parsed = new URL(target.startsWith("//") ? `https:${target}` : target);
     } catch {
       res.writeHead(400).end();
       return;

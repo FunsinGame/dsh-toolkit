@@ -191,12 +191,42 @@ export const api = {
     request(`/api/logs?limit=${limit}`),
 }
 
+/**
+ * Unwrap URLs produced by an older host origin (the desktop app uses an
+ * ephemeral port). Persisted queue entries can therefore carry
+ * `http://127.0.0.1:<old-port>/dsh-music-player/image?url=...`; feeding that
+ * back into the proxy would nest one proxy URL inside another and fail the
+ * host's image-host allowlist.
+ */
+function unwrapImageProxy(value: string): string {
+  let current = value
+  for (let depth = 0; depth < 6; depth++) {
+    let parsed: URL
+    try {
+      parsed = new URL(current, 'http://localhost')
+    } catch {
+      try {
+        current = decodeURIComponent(current)
+        parsed = new URL(current, 'http://localhost')
+      } catch {
+        break
+      }
+    }
+    if (!parsed.pathname.endsWith('/dsh-music-player/image')) break
+    const inner = parsed.searchParams.get('url')
+    if (inner === null || inner === '') break
+    current = inner
+  }
+  return current
+}
+
 export function imageUrl(url: string | null | undefined): string {
   if (url === null || url === undefined || url === '') return ''
   if (url.startsWith('data:') || url.startsWith('blob:')) return url
-  if (url.startsWith('/dsh-music-player')) return hostUrl(url)
-  if (HOST_ORIGIN !== '' && url.startsWith(`${HOST_ORIGIN}/dsh-music-player`)) return url
-  return `${BASE}/image?url=${encodeURIComponent(url)}`
+  const raw = unwrapImageProxy(url)
+  if (raw.startsWith('/dsh-music-player')) return hostUrl(raw)
+  if (HOST_ORIGIN !== '' && raw.startsWith(`${HOST_ORIGIN}/dsh-music-player`)) return raw
+  return `${BASE}/image?url=${encodeURIComponent(raw)}`
 }
 
 export function modeLabel(mode: PlayMode): string {

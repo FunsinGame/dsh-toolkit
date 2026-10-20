@@ -64,6 +64,19 @@ console.log('status', status.status, JSON.stringify(status.body).slice(0, 600))
 const search = await get('/dsh-music-player/api/search?keyword=' + encodeURIComponent('BV1Za4y1G7Vq'))
 console.log('search', search.status, JSON.stringify(search.body).slice(0, 600))
 
+// Old persisted queue entries can contain an image proxy URL from a previous
+// desktop port; the host must unwrap that before validating the image host.
+const rawCover = search.body?.data?.items?.[0]?.cover
+if (typeof rawCover === 'string' && rawCover !== '') {
+  const single = `${origin}/dsh-music-player/image?url=${encodeURIComponent(rawCover)}`
+  const nested = `${origin}/dsh-music-player/image?url=${encodeURIComponent(`http://127.0.0.1:59999/dsh-music-player/image?url=${encodeURIComponent(rawCover)}`)}`
+  for (const [label, target] of [['image', single], ['nested image', nested]]) {
+    const response = await fetch(target)
+    const body = Buffer.from(await response.arrayBuffer())
+    console.log(label, response.status, response.headers.get('content-type'), body.byteLength)
+  }
+}
+
 const searchText = await get('/dsh-music-player/api/search?keyword=' + encodeURIComponent('久石让'))
 console.log('search text', searchText.status, searchText.body?.data?.items?.length, searchText.body?.data?.items?.[0]?.title)
 

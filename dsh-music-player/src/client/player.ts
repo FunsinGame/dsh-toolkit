@@ -629,7 +629,9 @@ export class PlayerController {
           keyword: result.keyword,
           page: result.page,
           numPages: result.numPages,
-          items: result.items.map((item) => ({ ...item, cover: imageUrl(item.cover) })),
+          // Keep the raw Bilibili cover URL: the host origin can change across
+          // desktop restarts, and proxying belongs at render time.
+          items: result.items.map((item) => ({ ...item })),
           loading: false,
           error: null,
           at: Date.now(),
@@ -731,7 +733,7 @@ export class PlayerController {
               total: result.total,
               page: result.page,
               hasMore: result.hasMore,
-              items: items.map((item) => ({ ...item, cover: imageUrl(item.cover) })),
+              items: items.map((item) => ({ ...item })),
               loading: false,
               loadingMore: false,
               error: null,

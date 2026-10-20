@@ -121,12 +121,34 @@ var api = {
   clearCache: () => post("/api/cache/clear", {}),
   logs: (limit = 200) => request(`/api/logs?limit=${limit}`)
 };
+function unwrapImageProxy(value) {
+  let current = value;
+  for (let depth = 0; depth < 6; depth++) {
+    let parsed;
+    try {
+      parsed = new URL(current, "http://localhost");
+    } catch {
+      try {
+        current = decodeURIComponent(current);
+        parsed = new URL(current, "http://localhost");
+      } catch {
+        break;
+      }
+    }
+    if (!parsed.pathname.endsWith("/dsh-music-player/image")) break;
+    const inner = parsed.searchParams.get("url");
+    if (inner === null || inner === "") break;
+    current = inner;
+  }
+  return current;
+}
 function imageUrl(url) {
   if (url === null || url === void 0 || url === "") return "";
   if (url.startsWith("data:") || url.startsWith("blob:")) return url;
-  if (url.startsWith("/dsh-music-player")) return hostUrl(url);
-  if (HOST_ORIGIN !== "" && url.startsWith(`${HOST_ORIGIN}/dsh-music-player`)) return url;
-  return `${BASE}/image?url=${encodeURIComponent(url)}`;
+  const raw = unwrapImageProxy(url);
+  if (raw.startsWith("/dsh-music-player")) return hostUrl(raw);
+  if (HOST_ORIGIN !== "" && raw.startsWith(`${HOST_ORIGIN}/dsh-music-player`)) return raw;
+  return `${BASE}/image?url=${encodeURIComponent(raw)}`;
 }
 function modeLabel(mode) {
   switch (mode) {
@@ -817,7 +839,9 @@ var PlayerController = class {
           keyword: result.keyword,
           page: result.page,
           numPages: result.numPages,
-          items: result.items.map((item) => ({ ...item, cover: imageUrl(item.cover) })),
+          // Keep the raw Bilibili cover URL: the host origin can change across
+          // desktop restarts, and proxying belongs at render time.
+          items: result.items.map((item) => ({ ...item })),
           loading: false,
           error: null,
           at: Date.now()
@@ -911,7 +935,7 @@ var PlayerController = class {
               total: result.total,
               page: result.page,
               hasMore: result.hasMore,
-              items: items.map((item) => ({ ...item, cover: imageUrl(item.cover) })),
+              items: items.map((item) => ({ ...item })),
               loading: false,
               loadingMore: false,
               error: null

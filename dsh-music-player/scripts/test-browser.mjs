@@ -239,6 +239,52 @@ console.log('search', searchInfo)
 if (searchInfo.count === 0) throw new Error('search returned no results')
 if (searchInfo.hasMarkup) throw new Error('search titles still contain HTML')
 
+const coverInfo = await page.evaluate(async () => {
+  const image = document.querySelector('.dmp-result-list .dmp-result-cover img')
+  if (image === null) return null
+  if (!image.complete) await new Promise((resolve) => { image.onload = resolve; image.onerror = resolve })
+  return { src: image.src, complete: image.complete, naturalWidth: image.naturalWidth }
+})
+console.log('cover', coverInfo)
+if (coverInfo !== null && coverInfo.naturalWidth === 0) throw new Error('cover image failed to load')
+
+// A queue persisted under a previous desktop port can still carry that port's
+// image-proxy URL; the renderer must unwrap it and re-point it at the current
+// host instead of nesting two proxy URLs.
+const oldProxyRaw = await page.evaluate(() => {
+  const controller = window.__DSH_MUSIC_PLAYER__.controller
+  const state = controller.library.getSnapshot()
+  const raw = state.search?.items?.[0]?.cover
+  if (raw === undefined) return null
+  const old = `http://127.0.0.1:59999/dsh-music-player/image?url=${encodeURIComponent(raw)}`
+  controller.library.set((current) => ({
+    ...current,
+    search: current.search === null
+      ? null
+      : { ...current.search, items: current.search.items.map((item, index) => index === 0 ? { ...item, cover: old } : item) },
+  }))
+  return raw
+})
+if (oldProxyRaw !== null) {
+  await page.waitForFunction(() => {
+    const image = document.querySelector('.dmp-result-list .dmp-result-cover img')
+    return image !== null && !image.src.includes(':59999') && image.src.includes('/dsh-music-player/image?url=')
+  }, null, { timeout: 5000 })
+  const currentSrc = await page.evaluate(() => document.querySelector('.dmp-result-list .dmp-result-cover img')?.src ?? '')
+  console.log('old proxy cover', { src: currentSrc })
+  if (currentSrc.includes(':59999')) throw new Error('old image proxy URL was not unwrapped')
+  if (!currentSrc.includes('/dsh-music-player/image?url=')) throw new Error('cover was not re-proxied at render time')
+  await page.evaluate((raw) => {
+    const controller = window.__DSH_MUSIC_PLAYER__.controller
+    controller.library.set((current) => ({
+      ...current,
+      search: current.search === null
+        ? null
+        : { ...current.search, items: current.search.items.map((item, index) => index === 0 ? { ...item, cover: raw } : item) },
+    }))
+  }, oldProxyRaw)
+}
+
 // The favorites dialog is portalled to body; the local token set must travel
 // with it or the modal surface resolves to transparent.
 await page.locator('.dmp-result-list .dmp-result-actions button[title="加入收藏夹"]').first().click()
