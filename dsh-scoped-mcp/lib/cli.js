@@ -15,7 +15,7 @@ import {
   workspaceConfigPath,
   writeConfigFile,
 } from './config.js'
-import { probeServer } from './mcp-bridge.js'
+import { probeServer } from './mcp-connection.js'
 
 function usage() {
   console.log(`dsh-scoped-mcp — workspace-scoped MCP manager for DSH

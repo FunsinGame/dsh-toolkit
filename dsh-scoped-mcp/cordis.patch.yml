@@ -1,9 +1,14 @@
 # dsh-scoped-mcp bundle patch.
 #
-# The plugin listens for agent/session creation and registers the MCP tools of
-# the session's workspace scope on that agent's scoped tool context. No MCP
-# server is enabled by the patch itself; servers are configured per scope in
-# ~/.dsh/mcp-scope.yml (global) and <workspace>/.dsh/mcp.yml (workspace).
+# One host plugin: it owns per-scope MCP connections, attaches each agent to the
+# effective servers of its workspace, and serves the MCP page's JSON API on the
+# composition's own Web server. No MCP server is configured by the patch itself.
+#
+#   global scope:    <DSH_HOME>/mcp-scope.yml
+#   workspace scope: <workspace>/.dsh/mcp.yml
+#
+# A workspace entry with the same serverName replaces the global entry for that
+# workspace; every other global entry still applies there.
 - insert:
     - id: dsh-scoped-mcp
       name: dsh-scoped-mcp
