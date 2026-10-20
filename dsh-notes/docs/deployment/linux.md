@@ -44,6 +44,16 @@ sudo tar -xzf dsh-notes-0.1.0.tgz -C /tmp
 sudo cp -a /tmp/package/. /opt/dsh-notes/
 ```
 
+> 如果使用 `npm install -g` 而不是解压，后续命令不要写 `node server/bin.js`（当前目录没有 `server/`），
+> 改用全局命令 `dsh-notes-server`，或：
+>
+> ```bash
+> node "$(npm root -g)/dsh-notes/server/bin.js" version
+> ```
+>
+> 也要确保运行服务的用户能读到全局 npm 目录；systemd 的 `ExecStart` 建议继续写
+> `/opt/dsh-notes/server/bin.js` 这类绝对路径，不要依赖全局 shim 的 PATH。
+
 ## 3. 创建账号与令牌（本机）
 
 ```bash

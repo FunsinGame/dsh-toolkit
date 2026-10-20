@@ -54,7 +54,7 @@ DSH 插件页面：
 要求 **Node.js 24+**（内置 `node:sqlite`）。二选一：
 
 ```bash
-# A. 从仓库/压缩包解压后直接运行
+# A. 从仓库/压缩包解压后，在解压目录里直接运行
 node server/bin.js version
 
 # B. 全局安装打包好的 tgz
@@ -62,25 +62,44 @@ npm install -g ./dist/dsh-notes-0.1.0.tgz
 dsh-notes-server version
 ```
 
-创建数据目录、账号与插件令牌（只能在服务器本机执行）：
+两种安装方式的命令不同：
+
+| 场景 | 命令 |
+|---|---|
+| 在解压目录/仓库里 | `node server/bin.js <子命令>` |
+| `npm install -g` 之后 | `dsh-notes-server <子命令>` |
+| 任意目录调用全局包里的原文件 | `node "$(npm root -g)/dsh-notes/server/bin.js" <子命令>` |
+
+> `node server/bin.js` 使用的是**当前目录下的相对路径**；全局安装后当前目录没有 `server/`，所以会报“找不到模块”。这时请直接用 `dsh-notes-server`，或通过 `npm root -g` 拼出绝对路径。
+
+创建数据目录、账号与插件令牌（只能在服务器本机执行）。下面以解压目录/仓库为例；如果是全局安装，把 `node server/bin.js` 全部替换为 `dsh-notes-server`：
 
 ```bash
-# Windows PowerShell / Linux / Debian 通用
+# 解压目录/仓库：
 node server/bin.js init --data-dir /var/lib/dsh-notes
-
 node server/bin.js user add alice --data-dir /var/lib/dsh-notes
 # 按提示输入两次密码（不回显，至少 12 位）
-
 node server/bin.js token create --user alice --name dsh-plugin --data-dir /var/lib/dsh-notes
 # 令牌只显示一次，请立即保存
+
+# 全局安装：
+# dsh-notes-server init --data-dir /var/lib/dsh-notes
+# dsh-notes-server user add alice --data-dir /var/lib/dsh-notes
+# dsh-notes-server token create --user alice --name dsh-plugin --data-dir /var/lib/dsh-notes
 ```
 
 启动（默认只监听 `127.0.0.1:8787`）：
 
 ```bash
+# 解压目录/仓库：
 node server/bin.js serve --data-dir /var/lib/dsh-notes \
   --host 127.0.0.1 --port 8787 \
   --public-url https://notes.example.com --behind-proxy
+
+# 全局安装：
+# dsh-notes-server serve --data-dir /var/lib/dsh-notes \
+#   --host 127.0.0.1 --port 8787 \
+#   --public-url https://notes.example.com --behind-proxy
 ```
 
 打开 `https://notes.example.com`（或本机 `http://127.0.0.1:8787`）用账号密码登录。公网部署必须通过 Caddy/Nginx 终止 TLS，**不要**把 8787 直接暴露到公网。反向代理与 systemd/Docker 示例见 [部署文档](docs/deployment/)。

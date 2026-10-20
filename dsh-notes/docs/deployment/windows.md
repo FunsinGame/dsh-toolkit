@@ -31,6 +31,18 @@ npm install -g .\dsh-notes-0.1.0.tgz
 dsh-notes-server version
 ```
 
+> 全局安装后**不要**再执行 `node .\server\bin.js`：当前目录没有 `server\`。请把后文的
+> `node .\server\bin.js` 替换为 `dsh-notes-server`；或在任意 PowerShell 目录使用：
+>
+> ```powershell
+> $cli = Join-Path (npm root -g) 'dsh-notes\server\bin.js'
+> node $cli version
+> node $cli user add alice --data-dir C:\ProgramData\dsh-notes
+> ```
+>
+> 如果提示找不到 `dsh-notes-server`，用 `Get-Command dsh-notes-server` 检查，
+> 或把 `npm prefix -g` 下的 `dsh-notes-server.cmd` 所在目录加入 PATH。
+
 ## 3. 创建数据目录与专用账号
 
 以管理员 PowerShell 执行：

@@ -37,6 +37,10 @@ sudo -u dshnotes node server/bin.js user add alice --data-dir /var/lib/dsh-notes
 sudo -u dshnotes node server/bin.js token create --user alice --name dsh-plugin --data-dir /var/lib/dsh-notes
 ```
 
+> 如果使用 `npm install -g .\dsh-notes-0.1.0.tgz` 安装，当前目录没有 `server/`，请改用
+> `dsh-notes-server init ...`（或 `node "$(npm root -g)/dsh-notes/server/bin.js" ...`）。
+> systemd 服务仍建议使用 `/opt/dsh-notes/server/bin.js` 绝对路径。
+
 密码/令牌只在本机输入/显示；没有 Web 注册、改密、令牌管理入口。
 
 ## 4. systemd
