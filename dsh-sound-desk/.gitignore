@@ -1,0 +1,6 @@
+node_modules/
+lib/
+tmp/
+data/
+.npm-cache/
+package-lock.json

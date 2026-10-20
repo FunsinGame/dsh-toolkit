@@ -1,0 +1,52 @@
+{
+  "name": "dsh-sound-desk",
+  "version": "0.1.0",
+  "description": "DSH 音效素材工作台：在左侧活动栏打开，索引本地音效库，做中英文语义搜索、UCS 分类、波形试听、内嵌元数据写回、效果链与多轨渲染。",
+  "type": "module",
+  "main": "lib/index.js",
+  "icon": "media/icon.svg",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./icon": "./media/icon.svg",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "files": [
+    "lib",
+    "data",
+    "media",
+    "docs/screenshot.png",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "check": "node --check lib/index.js && node --check lib/client.js",
+    "test": "node scripts/test-host.mjs && node scripts/test-client.mjs",
+    "test:host": "node scripts/test-host.mjs",
+    "test:client": "node scripts/test-client.mjs",
+    "test:e2e": "node scripts/test-e2e.mjs",
+    "screenshot": "node scripts/screenshot.mjs"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.7",
+    "jsdom": "^30.1.3",
+    "playwright-core": "^1.64.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "rolldown": "^1.2.9",
+    "typescript": "^5.7.2"
+  }
+}

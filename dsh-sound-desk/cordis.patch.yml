@@ -1,0 +1,10 @@
+# dsh-sound-desk bundle patch.
+#
+# The host half runs SoundDesk's engine in-process and mounts its HTTP surface on
+# DSH's own Web server under /dsh-sound-desk, so the workbench needs no extra
+# port, no CORS exception and no copied session token. The browser half is loaded
+# through the package's `dsh.client` declaration and contributes the activity-bar
+# entry, the workbench page and the status-bar mini readout.
+- insert:
+    - id: dsh-sound-desk
+      name: dsh-sound-desk

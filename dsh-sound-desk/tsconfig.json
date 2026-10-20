@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node"],
+    "paths": {
+      "@sounddesk/core": ["../sound-desk/packages/core/dist/index.d.ts"],
+      "@sounddesk/ucs": ["../sound-desk/packages/ucs/dist/index.d.ts"],
+      "@sounddesk/audio-wav": ["../sound-desk/packages/audio-wav/dist/index.d.ts"],
+      "@sounddesk/audio-effects": ["../sound-desk/packages/audio-effects/dist/index.d.ts"],
+      "@sounddesk/engine": ["../sound-desk/packages/engine/dist/index.d.ts"]
+    }
+  },
+  "include": ["src/host/**/*.ts", "src/client/**/*.ts", "src/client/**/*.tsx"],
+  "exclude": ["node_modules", "lib"]
+}
