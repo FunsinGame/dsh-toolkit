@@ -38,10 +38,15 @@ read a Session, submit a prompt, or call a Remote method.
 
 ## Discovery file
 
-Written on Web-app activation and removed on disposal, at **both**:
+Written after both routes register and removed on disposal, at **both**:
 
-- `$DSH_HOME/runtime/external-input/<pid>.json`
-- `~/.dsh/runtime/external-input/<pid>.json`
+- `$DSH_HOME/runtime/external-input/<pid>-<nonce>.json`
+- `~/.dsh/runtime/external-input/<pid>-<nonce>.json`
+
+The per-mount nonce matters because one process can mount the Web surface
+more than once (developer reloads, secondary windows). A shared `<pid>.json`
+let a disposing or failing mount delete a sibling's live record, which made
+discovery flicker and removed a record an editor had just read.
 
 `$DSH_HOME` follows the existing home-paths rule: the environment value, else
 `~/.dsh`. The user-level copy is what lets an editor find an instance whose
