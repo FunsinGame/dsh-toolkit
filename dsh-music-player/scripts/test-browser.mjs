@@ -239,6 +239,28 @@ console.log('search', searchInfo)
 if (searchInfo.count === 0) throw new Error('search returned no results')
 if (searchInfo.hasMarkup) throw new Error('search titles still contain HTML')
 
+// The favorites dialog is portalled to body; the local token set must travel
+// with it or the modal surface resolves to transparent.
+await page.locator('.dmp-result-list .dmp-result-actions button[title="加入收藏夹"]').first().click()
+await page.waitForSelector('.dmp-modal', { state: 'visible', timeout: 10000 })
+const modalStyle = await page.evaluate(() => {
+  const modal = document.querySelector('.dmp-modal')
+  const mask = document.querySelector('.dmp-modal-mask')
+  return {
+    modalBackground: modal === null ? null : getComputedStyle(modal).backgroundColor,
+    modalColor: modal === null ? null : getComputedStyle(modal).color,
+    maskBackground: mask === null ? null : getComputedStyle(mask).backgroundColor,
+  }
+})
+console.log('modal style', modalStyle)
+if (modalStyle.modalBackground === null || modalStyle.modalBackground === 'rgba(0, 0, 0, 0)' || modalStyle.modalBackground === 'transparent') {
+  throw new Error(`favorites modal has a transparent background: ${modalStyle.modalBackground}`)
+}
+await page.waitForTimeout(300)
+await page.screenshot({ path: join(root, 'tmp', 'modal.png') })
+await page.locator('.dmp-modal-head button[title="关闭"]').click()
+await page.waitForSelector('.dmp-modal', { state: 'detached', timeout: 10000 })
+
 await page.locator('.dmp-result-list .dmp-result-actions button[title="播放"]').first().click()
 await page.waitForFunction(() => {
   const state = window.__DSH_MUSIC_PLAYER__.controller.player.getSnapshot()

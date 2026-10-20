@@ -1355,7 +1355,13 @@ function formatBytes(bytes) {
 // src/client/styles.ts
 var STYLE_ID = "dsh-music-player-style";
 var CSS = `
-.dmp-root {
+/*
+ * The modal is portalled to document.body, outside .dmp-root, so it needs
+ * the same local token set on its own wrapper. Without this the modal surface
+ * resolves --dmp-surface to nothing and renders fully transparent.
+ */
+.dmp-root,
+.dmp-modal-mask {
   --dmp-bg: var(--dsw-alias-bg-base, #ffffff);
   --dmp-surface: var(--dsw-alias-bg-layer-1, #ffffff);
   --dmp-surface-2: var(--dsw-alias-bg-layer-2, #f7f7f9);
@@ -1377,6 +1383,8 @@ var CSS = `
   --dmp-radius: 18px;
   --dmp-radius-sm: 12px;
   --dmp-shadow: 0 20px 55px rgba(15, 23, 42, .14);
+}
+.dmp-root {
   position: relative;
   display: flex;
   height: 100%;
@@ -1389,23 +1397,26 @@ var CSS = `
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
 }
-body[data-ds-dark-theme] .dmp-root {
+body[data-ds-dark-theme] .dmp-root,
+body[data-ds-dark-theme] .dmp-modal-mask {
   --dmp-shadow: 0 20px 55px rgba(0, 0, 0, .5);
 }
-.dmp-root *, .dmp-root *::before, .dmp-root *::after { box-sizing: border-box; }
-.dmp-root button, .dmp-root input, .dmp-root select { font: inherit; color: inherit; }
-.dmp-root button { cursor: pointer; }
-.dmp-root button:disabled { cursor: default; opacity: .45; }
-.dmp-root ::selection { background: color-mix(in srgb, var(--dmp-accent) 26%, transparent); }
-.dmp-root ::-webkit-scrollbar { width: 10px; height: 10px; }
-.dmp-root ::-webkit-scrollbar-thumb {
+.dmp-root *, .dmp-root *::before, .dmp-root *::after,
+.dmp-modal-mask *, .dmp-modal-mask *::before, .dmp-modal-mask *::after { box-sizing: border-box; }
+.dmp-root button, .dmp-root input, .dmp-root select,
+.dmp-modal-mask button, .dmp-modal-mask input, .dmp-modal-mask select { font: inherit; color: inherit; }
+.dmp-root button, .dmp-modal-mask button { cursor: pointer; }
+.dmp-root button:disabled, .dmp-modal-mask button:disabled { cursor: default; opacity: .45; }
+.dmp-root ::selection, .dmp-modal-mask ::selection { background: color-mix(in srgb, var(--dmp-accent) 26%, transparent); }
+.dmp-root ::-webkit-scrollbar, .dmp-modal-mask ::-webkit-scrollbar { width: 10px; height: 10px; }
+.dmp-root ::-webkit-scrollbar-thumb, .dmp-modal-mask ::-webkit-scrollbar-thumb {
   background: var(--dsw-alias-scrollbar-bg-l1, rgba(0, 0, 0, .16));
   border: 3px solid transparent;
   border-radius: 999px;
   background-clip: content-box;
 }
-.dmp-root ::-webkit-scrollbar-thumb:hover { background-color: var(--dsw-alias-scrollbar-hover-l1, rgba(0, 0, 0, .28)); }
-.dmp-root ::-webkit-scrollbar-track { background: transparent; }
+.dmp-root ::-webkit-scrollbar-thumb:hover, .dmp-modal-mask ::-webkit-scrollbar-thumb:hover { background-color: var(--dsw-alias-scrollbar-hover-l1, rgba(0, 0, 0, .28)); }
+.dmp-root ::-webkit-scrollbar-track, .dmp-modal-mask ::-webkit-scrollbar-track { background: transparent; }
 
 .dmp-root::before {
   content: "";
@@ -2046,6 +2057,10 @@ body[data-ds-dark-theme] .dmp-root {
   padding: 24px;
   background: var(--dsw-alias-bg-mask-1, rgba(0, 0, 0, .35));
   backdrop-filter: blur(3px);
+  color: var(--dmp-text);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.45;
   animation: dmp-fade-in .16s ease;
 }
 .dmp-modal {
