@@ -1,0 +1,7 @@
+node_modules/
+.npm-cache/
+tmp/
+dist/
+coverage/
+*.tgz
+docs/dsh-integration-failure.png

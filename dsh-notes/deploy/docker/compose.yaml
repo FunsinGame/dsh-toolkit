@@ -1,0 +1,59 @@
+# Docker Compose for Linux/Debian hosts.
+#
+#   export NOTES_DOMAIN=notes.example.com
+#   docker compose -f deploy/docker/compose.yaml up -d --build
+#   docker compose -f deploy/docker/compose.yaml exec notes node server/bin.js user add alice
+#
+# Only Caddy publishes 80/443. The notes container has no published port.
+
+services:
+  notes:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    image: dsh-notes:0.1.0
+    restart: unless-stopped
+    environment:
+      DSH_NOTES_PUBLIC_URL: "https://${NOTES_DOMAIN:-localhost}"
+      DSH_NOTES_TRUSTED_PROXY: "*"
+      DSH_NOTES_LOG_LEVEL: info
+    volumes:
+      - notes-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - notes-internal
+    # No ports: only Caddy can reach this service.
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - notes
+    environment:
+      NOTES_DOMAIN: "${NOTES_DOMAIN:-localhost}"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - notes-internal
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  notes-internal:
+
+volumes:
+  notes-data:
+  caddy-data:
+  caddy-config:

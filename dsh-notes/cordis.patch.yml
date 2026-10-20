@@ -1,0 +1,14 @@
+# dsh-notes bundle patch.
+#
+# The host half keeps the local notes cache and sync engine, exposes the
+# same-origin /dsh-notes API used by the browser page, and registers the
+# notes_* AI tools. The browser half is loaded through the package's
+# `dsh.client` declaration and contributes the activity-bar entry and page.
+#
+# The standalone notes server (server/bin.js) is deployed separately, usually on
+# a remote machine behind HTTPS. The plugin connects to it with a revocable
+# access token created on that server; account passwords are only used by the
+# web login form.
+- insert:
+    - id: dsh-notes
+      name: dsh-notes

@@ -1,0 +1,12 @@
+[Unit]
+Description=Backup DSH Notes data
+After=dsh-notes.service
+
+[Service]
+Type=oneshot
+User=dshnotes
+Group=dshnotes
+WorkingDirectory=/opt/dsh-notes
+ExecStart=/usr/bin/node /opt/dsh-notes/server/bin.js backup --data-dir /var/lib/dsh-notes --out /var/lib/dsh-notes/backups
+Nice=10
+UMask=0077

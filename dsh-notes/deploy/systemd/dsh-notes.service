@@ -1,0 +1,41 @@
+[Unit]
+Description=DSH Notes server
+Documentation=https://github.com/FunsinGame/dsh-toolkit/tree/main/dsh-notes
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dshnotes
+Group=dshnotes
+WorkingDirectory=/opt/dsh-notes
+EnvironmentFile=-/etc/dsh-notes/env
+ExecStart=/usr/bin/node /opt/dsh-notes/server/bin.js serve --data-dir /var/lib/dsh-notes --host 127.0.0.1 --port 8787 --behind-proxy --log-level info
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+KillSignal=SIGTERM
+
+# Hardening: the service only writes its data directory and temporary files.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=/var/lib/dsh-notes
+UMask=0077
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

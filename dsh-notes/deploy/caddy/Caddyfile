@@ -1,0 +1,22 @@
+# Caddy configuration for the notes server.
+# The notes process listens on loopback only; Caddy owns 80/443.
+notes.example.com {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	# Keep uploads bounded at the edge as well as in the application.
+	request_body {
+		max_size 60MB
+	}
+
+	reverse_proxy 127.0.0.1:8787 {
+		# Stream SSE and long attachment reads without proxy buffering.
+		flush_interval -1
+	}
+}
