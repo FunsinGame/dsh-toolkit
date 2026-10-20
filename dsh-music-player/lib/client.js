@@ -2014,52 +2014,11 @@ body[data-ds-dark-theme] .dmp-root {
 .dmp-upnext-row .dmp-upnext-title { flex: 1; min-width: 0; font-size: 10.8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dmp-upnext-row .dmp-caption { flex: 0 0 auto; }
 
-/* \u2500\u2500 bottom player bar \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
-.dmp-playerbar {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex: 0 0 auto;
-  min-height: 72px;
-  padding: 10px 26px;
-  border-top: 1px solid var(--dmp-border-soft);
-  background: color-mix(in srgb, var(--dmp-surface) 78%, transparent);
-  backdrop-filter: blur(18px);
-}
-.dmp-pb-track { display: flex; align-items: center; gap: 11px; min-width: 0; flex: 1 1 240px; max-width: 330px; }
-.dmp-pb-cover { position: relative; width: 44px; height: 44px; flex: 0 0 44px; overflow: hidden; border-radius: 10px; background: var(--dmp-surface-2); display: grid; place-items: center; color: var(--dmp-text-3); }
-.dmp-pb-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.dmp-pb-meta { min-width: 0; }
-.dmp-pb-meta strong { display: block; font-size: 11.8px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dmp-pb-meta span { display: block; margin-top: 2px; color: var(--dmp-caption); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dmp-pb-controls { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
-.dmp-pb-controls .dmp-play-small {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  margin: 0 3px;
-  border: 0;
-  border-radius: 50%;
-  color: #fff;
-  background: linear-gradient(135deg, var(--dmp-accent), var(--dmp-accent-2));
-  box-shadow: 0 6px 14px color-mix(in srgb, var(--dmp-accent) 28%, transparent);
-}
-.dmp-pb-progress { display: flex; align-items: center; gap: 9px; flex: 1 1 220px; min-width: 120px; }
-.dmp-pb-progress .dmp-time { color: var(--dmp-caption); font-size: 9.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.dmp-pb-progress .dmp-progress-track { flex: 1; }
-.dmp-pb-extra { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
-.dmp-pb-extra .dmp-range { width: 82px; }
-.dmp-pb-extra .dmp-select { height: 27px; font-size: 10.5px; padding-right: 24px; }
-.dmp-pb-volume { display: flex; align-items: center; gap: 3px; }
-
 /* \u2500\u2500 toast / modal \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 .dmp-toast {
   position: absolute;
   left: 50%;
-  bottom: 92px;
+  bottom: 24px;
   z-index: 20;
   display: flex;
   align-items: center;
@@ -2155,10 +2114,16 @@ body[data-ds-dark-theme] .dmp-root {
   .dmp-side { width: 276px; flex-basis: 276px; }
 }
 @media (max-width: 1080px) {
-  .dmp-side { display: none; }
+  .dmp-side { width: 260px; flex-basis: 260px; }
   .dmp-nav { width: 208px; flex-basis: 208px; }
+  /* The right panel is now the only playback surface, so its controls get a
+     compact variant instead of disappearing with the old bottom bar. */
+  .dmp-np-controls { gap: 2px; }
+  .dmp-np-controls .dmp-iconbtn { width: 32px; height: 32px; flex-basis: 32px; }
+  .dmp-play-big { width: 48px; height: 48px; flex-basis: 48px; }
 }
 @media (max-width: 860px) {
+  .dmp-side { width: 250px; flex-basis: 250px; }
   .dmp-nav { width: 64px; flex-basis: 64px; padding-left: 8px; padding-right: 8px; }
   .dmp-brand { justify-content: center; padding-left: 0; padding-right: 0; }
   .dmp-brand-text, .dmp-nav-label, .dmp-nav-badge, .dmp-account-mini .dmp-mini-name, .dmp-host-line span { display: none; }
@@ -2168,12 +2133,11 @@ body[data-ds-dark-theme] .dmp-root {
   .dmp-host-line { justify-content: center; }
   .dmp-content { padding-left: 18px; padding-right: 18px; }
   .dmp-topbar { padding-left: 18px; padding-right: 18px; }
-  .dmp-playerbar { padding-left: 14px; padding-right: 14px; gap: 8px; }
-  .dmp-pb-track { max-width: 200px; }
-  .dmp-pb-extra .dmp-range, .dmp-pb-extra .dmp-select { display: none; }
 }
 @media (max-width: 620px) {
-  .dmp-pb-progress, .dmp-pb-track .dmp-pb-meta { display: none; }
+  .dmp-side { width: 220px; flex-basis: 220px; padding-left: 14px; padding-right: 14px; }
+  .dmp-np-controls .dmp-iconbtn { width: 28px; height: 28px; flex-basis: 28px; }
+  .dmp-play-big { width: 42px; height: 42px; flex-basis: 42px; }
   .dmp-search-hero { padding: 18px; }
   .dmp-search-box { flex-wrap: wrap; }
   .dmp-search-btn { width: 100%; }
@@ -3439,113 +3403,14 @@ function NowPlaying({ controller: controller2 }) {
   ] });
 }
 
-// src/client/ui/PlayerBar.tsx
-var import_jsx_runtime7 = require("react/jsx-runtime");
-var MODE_ORDER2 = ["sequential", "repeat-all", "repeat-one", "shuffle"];
-var RATES2 = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
-function modeIcon2(mode) {
-  if (mode === "repeat-one") return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(IconRepeatOne, { size: 15 });
-  if (mode === "shuffle") return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(IconShuffle, { size: 15 });
-  return /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(IconRepeat, { size: 15 });
-}
-function PlayerBar({ controller: controller2 }) {
-  const player = useStore(controller2.player);
-  const track = player.track;
-  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "dmp-playerbar", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "dmp-pb-track", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "dmp-pb-cover", children: track !== null && track.cover !== "" ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("img", { src: imageUrl(track.cover), alt: "", loading: "lazy" }) : /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(IconMusic, { size: 19 }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "dmp-pb-meta", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("strong", { title: track?.title ?? "", children: track?.title ?? "\u672A\u5728\u64AD\u653E" }),
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { title: track?.author ?? "", children: track?.author ?? "\u641C\u7D22\u4E00\u9996\u6B4C\u5F00\u59CB" })
-      ] })
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "dmp-pb-controls", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", className: "dmp-iconbtn sm", title: "\u4E0A\u4E00\u9996", onClick: () => {
-        void controller2.previous();
-      }, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(IconPrev, { size: 15 }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
-        "button",
-        {
-          type: "button",
-          className: "dmp-play-small",
-          title: player.playing ? "\u6682\u505C" : "\u64AD\u653E",
-          onClick: () => {
-            if (player.needsGesture) controller2.restoreSound();
-            else void controller2.toggle();
-          },
-          children: player.playing ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(IconPause, { size: 17 }) : /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(IconPlay, { size: 17 })
-        }
-      ),
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", className: "dmp-iconbtn sm", title: "\u4E0B\u4E00\u9996", onClick: () => {
-        void controller2.next(false);
-      }, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(IconNext, { size: 15 }) })
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "dmp-pb-progress", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "dmp-time", children: formatTime(player.position) }),
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
-        ProgressBar,
-        {
-          position: player.position,
-          duration: player.duration,
-          buffered: player.buffered,
-          onSeek: (value) => {
-            controller2.seek(value);
-          }
-        }
-      ),
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "dmp-time", children: formatTime(player.duration) })
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "dmp-pb-extra", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
-        "button",
-        {
-          type: "button",
-          className: `dmp-iconbtn sm ${player.mode !== "sequential" ? "on" : ""}`,
-          title: "\u64AD\u653E\u6A21\u5F0F",
-          onClick: () => {
-            const index = MODE_ORDER2.indexOf(player.mode);
-            void controller2.setMode(MODE_ORDER2[(index + 1) % MODE_ORDER2.length]);
-          },
-          children: modeIcon2(player.mode)
-        }
-      ),
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "dmp-pb-volume", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", className: "dmp-iconbtn sm", title: player.muted ? "\u53D6\u6D88\u9759\u97F3" : "\u9759\u97F3", onClick: () => {
-          controller2.toggleMute();
-        }, children: player.muted ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(IconVolumeMute, { size: 15 }) : /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(IconVolume, { size: 15 }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
-          "input",
-          {
-            className: "dmp-range",
-            type: "range",
-            min: 0,
-            max: 100,
-            value: Math.round((player.muted ? 0 : player.volume) * 100),
-            "aria-label": "\u97F3\u91CF",
-            onChange: (event) => {
-              controller2.setVolume(Number(event.target.value) / 100);
-            }
-          }
-        )
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("select", { className: "dmp-select", value: player.rate, title: "\u64AD\u653E\u901F\u5EA6", onChange: (event) => {
-        controller2.setRate(Number(event.target.value));
-      }, children: RATES2.map((rate) => /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("option", { value: rate, children: [
-        rate,
-        "\xD7"
-      ] }, rate)) })
-    ] })
-  ] });
-}
-
 // src/client/ui/QueueView.tsx
 var import_react4 = require("react");
-var import_jsx_runtime8 = require("react/jsx-runtime");
+var import_jsx_runtime7 = require("react/jsx-runtime");
 var MODES = [
-  { id: "sequential", label: "\u987A\u5E8F", icon: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(IconListPlus, { size: 13 }) },
-  { id: "repeat-all", label: "\u5FAA\u73AF", icon: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(IconRepeat, { size: 13 }) },
-  { id: "repeat-one", label: "\u5355\u66F2", icon: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(IconRepeatOne, { size: 13 }) },
-  { id: "shuffle", label: "\u968F\u673A", icon: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(IconShuffle, { size: 13 }) }
+  { id: "sequential", label: "\u987A\u5E8F", icon: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(IconListPlus, { size: 13 }) },
+  { id: "repeat-all", label: "\u5FAA\u73AF", icon: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(IconRepeat, { size: 13 }) },
+  { id: "repeat-one", label: "\u5355\u66F2", icon: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(IconRepeatOne, { size: 13 }) },
+  { id: "shuffle", label: "\u968F\u673A", icon: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(IconShuffle, { size: 13 }) }
 ];
 function QueueView({ controller: controller2 }) {
   const player = useStore(controller2.player);
@@ -3553,9 +3418,9 @@ function QueueView({ controller: controller2 }) {
   const [overIndex, setOverIndex] = (0, import_react4.useState)(null);
   const totalSeconds = player.queue.reduce((sum, track) => sum + (Number.isFinite(track.durationSeconds) ? track.durationSeconds : 0), 0);
   const isCurrent = (track) => player.track !== null && player.track.bvid === track.bvid && (track.cid === void 0 || player.track.cid === void 0 || player.track.cid === track.cid);
-  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "dmp-fade-in", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "dmp-queue-toolbar", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "dmp-mode-group", role: "group", "aria-label": "\u64AD\u653E\u6A21\u5F0F", children: MODES.map((mode) => /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(
+  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "dmp-fade-in", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "dmp-queue-toolbar", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "dmp-mode-group", role: "group", "aria-label": "\u64AD\u653E\u6A21\u5F0F", children: MODES.map((mode) => /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(
         "button",
         {
           type: "button",
@@ -3571,13 +3436,13 @@ function QueueView({ controller: controller2 }) {
         },
         mode.id
       )) }),
-      /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("span", { className: "dmp-caption", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("span", { className: "dmp-caption", children: [
         player.queue.length,
         " \u9996 \xB7 ",
         formatTime(totalSeconds)
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { style: { flex: 1 } }),
-      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { style: { flex: 1 } }),
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
         "button",
         {
           type: "button",
@@ -3589,7 +3454,7 @@ function QueueView({ controller: controller2 }) {
           children: "\u4E0B\u4E00\u9996"
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(
         "button",
         {
           type: "button",
@@ -3599,22 +3464,22 @@ function QueueView({ controller: controller2 }) {
           },
           disabled: player.queue.length === 0,
           children: [
-            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(IconTrash, { size: 13 }),
+            /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(IconTrash, { size: 13 }),
             "\u6E05\u7A7A"
           ]
         }
       )
     ] }),
-    player.queue.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+    player.queue.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
       EmptyState,
       {
-        icon: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(IconListPlus, { size: 28 }),
+        icon: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(IconListPlus, { size: 28 }),
         title: "\u961F\u5217\u662F\u7A7A\u7684",
         description: "\u5728\u641C\u7D22\u7ED3\u679C\u6216\u6536\u85CF\u5939\u91CC\u70B9\u300C\u52A0\u5165\u961F\u5217\u300D\uFF0C\u6216\u76F4\u63A5\u70B9\u4E00\u9996\u6B4C\u5F00\u59CB\u64AD\u653E\u3002"
       }
-    ) : /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "dmp-result-list", children: player.queue.map((track, index) => {
+    ) : /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: "dmp-result-list", children: player.queue.map((track, index) => {
       const current = isCurrent(track);
-      return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(
+      return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(
         "div",
         {
           className: `dmp-queue-row ${current ? "current" : ""} ${dragIndex === index ? "dragging" : ""} ${overIndex === index && dragIndex !== null && dragIndex !== index ? "drag-over" : ""}`,
@@ -3640,31 +3505,31 @@ function QueueView({ controller: controller2 }) {
             void controller2.playAt(index);
           },
           children: [
-            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "dmp-drag", title: "\u62D6\u52A8\u6392\u5E8F", children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(IconGrip, { size: 13 }) }),
-            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "dmp-q-index", children: index + 1 }),
-            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Cover, { src: track.cover, size: 44, radius: 8 }),
-            /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "dmp-result-main", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "dmp-result-title", children: [
-                current ? /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("span", { className: "dmp-eq", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("i", {}),
-                  /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("i", {}),
-                  /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("i", {})
+            /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "dmp-drag", title: "\u62D6\u52A8\u6392\u5E8F", children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(IconGrip, { size: 13 }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "dmp-q-index", children: index + 1 }),
+            /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Cover, { src: track.cover, size: 44, radius: 8 }),
+            /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "dmp-result-main", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "dmp-result-title", children: [
+                current ? /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("span", { className: "dmp-eq", children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("i", {}),
+                  /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("i", {}),
+                  /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("i", {})
                 ] }) : null,
-                /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("strong", { title: track.title, children: track.title })
+                /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("strong", { title: track.title, children: track.title })
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "dmp-result-meta", children: [
-                /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { children: track.author || "Bilibili" }),
-                /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "sep", children: "\xB7" }),
-                /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { children: formatTime(track.durationSeconds) })
+              /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "dmp-result-meta", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { children: track.author || "Bilibili" }),
+                /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: "sep", children: "\xB7" }),
+                /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { children: formatTime(track.durationSeconds) })
               ] })
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "dmp-result-actions", style: { opacity: 1 }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "button", className: "dmp-iconbtn play", title: current && player.playing ? "\u6682\u505C" : "\u64AD\u653E", onClick: () => {
+            /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: "dmp-result-actions", style: { opacity: 1 }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", className: "dmp-iconbtn play", title: current && player.playing ? "\u6682\u505C" : "\u64AD\u653E", onClick: () => {
                 void controller2.playAt(index);
-              }, children: current && player.playing ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(IconPause, { size: 14 }) : /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(IconPlay, { size: 14 }) }),
-              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "button", className: "dmp-iconbtn danger", title: "\u4ECE\u961F\u5217\u79FB\u9664", onClick: () => {
+              }, children: current && player.playing ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(IconPause, { size: 14 }) : /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(IconPlay, { size: 14 }) }),
+              /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", className: "dmp-iconbtn danger", title: "\u4ECE\u961F\u5217\u79FB\u9664", onClick: () => {
                 controller2.removeQueueAt(index);
-              }, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(IconTrash, { size: 14 }) })
+              }, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(IconTrash, { size: 14 }) })
             ] })
           ]
         },
@@ -3676,7 +3541,7 @@ function QueueView({ controller: controller2 }) {
 
 // src/client/ui/SearchView.tsx
 var import_react5 = require("react");
-var import_jsx_runtime9 = require("react/jsx-runtime");
+var import_jsx_runtime8 = require("react/jsx-runtime");
 var SUGGESTIONS = ["\u4E45\u77F3\u8BA9", "\u94A2\u7434", "\u8F7B\u97F3\u4E50", "\u7235\u58EB", "\u767D\u566A\u97F3", "\u5B66\u4E60", "\u7535\u5F71\u539F\u58F0", "\u5468\u6770\u4F26"];
 function SearchView({ controller: controller2 }) {
   const library = useStore(controller2.library);
@@ -3694,15 +3559,15 @@ function SearchView({ controller: controller2 }) {
     void controller2.search(trimmed, 1);
   };
   const isCurrent = (track) => player.track !== null && player.track.bvid === track.bvid && (track.cid === void 0 || player.track.cid === void 0 || player.track.cid === track.cid);
-  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-fade-in", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("section", { className: "dmp-search-hero", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("span", { className: "dmp-search-kicker", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(IconSparkles, { size: 13 }),
+  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "dmp-fade-in", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("section", { className: "dmp-search-hero", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("span", { className: "dmp-search-kicker", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(IconSparkles, { size: 13 }),
         " Bilibili Audio"
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("h3", { children: "\u628A B \u7AD9\u7684\u58F0\u97F3\uFF0C\u653E\u8FDB\u5DE5\u4F5C\u53F0" }),
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { children: "\u641C\u7D22\u89C6\u9891\u3001\u7C98\u8D34 BV \u53F7\uFF0C\u6216\u76F4\u63A5\u4ECE\u6536\u85CF\u5939\u5F00\u64AD\u3002\u97F3\u9891\u7531\u5BBF\u4E3B\u4EE3\u7406\u4E0E\u7F13\u5B58\uFF0C\u5207\u8D70\u9875\u9762\u4E5F\u4F1A\u7EE7\u7EED\u64AD\u653E\u3002" }),
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("h3", { children: "\u628A B \u7AD9\u7684\u58F0\u97F3\uFF0C\u653E\u8FDB\u5DE5\u4F5C\u53F0" }),
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { children: "\u641C\u7D22\u89C6\u9891\u3001\u7C98\u8D34 BV \u53F7\uFF0C\u6216\u76F4\u63A5\u4ECE\u6536\u85CF\u5939\u5F00\u64AD\u3002\u97F3\u9891\u7531\u5BBF\u4E3B\u4EE3\u7406\u4E0E\u7F13\u5B58\uFF0C\u5207\u8D70\u9875\u9762\u4E5F\u4F1A\u7EE7\u7EED\u64AD\u653E\u3002" }),
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(
         "form",
         {
           className: "dmp-search-box",
@@ -3711,8 +3576,8 @@ function SearchView({ controller: controller2 }) {
             submit();
           },
           children: [
-            /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(IconSearch, { size: 18 }),
-            /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(IconSearch, { size: 18 }),
+            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
               "input",
               {
                 className: "dmp-search-input",
@@ -3723,23 +3588,23 @@ function SearchView({ controller: controller2 }) {
                 }
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("button", { type: "submit", className: "dmp-search-btn", disabled: keyword.trim() === "", children: "\u641C\u7D22" })
+            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "submit", className: "dmp-search-btn", disabled: keyword.trim() === "", children: "\u641C\u7D22" })
           ]
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "dmp-chips", children: SUGGESTIONS.map((item) => /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("button", { type: "button", className: "dmp-chip", onClick: () => {
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "dmp-chips", children: SUGGESTIONS.map((item) => /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { type: "button", className: "dmp-chip", onClick: () => {
         submit(item);
       }, children: item }, item)) })
     ] }),
-    search !== null ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(import_jsx_runtime9.Fragment, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-section-head", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("h4", { children: search.keyword }),
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("span", { className: "dmp-tag", children: [
+    search !== null ? /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(import_jsx_runtime8.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "dmp-section-head", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("h4", { children: search.keyword }),
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("span", { className: "dmp-tag", children: [
           search.items.length,
           " \u4E2A\u7ED3\u679C"
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { className: "dmp-caption", children: search.loading ? "\u6B63\u5728\u641C\u7D22\u2026" : `\u7B2C ${search.page} / ${Math.max(1, search.numPages)} \u9875` }),
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { className: "dmp-caption", children: search.loading ? "\u6B63\u5728\u641C\u7D22\u2026" : `\u7B2C ${search.page} / ${Math.max(1, search.numPages)} \u9875` }),
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(
           "button",
           {
             type: "button",
@@ -3750,21 +3615,21 @@ function SearchView({ controller: controller2 }) {
               controller2.playSearchAll();
             },
             children: [
-              /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(IconPlay, { size: 13 }),
+              /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(IconPlay, { size: 13 }),
               "\u64AD\u653E\u5168\u90E8"
             ]
           }
         )
       ] }),
-      search.error !== null ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "dmp-error", children: search.error }) : null,
-      search.loading && search.items.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(SkeletonList, { rows: 7 }) : search.items.length === 0 && !search.loading ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+      search.error !== null ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "dmp-error", children: search.error }) : null,
+      search.loading && search.items.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(SkeletonList, { rows: 7 }) : search.items.length === 0 && !search.loading ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
         EmptyState,
         {
-          icon: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(IconSearch, { size: 28 }),
+          icon: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(IconSearch, { size: 28 }),
           title: "\u6CA1\u6709\u627E\u5230\u7ED3\u679C",
           description: "\u6362\u4E2A\u5173\u952E\u8BCD\u8BD5\u8BD5\uFF1B\u5982\u679C B \u7AD9\u89E6\u53D1\u4E86\u98CE\u63A7\uFF0C\u7A0D\u7B49\u7247\u523B\u6216\u626B\u7801\u767B\u5F55\u540E\u518D\u641C\u3002"
         }
-      ) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "dmp-result-list", children: search.items.map((track, index) => /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+      ) : /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: "dmp-result-list", children: search.items.map((track, index) => /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
         TrackRow,
         {
           track,
@@ -3779,15 +3644,15 @@ function SearchView({ controller: controller2 }) {
           onFavorite: () => {
             setFavoriteTrack(track);
           },
-          trailing: track.views !== void 0 && track.views > 0 ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("span", { className: "dmp-caption", style: { marginRight: 4 }, children: [
+          trailing: track.views !== void 0 && track.views > 0 ? /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("span", { className: "dmp-caption", style: { marginRight: 4 }, children: [
             formatViews(track.views),
             " \u64AD\u653E"
           ] }) : void 0
         },
         `${track.bvid}-${index}`
       )) }),
-      search.numPages > 1 ? /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-pager", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+      search.numPages > 1 ? /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: "dmp-pager", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
           "button",
           {
             type: "button",
@@ -3799,12 +3664,12 @@ function SearchView({ controller: controller2 }) {
             children: "\u4E0A\u4E00\u9875"
           }
         ),
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("span", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("span", { children: [
           search.page,
           " / ",
           search.numPages
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
           "button",
           {
             type: "button",
@@ -3816,17 +3681,17 @@ function SearchView({ controller: controller2 }) {
             children: "\u4E0B\u4E00\u9875"
           }
         ),
-        search.loading ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Spinner, { size: 13 }) : null
+        search.loading ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Spinner, { size: 13 }) : null
       ] }) : null
-    ] }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
       EmptyState,
       {
-        icon: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(IconSearch, { size: 28 }),
+        icon: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(IconSearch, { size: 28 }),
         title: "\u8F93\u5165\u5173\u952E\u8BCD\u5F00\u59CB\u641C\u7D22",
         description: "\u652F\u6301\u5173\u952E\u8BCD\u641C\u7D22\u4E0E BV \u53F7\u76F4\u8FBE\u3002\u60AC\u505C\u7ED3\u679C\u53EF\u4EE5\u5FEB\u901F\u52A0\u5165\u961F\u5217\u6216\u6536\u85CF\u3002"
       }
     ),
-    favoriteTrack !== null ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(AddFavoriteDialog, { controller: controller2, track: favoriteTrack, onClose: () => {
+    favoriteTrack !== null ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(AddFavoriteDialog, { controller: controller2, track: favoriteTrack, onClose: () => {
       setFavoriteTrack(null);
     } }) : null
   ] });
@@ -3834,8 +3699,8 @@ function SearchView({ controller: controller2 }) {
 
 // src/client/ui/SettingsView.tsx
 var import_react6 = require("react");
-var import_jsx_runtime10 = require("react/jsx-runtime");
-var RATES3 = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+var import_jsx_runtime9 = require("react/jsx-runtime");
+var RATES2 = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 function SettingsView({ controller: controller2 }) {
   const library = useStore(controller2.library);
   const player = useStore(controller2.player);
@@ -3852,9 +3717,9 @@ function SettingsView({ controller: controller2 }) {
     }
   }, [settings?.cacheMaxMB, settings?.requestIntervalMs]);
   if (settings === null) {
-    return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-empty", style: { minHeight: 220 }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Spinner, { size: 20 }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { children: "\u6B63\u5728\u8BFB\u53D6\u8BBE\u7F6E\u2026" })
+    return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-empty", style: { minHeight: 220 }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Spinner, { size: 20 }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { children: "\u6B63\u5728\u8BFB\u53D6\u8BBE\u7F6E\u2026" })
     ] });
   }
   const usedPercent = cache !== null && cache.maxBytes > 0 ? Math.min(100, Math.round(cache.bytes / cache.maxBytes * 100)) : 0;
@@ -3863,81 +3728,81 @@ function SettingsView({ controller: controller2 }) {
     if (!Number.isFinite(value)) return;
     void controller2.updateSetting(key, value);
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-settings-grid dmp-fade-in", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("section", { className: "dmp-settings-card", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("h4", { children: "\u64AD\u653E" }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { children: "\u97F3\u8D28\u3001\u9ED8\u8BA4\u6A21\u5F0F\u4E0E\u64AD\u653E\u901F\u5EA6\u3002" }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-setting-row", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-setting-label", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("strong", { children: "\u97F3\u8D28" }),
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { children: "\u672A\u767B\u5F55\u65F6 B \u7AD9\u53EF\u80FD\u8FD4\u56DE\u8F83\u4F4E\u97F3\u8D28" })
+  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-settings-grid dmp-fade-in", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("section", { className: "dmp-settings-card", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("h4", { children: "\u64AD\u653E" }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { children: "\u97F3\u8D28\u3001\u9ED8\u8BA4\u6A21\u5F0F\u4E0E\u64AD\u653E\u901F\u5EA6\u3002" }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-setting-row", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-setting-label", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("strong", { children: "\u97F3\u8D28" }),
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { children: "\u672A\u767B\u5F55\u65F6 B \u7AD9\u53EF\u80FD\u8FD4\u56DE\u8F83\u4F4E\u97F3\u8D28" })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "dmp-setting-value", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("select", { className: "dmp-select", value: settings.audioQuality, onChange: (event) => {
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "dmp-setting-value", children: /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("select", { className: "dmp-select", value: settings.audioQuality, onChange: (event) => {
           void controller2.updateSetting("audioQuality", Number(event.target.value));
         }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("option", { value: 30216, children: "64K" }),
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("option", { value: 30232, children: "132K" }),
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("option", { value: 30280, children: "192K" })
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("option", { value: 30216, children: "64K" }),
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("option", { value: 30232, children: "132K" }),
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("option", { value: 30280, children: "192K" })
         ] }) })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-setting-row", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-setting-label", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("strong", { children: "\u9ED8\u8BA4\u64AD\u653E\u6A21\u5F0F" }),
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { children: "\u5728\u961F\u5217\u9875\u4E5F\u53EF\u4EE5\u968F\u65F6\u5207\u6362" })
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-setting-row", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-setting-label", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("strong", { children: "\u9ED8\u8BA4\u64AD\u653E\u6A21\u5F0F" }),
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { children: "\u5728\u961F\u5217\u9875\u4E5F\u53EF\u4EE5\u968F\u65F6\u5207\u6362" })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "dmp-setting-value", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("select", { className: "dmp-select", value: settings.defaultPlayMode, onChange: (event) => {
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "dmp-setting-value", children: /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("select", { className: "dmp-select", value: settings.defaultPlayMode, onChange: (event) => {
           void controller2.updateSetting("defaultPlayMode", event.target.value);
         }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("option", { value: "sequential", children: "\u987A\u5E8F\u64AD\u653E" }),
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("option", { value: "repeat-all", children: "\u5217\u8868\u5FAA\u73AF" }),
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("option", { value: "repeat-one", children: "\u5355\u66F2\u5FAA\u73AF" }),
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("option", { value: "shuffle", children: "\u968F\u673A\u64AD\u653E" })
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("option", { value: "sequential", children: "\u987A\u5E8F\u64AD\u653E" }),
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("option", { value: "repeat-all", children: "\u5217\u8868\u5FAA\u73AF" }),
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("option", { value: "repeat-one", children: "\u5355\u66F2\u5FAA\u73AF" }),
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("option", { value: "shuffle", children: "\u968F\u673A\u64AD\u653E" })
         ] }) })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-setting-row", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-setting-label", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("strong", { children: "\u97F3\u91CF" }),
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("span", { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-setting-row", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-setting-label", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("strong", { children: "\u97F3\u91CF" }),
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("span", { children: [
             Math.round(player.volume * 100),
             "%"
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "dmp-setting-value", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("input", { className: "dmp-range", type: "range", min: 0, max: 100, value: Math.round(player.volume * 100), onChange: (event) => {
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "dmp-setting-value", children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("input", { className: "dmp-range", type: "range", min: 0, max: 100, value: Math.round(player.volume * 100), onChange: (event) => {
           controller2.setVolume(Number(event.target.value) / 100);
         } }) })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-setting-row", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-setting-label", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("strong", { children: "\u64AD\u653E\u901F\u5EA6" }),
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { children: "\u7ACB\u5373\u751F\u6548\u5E76\u8BB0\u4F4F" })
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-setting-row", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-setting-label", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("strong", { children: "\u64AD\u653E\u901F\u5EA6" }),
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { children: "\u7ACB\u5373\u751F\u6548\u5E76\u8BB0\u4F4F" })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "dmp-setting-value", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("select", { className: "dmp-select", value: player.rate, onChange: (event) => {
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "dmp-setting-value", children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("select", { className: "dmp-select", value: player.rate, onChange: (event) => {
           controller2.setRate(Number(event.target.value));
-        }, children: RATES3.map((rate) => /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("option", { value: rate, children: [
+        }, children: RATES2.map((rate) => /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("option", { value: rate, children: [
           rate,
           "\xD7"
         ] }, rate)) }) })
       ] })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("section", { className: "dmp-settings-card", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("h4", { children: "\u97F3\u9891\u7F13\u5B58" }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { children: "\u5BBF\u4E3B\u89E3\u7801\u6216\u4EE3\u7406\u8FC7\u7684\u97F3\u9891\u4F1A\u7F13\u5B58\u5230\u672C\u673A\u3002" }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-setting-row", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-setting-label", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("strong", { children: "\u542F\u7528\u78C1\u76D8\u7F13\u5B58" }),
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { children: "\u5173\u95ED\u540E\u4E0D\u518D\u5199\u5165\u65B0\u7F13\u5B58" })
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("section", { className: "dmp-settings-card", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("h4", { children: "\u97F3\u9891\u7F13\u5B58" }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { children: "\u5BBF\u4E3B\u89E3\u7801\u6216\u4EE3\u7406\u8FC7\u7684\u97F3\u9891\u4F1A\u7F13\u5B58\u5230\u672C\u673A\u3002" }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-setting-row", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-setting-label", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("strong", { children: "\u542F\u7528\u78C1\u76D8\u7F13\u5B58" }),
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { children: "\u5173\u95ED\u540E\u4E0D\u518D\u5199\u5165\u65B0\u7F13\u5B58" })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "dmp-setting-value", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Switch, { checked: settings.cacheEnabled, label: "\u542F\u7528\u78C1\u76D8\u7F13\u5B58", onChange: (next) => {
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "dmp-setting-value", children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Switch, { checked: settings.cacheEnabled, label: "\u542F\u7528\u78C1\u76D8\u7F13\u5B58", onChange: (next) => {
           void controller2.updateSetting("cacheEnabled", next);
         } }) })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-setting-row", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-setting-label", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("strong", { children: "\u7F13\u5B58\u4E0A\u9650" }),
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { children: "\u8D85\u51FA\u540E\u6309\u6700\u4E45\u672A\u4F7F\u7528\u6DD8\u6C70" })
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-setting-row", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-setting-label", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("strong", { children: "\u7F13\u5B58\u4E0A\u9650" }),
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { children: "\u8D85\u51FA\u540E\u6309\u6700\u4E45\u672A\u4F7F\u7528\u6DD8\u6C70" })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-setting-value", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-setting-value", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
             "input",
             {
               className: "dmp-input",
@@ -3955,39 +3820,39 @@ function SettingsView({ controller: controller2 }) {
               }
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "dmp-caption", children: "MB" })
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { className: "dmp-caption", children: "MB" })
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-meter-row", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "dmp-meter", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("i", { style: { width: `${usedPercent}%` } }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "dmp-caption", children: cache === null ? "\u2014" : `${formatBytes2(cache.bytes)} / ${formatBytes2(cache.maxBytes)}` })
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-meter-row", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "dmp-meter", children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("i", { style: { width: `${usedPercent}%` } }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { className: "dmp-caption", children: cache === null ? "\u2014" : `${formatBytes2(cache.bytes)} / ${formatBytes2(cache.maxBytes)}` })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "dmp-caption", style: { marginTop: 6 }, children: cache?.dir ?? "\u7F13\u5B58\u76EE\u5F55\u4E0D\u53EF\u7528" }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { style: { display: "flex", gap: 7, marginTop: 12 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("button", { type: "button", className: "dmp-btn sm", onClick: () => {
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "dmp-caption", style: { marginTop: 6 }, children: cache?.dir ?? "\u7F13\u5B58\u76EE\u5F55\u4E0D\u53EF\u7528" }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { style: { display: "flex", gap: 7, marginTop: 12 }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("button", { type: "button", className: "dmp-btn sm", onClick: () => {
           void controller2.refreshCache();
         }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(IconRefresh, { size: 13 }),
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(IconRefresh, { size: 13 }),
           "\u5237\u65B0"
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("button", { type: "button", className: "dmp-btn sm danger", onClick: () => {
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("button", { type: "button", className: "dmp-btn sm danger", onClick: () => {
           void controller2.clearCache();
         }, disabled: cache === null || cache.files === 0, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(IconTrash, { size: 13 }),
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(IconTrash, { size: 13 }),
           "\u6E05\u7406\u7F13\u5B58"
         ] })
       ] })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("section", { className: "dmp-settings-card", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("h4", { children: "\u7F51\u7EDC\u4E0E\u8BF7\u6C42" }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { children: "\u6240\u6709 B \u7AD9\u8BF7\u6C42\u90FD\u7531\u5BBF\u4E3B\u4E32\u884C\u53D1\u51FA\uFF0C\u907F\u514D\u89E6\u53D1\u98CE\u63A7\u3002" }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-setting-row", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-setting-label", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("strong", { children: "\u8BF7\u6C42\u95F4\u9694" }),
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { children: "\u4E24\u6B21\u8BF7\u6C42\u4E4B\u95F4\u7684\u6700\u5C0F\u95F4\u9694\uFF08\u6BEB\u79D2\uFF09" })
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("section", { className: "dmp-settings-card", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("h4", { children: "\u7F51\u7EDC\u4E0E\u8BF7\u6C42" }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { children: "\u6240\u6709 B \u7AD9\u8BF7\u6C42\u90FD\u7531\u5BBF\u4E3B\u4E32\u884C\u53D1\u51FA\uFF0C\u907F\u514D\u89E6\u53D1\u98CE\u63A7\u3002" }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-setting-row", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-setting-label", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("strong", { children: "\u8BF7\u6C42\u95F4\u9694" }),
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { children: "\u4E24\u6B21\u8BF7\u6C42\u4E4B\u95F4\u7684\u6700\u5C0F\u95F4\u9694\uFF08\u6BEB\u79D2\uFF09" })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-setting-value", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-setting-value", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
             "input",
             {
               className: "dmp-input",
@@ -4005,60 +3870,60 @@ function SettingsView({ controller: controller2 }) {
               }
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "dmp-caption", children: "ms" })
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { className: "dmp-caption", children: "ms" })
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-kv", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { children: "\u5BBF\u4E3B" }),
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("strong", { children: library.hostError === null ? "\u5DF2\u8FDE\u63A5" : library.hostError })
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-kv", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { children: "\u5BBF\u4E3B" }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("strong", { children: library.hostError === null ? "\u5DF2\u8FDE\u63A5" : library.hostError })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-kv", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { children: "\u97F3\u9891\u8DEF\u5F84" }),
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("strong", { children: player.nativeAac ? "\u539F\u751F AAC \u76F4\u901A" : "\u5BBF\u4E3B AAC \u2192 WAV \u8F6C\u7801" })
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-kv", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { children: "\u97F3\u9891\u8DEF\u5F84" }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("strong", { children: player.nativeAac ? "\u539F\u751F AAC \u76F4\u901A" : "\u5BBF\u4E3B AAC \u2192 WAV \u8F6C\u7801" })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-kv", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { children: "\u5F53\u524D\u97F3\u6E90" }),
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("strong", { children: player.format === null ? "\u2014" : player.format === "wav" ? "WAV\uFF08\u5BBF\u4E3B\u8F6C\u7801\uFF09" : "\u539F\u59CB AAC" })
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-kv", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { children: "\u5F53\u524D\u97F3\u6E90" }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("strong", { children: player.format === null ? "\u2014" : player.format === "wav" ? "WAV\uFF08\u5BBF\u4E3B\u8F6C\u7801\uFF09" : "\u539F\u59CB AAC" })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-caption", style: { display: "flex", alignItems: "center", gap: 5, marginTop: 8 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(IconWifi, { size: 12 }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-caption", style: { display: "flex", alignItems: "center", gap: 5, marginTop: 8 }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(IconWifi, { size: 12 }),
         " \u8C03\u5C0F\u95F4\u9694\u66F4\u5FEB\uFF0C\u4F46\u66F4\u5BB9\u6613\u89E6\u53D1 B \u7AD9\u98CE\u63A7\u3002"
       ] })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("section", { className: "dmp-settings-card", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("h4", { children: "\u754C\u9762\u4E0E\u8BCA\u65AD" }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { children: "\u72B6\u6001\u680F\u5165\u53E3\u548C\u65E5\u5FD7\u3002" }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-setting-row", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-setting-label", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("strong", { children: "\u72B6\u6001\u680F\u663E\u793A\u66F2\u76EE" }),
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { children: "\u5728 DSH \u5E95\u90E8\u72B6\u6001\u680F\u663E\u793A\u64AD\u653E\u63A7\u5236" })
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("section", { className: "dmp-settings-card", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("h4", { children: "\u754C\u9762\u4E0E\u8BCA\u65AD" }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { children: "\u72B6\u6001\u680F\u5165\u53E3\u548C\u65E5\u5FD7\u3002" }),
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-setting-row", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-setting-label", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("strong", { children: "\u72B6\u6001\u680F\u663E\u793A\u66F2\u76EE" }),
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { children: "\u5728 DSH \u5E95\u90E8\u72B6\u6001\u680F\u663E\u793A\u64AD\u653E\u63A7\u5236" })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "dmp-setting-value", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Switch, { checked: settings.showStatusBar, label: "\u72B6\u6001\u680F\u663E\u793A\u66F2\u76EE", onChange: (next) => {
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "dmp-setting-value", children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Switch, { checked: settings.showStatusBar, label: "\u72B6\u6001\u680F\u663E\u793A\u66F2\u76EE", onChange: (next) => {
           void controller2.updateSetting("showStatusBar", next);
         } }) })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-setting-row", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-setting-label", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("strong", { children: "\u65E5\u5FD7\u7EA7\u522B" }),
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { children: "\u6392\u67E5\u95EE\u9898\u65F6\u8C03\u5230\u8BE6\u7EC6" })
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-setting-row", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-setting-label", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("strong", { children: "\u65E5\u5FD7\u7EA7\u522B" }),
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { children: "\u6392\u67E5\u95EE\u9898\u65F6\u8C03\u5230\u8BE6\u7EC6" })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { className: "dmp-setting-value", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("select", { className: "dmp-select", value: settings.logLevel, onChange: (event) => {
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: "dmp-setting-value", children: /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("select", { className: "dmp-select", value: settings.logLevel, onChange: (event) => {
           void controller2.updateSetting("logLevel", event.target.value);
         }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("option", { value: "off", children: "\u5173\u95ED" }),
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("option", { value: "info", children: "\u5E38\u89C4" }),
-          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("option", { value: "debug", children: "\u8BE6\u7EC6" })
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("option", { value: "off", children: "\u5173\u95ED" }),
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("option", { value: "info", children: "\u5E38\u89C4" }),
+          /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("option", { value: "debug", children: "\u8BE6\u7EC6" })
         ] }) })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-kv", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { children: "\u7248\u672C" }),
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("strong", { children: "dsh-music-player 0.1.0" })
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-kv", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { children: "\u7248\u672C" }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("strong", { children: "dsh-music-player 0.1.0" })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-kv", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { children: "\u63D0\u793A\u97F3" }),
-        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("strong", { children: "\u5207\u6362\u9875\u9762\u4E0D\u4F1A\u4E2D\u65AD\u64AD\u653E" })
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: "dmp-kv", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("span", { children: "\u63D0\u793A\u97F3" }),
+        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("strong", { children: "\u5207\u6362\u9875\u9762\u4E0D\u4F1A\u4E2D\u65AD\u64AD\u653E" })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("div", { style: { display: "flex", gap: 7, marginTop: 12 }, children: /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
+      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { style: { display: "flex", gap: 7, marginTop: 12 }, children: /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(
         "button",
         {
           type: "button",
@@ -4074,24 +3939,24 @@ function SettingsView({ controller: controller2 }) {
             });
           },
           children: [
-            loadingLogs ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Spinner, { size: 12 }) : /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(IconInfo, { size: 13 }),
+            loadingLogs ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(Spinner, { size: 12 }) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(IconInfo, { size: 13 }),
             "\u67E5\u770B\u5BBF\u4E3B\u65E5\u5FD7"
           ]
         }
       ) }),
-      logs !== null ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("pre", { className: "dmp-logbox", children: logs.length === 0 ? "\u6682\u65E0\u65E5\u5FD7" : logs.join("\n") }) : null
+      logs !== null ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("pre", { className: "dmp-logbox", children: logs.length === 0 ? "\u6682\u65E0\u65E5\u5FD7" : logs.join("\n") }) : null
     ] })
   ] });
 }
 
 // src/client/ui/App.tsx
-var import_jsx_runtime11 = require("react/jsx-runtime");
+var import_jsx_runtime10 = require("react/jsx-runtime");
 var TABS = [
-  { id: "search", label: "\u641C\u7D22", icon: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(IconSearch, { size: 17 }), title: "\u641C\u7D22 B \u7AD9\u97F3\u9891", subtitle: "\u5173\u952E\u8BCD\u6216 BV \u53F7\u76F4\u8FBE\uFF0C\u70B9\u4E00\u4E0B\u5C31\u80FD\u542C" },
-  { id: "favorites", label: "\u6536\u85CF\u5939", icon: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(IconHeart, { size: 17 }), title: "\u6211\u7684\u6536\u85CF\u5939", subtitle: "\u6D4F\u89C8\u3001\u64AD\u653E\u4E0E\u6574\u7406 B \u7AD9\u6536\u85CF\u5939" },
-  { id: "queue", label: "\u961F\u5217", icon: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(IconQueue, { size: 17 }), title: "\u64AD\u653E\u961F\u5217", subtitle: "\u62D6\u52A8\u6392\u5E8F\uFF0C\u53CC\u51FB\u5F00\u64AD\uFF0C\u5207\u6362\u64AD\u653E\u6A21\u5F0F" },
-  { id: "account", label: "\u8D26\u6237", icon: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(IconUser, { size: 17 }), title: "\u8D26\u6237", subtitle: "\u626B\u7801\u767B\u5F55\u540E\u540C\u6B65\u6536\u85CF\u5939" },
-  { id: "settings", label: "\u8BBE\u7F6E", icon: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(IconSettings, { size: 17 }), title: "\u8BBE\u7F6E", subtitle: "\u97F3\u8D28\u3001\u7F13\u5B58\u3001\u7F51\u7EDC\u4E0E\u754C\u9762\u9009\u9879" }
+  { id: "search", label: "\u641C\u7D22", icon: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(IconSearch, { size: 17 }), title: "\u641C\u7D22 B \u7AD9\u97F3\u9891", subtitle: "\u5173\u952E\u8BCD\u6216 BV \u53F7\u76F4\u8FBE\uFF0C\u70B9\u4E00\u4E0B\u5C31\u80FD\u542C" },
+  { id: "favorites", label: "\u6536\u85CF\u5939", icon: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(IconHeart, { size: 17 }), title: "\u6211\u7684\u6536\u85CF\u5939", subtitle: "\u6D4F\u89C8\u3001\u64AD\u653E\u4E0E\u6574\u7406 B \u7AD9\u6536\u85CF\u5939" },
+  { id: "queue", label: "\u961F\u5217", icon: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(IconQueue, { size: 17 }), title: "\u64AD\u653E\u961F\u5217", subtitle: "\u62D6\u52A8\u6392\u5E8F\uFF0C\u53CC\u51FB\u5F00\u64AD\uFF0C\u5207\u6362\u64AD\u653E\u6A21\u5F0F" },
+  { id: "account", label: "\u8D26\u6237", icon: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(IconUser, { size: 17 }), title: "\u8D26\u6237", subtitle: "\u626B\u7801\u767B\u5F55\u540E\u540C\u6B65\u6536\u85CF\u5939" },
+  { id: "settings", label: "\u8BBE\u7F6E", icon: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(IconSettings, { size: 17 }), title: "\u8BBE\u7F6E", subtitle: "\u97F3\u8D28\u3001\u7F13\u5B58\u3001\u7F51\u7EDC\u4E0E\u754C\u9762\u9009\u9879" }
 ];
 function App({ controller: controller2 }) {
   const library = useStore(controller2.library);
@@ -4109,16 +3974,16 @@ function App({ controller: controller2 }) {
     favorites: library.favorites.folders.length > 0 ? library.favorites.folders.length : void 0,
     queue: player.queue.length > 0 ? player.queue.length : void 0
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: "dmp-root", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("aside", { className: "dmp-nav", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: "dmp-brand", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "dmp-brand-mark", children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(MusicGlyph, { size: 21, active: true }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: "dmp-brand-text", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("h1", { children: "\u97F3\u4E50\u64AD\u653E\u5668" }),
-          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { children: "Bilibili Audio" })
+  return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-root", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("aside", { className: "dmp-nav", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-brand", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "dmp-brand-mark", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(MusicGlyph, { size: 21, active: true }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-brand-text", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("h1", { children: "\u97F3\u4E50\u64AD\u653E\u5668" }),
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { children: "Bilibili Audio" })
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("nav", { className: "dmp-nav-list", "aria-label": "\u64AD\u653E\u5668\u9875\u9762", children: TABS.map((item) => /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("nav", { className: "dmp-nav-list", "aria-label": "\u64AD\u653E\u5668\u9875\u9762", children: TABS.map((item) => /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
         "button",
         {
           type: "button",
@@ -4127,60 +3992,56 @@ function App({ controller: controller2 }) {
             controller2.setTab(item.id);
           },
           children: [
-            /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "dmp-nav-icon", children: item.icon }),
-            /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "dmp-nav-label", children: item.label }),
-            badges[item.id] !== void 0 ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "dmp-nav-badge", children: badges[item.id] }) : null
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "dmp-nav-icon", children: item.icon }),
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "dmp-nav-label", children: item.label }),
+            badges[item.id] !== void 0 ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "dmp-nav-badge", children: badges[item.id] }) : null
           ]
         },
         item.id
       )) }),
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: "dmp-nav-foot", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("button", { type: "button", className: "dmp-account-mini", onClick: () => {
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-nav-foot", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("button", { type: "button", className: "dmp-account-mini", onClick: () => {
           controller2.setTab("account");
         }, children: [
-          library.account.loggedIn && library.account.user !== null ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Avatar, { name: library.account.user.name, src: library.account.user.face, size: 28 }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "dmp-avatar", style: { width: 28, height: 28, fontSize: 11 }, children: "B" }),
-          /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("span", { className: "dmp-mini-name", children: [
-            /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("strong", { children: library.account.loggedIn && library.account.user !== null ? library.account.user.name : "\u672A\u767B\u5F55" }),
-            /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { children: library.account.loggedIn ? "\u5DF2\u540C\u6B65\u6536\u85CF\u5939" : "\u626B\u7801\u767B\u5F55 B \u7AD9" })
+          library.account.loggedIn && library.account.user !== null ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(Avatar, { name: library.account.user.name, src: library.account.user.face, size: 28 }) : /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: "dmp-avatar", style: { width: 28, height: 28, fontSize: 11 }, children: "B" }),
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("span", { className: "dmp-mini-name", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("strong", { children: library.account.loggedIn && library.account.user !== null ? library.account.user.name : "\u672A\u767B\u5F55" }),
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { children: library.account.loggedIn ? "\u5DF2\u540C\u6B65\u6536\u85CF\u5939" : "\u626B\u7801\u767B\u5F55 B \u7AD9" })
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: "dmp-host-line", title: library.hostError ?? "\u5BBF\u4E3B\u5DF2\u8FDE\u63A5", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: `dmp-dot ${library.hostError === null ? "" : "bad"}` }),
-          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { children: library.hostError === null ? "\u5BBF\u4E3B\u5DF2\u8FDE\u63A5" : "\u5BBF\u4E3B\u672A\u8FDE\u63A5" })
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-host-line", title: library.hostError ?? "\u5BBF\u4E3B\u5DF2\u8FDE\u63A5", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { className: `dmp-dot ${library.hostError === null ? "" : "bad"}` }),
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { children: library.hostError === null ? "\u5BBF\u4E3B\u5DF2\u8FDE\u63A5" : "\u5BBF\u4E3B\u672A\u8FDE\u63A5" })
         ] })
       ] })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("main", { className: "dmp-main", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("header", { className: "dmp-topbar", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: "dmp-topbar-title", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("h2", { children: meta.title }),
-          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { children: meta.subtitle })
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("main", { className: "dmp-main", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("header", { className: "dmp-topbar", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-topbar-title", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("h2", { children: meta.title }),
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("p", { children: meta.subtitle })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: "dmp-topbar-actions", children: [
-          player.loading ? /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("span", { className: "dmp-tag warn", style: { height: 26, gap: 6 }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(IconSpinner, { size: 12 }),
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-topbar-actions", children: [
+          player.loading ? /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("span", { className: "dmp-tag warn", style: { height: 26, gap: 6 }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(IconSpinner, { size: 12 }),
             player.loadingMessage || "\u51C6\u5907\u4E2D"
           ] }) : null,
-          library.hostError !== null ? /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("span", { className: "dmp-tag danger", style: { height: 26, gap: 5 }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(IconInfo, { size: 12 }),
+          library.hostError !== null ? /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("span", { className: "dmp-tag danger", style: { height: 26, gap: 5 }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(IconInfo, { size: 12 }),
             library.hostError
-          ] }) : null,
-          library.account.loggedIn && library.account.user !== null ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("button", { type: "button", className: "dmp-iconbtn bordered", title: library.account.user.name, onClick: () => {
-            controller2.setTab("account");
-          }, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(Avatar, { name: library.account.user.name, src: library.account.user.face, size: 24 }) }) : null
+          ] }) : null
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: "dmp-content", children: [
-        tab === "search" ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(SearchView, { controller: controller2 }) : null,
-        tab === "favorites" ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(FavoritesView, { controller: controller2 }) : null,
-        tab === "queue" ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(QueueView, { controller: controller2 }) : null,
-        tab === "account" ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(AccountView, { controller: controller2 }) : null,
-        tab === "settings" ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(SettingsView, { controller: controller2 }) : null
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(PlayerBar, { controller: controller2 })
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: "dmp-content", children: [
+        tab === "search" ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(SearchView, { controller: controller2 }) : null,
+        tab === "favorites" ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(FavoritesView, { controller: controller2 }) : null,
+        tab === "queue" ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(QueueView, { controller: controller2 }) : null,
+        tab === "account" ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(AccountView, { controller: controller2 }) : null,
+        tab === "settings" ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(SettingsView, { controller: controller2 }) : null
+      ] })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("aside", { className: "dmp-side", children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(NowPlaying, { controller: controller2 }) }),
-    ui.toast !== null ? /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("aside", { className: "dmp-side", children: /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(NowPlaying, { controller: controller2 }) }),
+    ui.toast !== null ? /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(
       "button",
       {
         type: "button",
@@ -4190,8 +4051,8 @@ function App({ controller: controller2 }) {
         },
         title: "\u70B9\u51FB\u5173\u95ED",
         children: [
-          ui.toast.level === "success" ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(IconCheck, { size: 13 }) : ui.toast.level === "error" ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(IconInfo, { size: 13 }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(IconMusic, { size: 13 }),
-          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { children: ui.toast.message })
+          ui.toast.level === "success" ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(IconCheck, { size: 13 }) : ui.toast.level === "error" ? /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(IconInfo, { size: 13 }) : /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(IconMusic, { size: 13 }),
+          /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("span", { children: ui.toast.message })
         ]
       }
     ) : null
@@ -4199,25 +4060,25 @@ function App({ controller: controller2 }) {
 }
 
 // src/client/ui/StatusItem.tsx
-var import_jsx_runtime12 = require("react/jsx-runtime");
+var import_jsx_runtime11 = require("react/jsx-runtime");
 function StatusItem({ controller: controller2, open }) {
   const player = useStore(controller2.player);
   const library = useStore(controller2.library);
   if (library.settings?.showStatusBar === false) return null;
   const track = player.track;
   if (track === null) {
-    return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("button", { type: "button", className: "dmp-status", title: "\u6253\u5F00\u97F3\u4E50\u64AD\u653E\u5668", onClick: open, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: "dmp-status-cover", children: /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(IconMusic, { size: 10 }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: "dmp-status-title", children: "\u97F3\u4E50" })
+    return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("button", { type: "button", className: "dmp-status", title: "\u6253\u5F00\u97F3\u4E50\u64AD\u653E\u5668", onClick: open, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "dmp-status-cover", children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(IconMusic, { size: 10 }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "dmp-status-title", children: "\u97F3\u4E50" })
     ] });
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: "dmp-status", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("button", { type: "button", className: "dmp-status", style: { padding: 0 }, title: track.title, onClick: open, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: "dmp-status-cover", children: track.cover !== "" ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("img", { src: imageUrl(track.cover), alt: "", loading: "lazy" }) : /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(IconMusic, { size: 10 }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: "dmp-status-title", children: track.title }),
-      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: "dmp-status-time", children: formatTime(player.position) })
+  return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: "dmp-status", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("button", { type: "button", className: "dmp-status", style: { padding: 0 }, title: track.title, onClick: open, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "dmp-status-cover", children: track.cover !== "" ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("img", { src: imageUrl(track.cover), alt: "", loading: "lazy" }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(IconMusic, { size: 10 }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "dmp-status-title", children: track.title }),
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: "dmp-status-time", children: formatTime(player.position) })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
       "button",
       {
         type: "button",
@@ -4227,17 +4088,17 @@ function StatusItem({ controller: controller2, open }) {
           if (player.needsGesture) controller2.restoreSound();
           else void controller2.toggle();
         },
-        children: player.loading ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(IconSpinner, { size: 11 }) : player.playing ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(IconPause, { size: 11 }) : /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(IconPlay, { size: 11 })
+        children: player.loading ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(IconSpinner, { size: 11 }) : player.playing ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(IconPause, { size: 11 }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(IconPlay, { size: 11 })
       }
     ),
-    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("button", { type: "button", className: "dmp-status-btn", title: "\u4E0B\u4E00\u9996", onClick: () => {
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("button", { type: "button", className: "dmp-status-btn", title: "\u4E0B\u4E00\u9996", onClick: () => {
       void controller2.next(false);
-    }, children: /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(IconNext, { size: 11 }) })
+    }, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(IconNext, { size: 11 }) })
   ] });
 }
 
 // src/client/index.tsx
-var import_jsx_runtime13 = require("react/jsx-runtime");
+var import_jsx_runtime12 = require("react/jsx-runtime");
 var ACTIVITY_ID = "music-player";
 var SHORTCUT_PLAY = "music-player.playPause";
 var SHORTCUT_NEXT = "music-player.next";
@@ -4248,10 +4109,10 @@ function getController() {
   return controller;
 }
 function ActivityPage() {
-  return /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(App, { controller: getController() });
+  return /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(App, { controller: getController() });
 }
 function ActivityGlyph({ size = 20, active = false }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(MusicGlyph, { size, active });
+  return /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(MusicGlyph, { size, active });
 }
 function ensureStyles() {
   if (document.getElementById(STYLE_ID) !== null) return;

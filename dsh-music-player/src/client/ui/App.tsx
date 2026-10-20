@@ -17,7 +17,6 @@ import { AccountView } from './AccountView'
 import { Avatar, useStore } from './common'
 import { FavoritesView } from './FavoritesView'
 import { NowPlaying } from './NowPlaying'
-import { PlayerBar } from './PlayerBar'
 import { QueueView } from './QueueView'
 import { SearchView } from './SearchView'
 import { SettingsView } from './SettingsView'
@@ -111,11 +110,6 @@ export function App({ controller }: { controller: PlayerController }): React.Rea
                 {library.hostError}
               </span>
             ) : null}
-            {library.account.loggedIn && library.account.user !== null ? (
-              <button type="button" className="dmp-iconbtn bordered" title={library.account.user.name} onClick={() => { controller.setTab('account') }}>
-                <Avatar name={library.account.user.name} src={library.account.user.face} size={24} />
-              </button>
-            ) : null}
           </div>
         </header>
 
@@ -126,8 +120,6 @@ export function App({ controller }: { controller: PlayerController }): React.Rea
           {tab === 'account' ? <AccountView controller={controller} /> : null}
           {tab === 'settings' ? <SettingsView controller={controller} /> : null}
         </div>
-
-        <PlayerBar controller={controller} />
       </main>
 
       <aside className="dmp-side">

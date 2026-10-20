@@ -208,6 +208,17 @@ await page.waitForFunction(() => window.__DSH_MUSIC_PLAYER__ !== undefined, null
 const brand = await page.locator('.dmp-brand h1').textContent()
 console.log('brand', brand)
 if (brand !== '音乐播放器') throw new Error('player page did not render')
+const layout = await page.evaluate(() => ({
+  playerBar: document.querySelectorAll('.dmp-playerbar').length,
+  topbarButtons: document.querySelectorAll('.dmp-topbar-actions button').length,
+  sidePanels: document.querySelectorAll('.dmp-side').length,
+  mainDivs: document.querySelectorAll('main.dmp-main > div').length,
+}))
+console.log('layout', layout)
+if (layout.playerBar !== 0) throw new Error('bottom player bar is still rendered')
+if (layout.topbarButtons !== 0) throw new Error('topbar account button is still rendered')
+if (layout.sidePanels !== 1) throw new Error('right playback panel is missing')
+if (layout.mainDivs !== 1) throw new Error('main should only contain the content area')
 
 await page.getByRole('button', { name: '久石让', exact: true }).click()
 await page.waitForFunction(() => {
@@ -280,7 +291,13 @@ await page.waitForFunction(() => {
   const search = window.__DSH_MUSIC_PLAYER__.controller.library.getSnapshot().search
   return search !== null && !search.loading && search.keyword === 'BV1Za4y1G7Vq' && search.items.length > 0
 }, null, { timeout: 60000 })
-await page.locator('.dmp-result-list .dmp-result-actions button[title="播放"]').first().click()
+// The same BV is already the current native track, so its row button reads
+// "暂停". Drive the controller directly to force the WAV delivery path.
+await page.evaluate(() => {
+  const controller = window.__DSH_MUSIC_PLAYER__.controller
+  const track = controller.library.getSnapshot().search.items[0]
+  return controller.playTrack(track, { keepQueue: true, forceWav: true })
+})
 await page.waitForFunction(() => {
   const state = window.__DSH_MUSIC_PLAYER__.controller.player.getSnapshot()
   return state.format === 'wav' && !state.loading

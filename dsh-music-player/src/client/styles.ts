@@ -668,52 +668,11 @@ body[data-ds-dark-theme] .dmp-root {
 .dmp-upnext-row .dmp-upnext-title { flex: 1; min-width: 0; font-size: 10.8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dmp-upnext-row .dmp-caption { flex: 0 0 auto; }
 
-/* ── bottom player bar ───────────────────────────────────────────────── */
-.dmp-playerbar {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex: 0 0 auto;
-  min-height: 72px;
-  padding: 10px 26px;
-  border-top: 1px solid var(--dmp-border-soft);
-  background: color-mix(in srgb, var(--dmp-surface) 78%, transparent);
-  backdrop-filter: blur(18px);
-}
-.dmp-pb-track { display: flex; align-items: center; gap: 11px; min-width: 0; flex: 1 1 240px; max-width: 330px; }
-.dmp-pb-cover { position: relative; width: 44px; height: 44px; flex: 0 0 44px; overflow: hidden; border-radius: 10px; background: var(--dmp-surface-2); display: grid; place-items: center; color: var(--dmp-text-3); }
-.dmp-pb-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.dmp-pb-meta { min-width: 0; }
-.dmp-pb-meta strong { display: block; font-size: 11.8px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dmp-pb-meta span { display: block; margin-top: 2px; color: var(--dmp-caption); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dmp-pb-controls { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
-.dmp-pb-controls .dmp-play-small {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  margin: 0 3px;
-  border: 0;
-  border-radius: 50%;
-  color: #fff;
-  background: linear-gradient(135deg, var(--dmp-accent), var(--dmp-accent-2));
-  box-shadow: 0 6px 14px color-mix(in srgb, var(--dmp-accent) 28%, transparent);
-}
-.dmp-pb-progress { display: flex; align-items: center; gap: 9px; flex: 1 1 220px; min-width: 120px; }
-.dmp-pb-progress .dmp-time { color: var(--dmp-caption); font-size: 9.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.dmp-pb-progress .dmp-progress-track { flex: 1; }
-.dmp-pb-extra { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
-.dmp-pb-extra .dmp-range { width: 82px; }
-.dmp-pb-extra .dmp-select { height: 27px; font-size: 10.5px; padding-right: 24px; }
-.dmp-pb-volume { display: flex; align-items: center; gap: 3px; }
-
 /* ── toast / modal ───────────────────────────────────────────────────── */
 .dmp-toast {
   position: absolute;
   left: 50%;
-  bottom: 92px;
+  bottom: 24px;
   z-index: 20;
   display: flex;
   align-items: center;
@@ -809,10 +768,16 @@ body[data-ds-dark-theme] .dmp-root {
   .dmp-side { width: 276px; flex-basis: 276px; }
 }
 @media (max-width: 1080px) {
-  .dmp-side { display: none; }
+  .dmp-side { width: 260px; flex-basis: 260px; }
   .dmp-nav { width: 208px; flex-basis: 208px; }
+  /* The right panel is now the only playback surface, so its controls get a
+     compact variant instead of disappearing with the old bottom bar. */
+  .dmp-np-controls { gap: 2px; }
+  .dmp-np-controls .dmp-iconbtn { width: 32px; height: 32px; flex-basis: 32px; }
+  .dmp-play-big { width: 48px; height: 48px; flex-basis: 48px; }
 }
 @media (max-width: 860px) {
+  .dmp-side { width: 250px; flex-basis: 250px; }
   .dmp-nav { width: 64px; flex-basis: 64px; padding-left: 8px; padding-right: 8px; }
   .dmp-brand { justify-content: center; padding-left: 0; padding-right: 0; }
   .dmp-brand-text, .dmp-nav-label, .dmp-nav-badge, .dmp-account-mini .dmp-mini-name, .dmp-host-line span { display: none; }
@@ -822,12 +787,11 @@ body[data-ds-dark-theme] .dmp-root {
   .dmp-host-line { justify-content: center; }
   .dmp-content { padding-left: 18px; padding-right: 18px; }
   .dmp-topbar { padding-left: 18px; padding-right: 18px; }
-  .dmp-playerbar { padding-left: 14px; padding-right: 14px; gap: 8px; }
-  .dmp-pb-track { max-width: 200px; }
-  .dmp-pb-extra .dmp-range, .dmp-pb-extra .dmp-select { display: none; }
 }
 @media (max-width: 620px) {
-  .dmp-pb-progress, .dmp-pb-track .dmp-pb-meta { display: none; }
+  .dmp-side { width: 220px; flex-basis: 220px; padding-left: 14px; padding-right: 14px; }
+  .dmp-np-controls .dmp-iconbtn { width: 28px; height: 28px; flex-basis: 28px; }
+  .dmp-play-big { width: 42px; height: 42px; flex-basis: 42px; }
   .dmp-search-hero { padding: 18px; }
   .dmp-search-box { flex-wrap: wrap; }
   .dmp-search-btn { width: 100%; }
