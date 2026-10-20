@@ -1,0 +1,9 @@
+# dsh-music-player bundle patch.
+#
+# The host half mounts a same-origin /dsh-music-player route on DSH's Web server
+# and owns the Bilibili session, settings, and media cache. The browser half is
+# loaded through the package's `dsh.client` declaration and contributes the
+# activity-bar entry, the player page, and the status-bar mini player.
+- insert:
+    - id: dsh-music-player
+      name: dsh-music-player

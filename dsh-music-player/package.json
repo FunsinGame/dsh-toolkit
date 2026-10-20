@@ -1,0 +1,50 @@
+{
+  "name": "dsh-music-player",
+  "version": "0.1.0",
+  "description": "DSH Web 音乐播放器：在左侧活动栏打开，搜索并播放 B 站音频，支持扫码登录、收藏夹、队列、缓存和全局迷你播放条。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "docs/screenshot.png"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "check": "node --check lib/index.js && node --check lib/client.js",
+    "test": "node scripts/test-host.mjs && node scripts/test-client.mjs",
+    "test:browser": "node scripts/test-browser.mjs",
+    "test:audio": "node scripts/run-test-audio.mjs"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.7",
+    "@wasm-audio-decoders/aac": "^0.0.1",
+    "esbuild": "^0.28.0",
+    "jsdom": "^30.1.3",
+    "mp4box": "^2.4.1",
+    "playwright-core": "^1.64.1",
+    "qrcode": "^1.5.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.7.2"
+  }
+}
