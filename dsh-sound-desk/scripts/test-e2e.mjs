@@ -379,6 +379,47 @@ try {
   })
   await page.waitForTimeout(300)
 
+  // The import overlay must block this page only. Shrink the page container, place a
+  // probe with the overlay's class inside the shadow mount, and compare boxes: an
+  // overlay that escaped to the viewport (the `fixed` bug) would be wider than the
+  // container and start at the window's corner.
+  const overlayScope = await page.evaluate(() => {
+    const root = document.getElementById('root')
+    if (root === null) return null
+    root.style.width = '1100px'
+    root.style.height = '640px'
+    root.style.margin = '40px'
+    const shadow = root.querySelector('div')?.shadowRoot
+    const mount = shadow?.querySelector('.dsh-sdk-mount')
+    if (mount === undefined || mount === null) return null
+    const probe = document.createElement('div')
+    probe.className = 'import-overlay'
+    mount.append(probe)
+    const mountBox = mount.getBoundingClientRect()
+    const probeBox = probe.getBoundingClientRect()
+    const position = getComputedStyle(probe).position
+    probe.remove()
+    root.style.width = ''
+    root.style.height = ''
+    root.style.margin = ''
+    return {
+      position,
+      mount: { x: mountBox.x, y: mountBox.y, width: mountBox.width, height: mountBox.height },
+      probe: { x: probeBox.x, y: probeBox.y, width: probeBox.width, height: probeBox.height },
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+    }
+  })
+  check('import overlay is absolutely positioned', overlayScope?.position === 'absolute', overlayScope?.position ?? 'missing')
+  check(
+    'import overlay covers the page, not the window',
+    overlayScope !== null &&
+      Math.abs(overlayScope.probe.width - overlayScope.mount.width) < 1 &&
+      Math.abs(overlayScope.probe.height - overlayScope.mount.height) < 1 &&
+      Math.abs(overlayScope.probe.x - overlayScope.mount.x) < 1 &&
+      overlayScope.probe.width < overlayScope.viewport.width,
+    JSON.stringify(overlayScope),
+  )
+
   if (screenshotPath !== null) {
     await mkdir(dirname(screenshotPath), { recursive: true })
     await page.screenshot({ path: screenshotPath })

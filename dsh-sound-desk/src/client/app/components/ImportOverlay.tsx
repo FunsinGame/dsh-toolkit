@@ -1,12 +1,16 @@
 /**
- * Full-screen import progress. Blocks the workbench while a library is being
+ * Full-page import progress. Blocks the workbench while a library is being
  * indexed.
  *
- * Why full-screen and blocking rather than a corner spinner: a half-indexed library
+ * Why full-page and blocking rather than a corner spinner: a half-indexed library
  * makes every number on screen wrong — asset counts, the UCS tree and any search
  * result are all mid-flight — so letting the user keep clicking would be inviting
  * them to act on values that are about to change. The user asked for exactly this,
  * and it is also the honest presentation of "the catalogue is not consistent yet".
+ *
+ * "Full-page", not "full-screen": the overlay is absolutely positioned inside the
+ * workbench's shadow mount, so in DSH it covers this activity page and leaves the
+ * rest of the app (conversation, other plugins) usable.
  *
  * The bar is derived from the engine's own job events (see `state/importProgress.ts`),
  * so it cannot disagree with what the indexer is actually doing.

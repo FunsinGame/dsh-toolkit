@@ -1156,12 +1156,16 @@ select:focus {
 }
 
 /* ---------------------------------------------------------------- import ---
-   Full-screen import progress. It covers the workbench on purpose: while a
-   library is indexing, every count, category and search result underneath is
-   mid-flight, so leaving them clickable would invite acting on stale numbers. */
+   Full-page import progress. It covers the workbench on purpose: while a library
+   is indexing, every count, category and search result underneath is mid-flight,
+   so leaving them clickable would invite acting on stale numbers.
+
+   `absolute`, not `fixed`: in DSH the workbench is a page inside the app frame, and
+   a fixed overlay escaped the page and covered the whole window — including the
+   conversation. The shadow mount is the positioning context (`.dsh-sdk-mount`). */
 
 .import-overlay {
-  position: fixed;
+  position: absolute;
   inset: 0;
   z-index: 1000;
   display: flex;
