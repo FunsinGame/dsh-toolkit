@@ -2,9 +2,14 @@
  * dsh-notify-sound —— 浏览器半侧。
  *
  * 负责三件事：
- *   1. 用 Web Audio 播放“任务完成 / 需要用户确认”的提示音；
+ *   1. 用 Web Audio 播放“任务结束 / 需要用户处理”的提示音；
  *   2. 在 Plugins 页本 bundle 的详情页上提供配置卡片（`plugins.bundle.config`）；
  *   3. 把本 bundle 的配置行（`notify-sound`）同步为播放参数。
+ *
+ * 两类提醒都走宿主/框架的全局信号，因此后台会话（没有在窗口里打开）同样生效：
+ *   - 任务结束：转发事件 `api-session/status`（Agent 由运行变为空闲）；
+ *   - 待处理交互：`ctx.uiSession.sessionStatus` 里的待处理交互注册表
+ *     （提问、计划评审、工具审批）。
  *
  * 本文件是手写的浏览器模块：`window.__ModuleLoader__.load` 只登记工厂，
  * 模块体在首次 require 时才执行。
@@ -33,30 +38,11 @@ window.__ModuleLoader__.load({
 		/** 宿主表单返回之前，以及草稿音量非法时使用的音量。 */
 		const DEFAULT_VOLUME = 0.4;
 
-		/**
-		 * 需要提醒用户的卡片选择器：`data-question-key` 是通用的提问流程，
-		 * `data-plan-review-key` 是计划评审变体，`data-approval-key` 是工具审批请求。
-		 */
-		const NOTIFY_SELECTOR =
-			"[data-question-key], [data-plan-review-key], [data-approval-key]";
-
-		/** 本插件实例启动的时刻（毫秒）；用于跳过历史事件回放。 */
-		const loadedAt = Date.now();
-
-		/** 已处理过的“完成”和“审批”事件 seq。 */
-		const playedEventSeqs = new Set();
-
-		/** 已见过的卡片键，保证同一张提问/审批卡只响一次。 */
-		const playedCardKeys = new Set();
-
-		/** 去重集合的上限，避免长时间打开的页面无限增长。 */
-		const MAX_REMEMBERED_KEYS = 10_000;
-
 		// ── 设置页 ─────────────────────────────────────────────────────────
 
 		const NOTIFY_LOCALES = {
 			zh: {
-				description: "会话任务结束时播放提示音，询问用户时也会提醒",
+				description: "会话任务结束或需要你处理时播放提示音",
 				completeSound: "完成提示音（URL 或 data URI）",
 				questionSound: "询问提示音（URL 或 data URI）",
 				volume: "音量（0~1）",
@@ -73,7 +59,7 @@ window.__ModuleLoader__.load({
 				saveFailed: "保存失败，请重试",
 			},
 			en: {
-				description: "Play a chime when a task finishes or the agent asks you something",
+				description: "Play a chime when a task finishes or something needs your answer",
 				completeSound: "Completion sound (URL or data URI)",
 				questionSound: "Question sound (URL or data URI)",
 				volume: "Volume (0~1)",
@@ -361,7 +347,7 @@ window.__ModuleLoader__.load({
 		let audioCtx = null;
 		let warnedNoAudio = false;
 
-		/** 很小的间隔，避免事件和它对应的 DOM 卡片重复响一次。 */
+		/** 很小的间隔，避免同一时刻的多个信号重复响。 */
 		let lastChimeAt = 0;
 		const MIN_CHIME_GAP_MS = 800;
 
@@ -518,29 +504,7 @@ window.__ModuleLoader__.load({
 			};
 		}
 
-		/** 记住一个键；集合到达上限时整体清空。 */
-		function remember(set, key) {
-			if (set.has(key)) return false;
-			if (set.size >= MAX_REMEMBERED_KEYS) set.clear();
-			set.add(key);
-			return true;
-		}
-
-		/** 只有在本插件加载前后追加的事件才返回 true。 */
-		function isFreshEvent(event) {
-			return (
-				event != null &&
-				typeof event.time === "number" &&
-				event.time >= loadedAt - 2000
-			);
-		}
-
-		/** 处理一个直接询问用户的事件（当前打开会话里的 approval/asked）。 */
-		function notifyQuestionEvent(event) {
-			if (!remember(playedEventSeqs, event.seq)) return;
-			if (!isFreshEvent(event)) return;
-			void playChime("question");
-		}
+		// ── 全局提醒信号 ───────────────────────────────────────────────────
 
 		/** 会话是否是用户自己的顶层会话（而不是子智能体会话）。 */
 		function isUserFacingSession(sessions, sessionId) {
@@ -553,45 +517,46 @@ window.__ModuleLoader__.load({
 		/**
 		 * 处理一次“会话从运行变为空闲”：该会话的任务已经结束，无论它是当前
 		 * 打开的会话还是后台会话。
+		 *
+		 * @param sessionId - 状态发生变化的会话。
+		 * @param sessions - 会话服务，用于识别子智能体。
 		 */
 		function notifySessionIdle(sessionId, sessions) {
 			if (!isUserFacingSession(sessions, sessionId)) return;
 			void playChime("complete");
 		}
 
-		/** 记录一张提问/审批卡的键，首次出现时播放提示音。 */
-		function noteCard(node) {
-			if (node == null || node.nodeType !== 1) return;
-			const key =
-				node.getAttribute("data-question-key") ||
-				node.getAttribute("data-plan-review-key") ||
-				node.getAttribute("data-approval-key");
-			if (key === null || key === "") return;
-			if (!remember(playedCardKeys, key)) return;
-			void playChime("question");
-		}
-
-		// ── 对话事件定义 ───────────────────────────────────────────────────
-		//
-		// 只处理“当前打开的会话”里的审批询问：卡片出现时立即提醒。任务结束
-		// 的提示由全局的 `api-session/status` 负责，因此后台会话也能提醒。
-
-		const notifySoundDefinition = {
-			kind: "notify-sound-event",
-			match(event) {
-				if (event.type === "approval/asked") {
-					return { id: String(event.seq), role: "start" };
+		/**
+		 * 观察所有会话里“等待用户处理”的交互（提问、计划评审、工具审批）。
+		 *
+		 * `ctx.uiSession.sessionStatus` 是框架为所有会话维护的待处理交互注册表：
+		 * 后台会话的请求同样会登记进来，所以不依赖当前打开的是哪个会话。请求
+		 * 的 `key` 在一次请求内唯一，用它去重；插件加载时已经存在的请求只建立
+		 * 基线，不补响。
+		 *
+		 * @param uiSession - 会话 UI 服务。
+		 * @returns 取消订阅的函数。
+		 */
+		function watchPendingInteractions(uiSession) {
+			/** 上一次快照里已经提醒过的请求 key；`null` 表示还没建立基线。 */
+			let announced = null;
+			const sync = () => {
+				const keys = new Set();
+				for (const status of uiSession.sessionStatus.getSnapshot().values()) {
+					if (status.pendingInteraction !== undefined) keys.add(status.pendingInteraction.key);
 				}
-				return null;
-			},
-			start(_context, match) {
-				notifyQuestionEvent(match.event);
-				return {};
-			},
-			update(context) {
-				return context.state;
-			},
-		};
+				if (announced !== null) {
+					for (const key of keys) {
+						if (announced.has(key)) continue;
+						void playChime("question");
+					}
+				}
+				announced = keys;
+			};
+			const unsubscribe = uiSession.sessionStatus.subscribe(sync);
+			sync();
+			return unsubscribe;
+		}
 
 		// ── 插件主体 ───────────────────────────────────────────────────────
 
@@ -600,8 +565,8 @@ window.__ModuleLoader__.load({
 		 *
 		 * 每个可选服务都通过各自的子注入获取，因此本插件不会因为某个包未组合
 		 * 而卡住 Web 启动：没有 `remote`/`sessions` 时不提示任务结束，没有
-		 * `configForms` 时仍用声明的默认值播放，没有 `slots`/`locale` 时只是
-		 * 不提供设置页。
+		 * `uiSession` 时不提示待处理交互，没有 `configForms` 时仍用声明的
+		 * 默认值播放，没有 `slots`/`locale` 时只是不提供设置页。
 		 *
 		 * @param ctx - 浏览器插件上下文。
 		 */
@@ -650,60 +615,30 @@ window.__ModuleLoader__.load({
 				);
 			});
 
-			// 当前打开会话里的审批询问：卡片出现时立即提醒。注册表的生命周期
-			// 绑定在本插件的 fiber 上，热重载时会自动清理。
-			ctx.inject(["uiConversation"], (child) => {
+			// 提问 / 计划评审 / 工具审批：进入全局待处理交互表就提醒，后台会话
+			// 同样生效。子智能体的提问/审批也需要人来处理，因此不过滤。
+			ctx.inject(["uiSession"], (child) => {
 				child.effect(
-					() => child.uiConversation.events.register(notifySoundDefinition),
-					"notify-sound: 询问事件",
+					() => watchPendingInteractions(child.uiSession),
+					"notify-sound: 待处理交互",
 				);
 			});
 
-			// 提问 / 计划评审 / 审批卡片，以及解锁 Web Audio 的用户操作监听。
+			// 用户操作后解锁 Web Audio（浏览器自动播放策略）。
 			ctx.effect(() => {
 				const doc = document;
-				const root = doc.body ?? doc.documentElement;
-
-				// 先把已经在屏幕上的卡片记下来，避免刷新/热重载时对已经可见的
-				// 提问再响一次。
-				for (const node of doc.querySelectorAll(NOTIFY_SELECTOR)) {
-					const key =
-						node.getAttribute("data-question-key") ||
-						node.getAttribute("data-plan-review-key") ||
-						node.getAttribute("data-approval-key");
-					if (key !== null && key !== "") playedCardKeys.add(key);
-				}
-
-				const observer = new MutationObserver((records) => {
-					for (const record of records) {
-						for (const node of record.addedNodes) {
-							if (node.nodeType !== 1) continue;
-							if (typeof node.matches === "function" && node.matches(NOTIFY_SELECTOR)) {
-								noteCard(node);
-								continue;
-							}
-							if (typeof node.querySelectorAll === "function") {
-								for (const card of node.querySelectorAll(NOTIFY_SELECTOR)) noteCard(card);
-							}
-						}
-					}
-				});
-				observer.observe(root, { childList: true, subtree: true });
-
 				const onGesture = () => {
 					resumeAudio();
 				};
 				doc.addEventListener("pointerdown", onGesture, { passive: true });
 				doc.addEventListener("keydown", onGesture, { passive: true });
 				doc.addEventListener("touchstart", onGesture, { passive: true });
-
 				return () => {
-					observer.disconnect();
 					doc.removeEventListener("pointerdown", onGesture);
 					doc.removeEventListener("keydown", onGesture);
 					doc.removeEventListener("touchstart", onGesture);
 				};
-			}, "notify-sound: DOM 监听");
+			}, "notify-sound: 解锁音频");
 		}
 
 		exports.apply = apply;

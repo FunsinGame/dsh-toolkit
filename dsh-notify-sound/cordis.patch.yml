@@ -1,7 +1,7 @@
 # dsh-notify-sound 的 bundle patch：在 profile 组合树上插入一行。
 # 这一行启用浏览器半侧（`lib/client.js`），它在以下时机播放一段短提示音：
 #   - 任何会话的 Agent 从运行变为空闲（任务结束，后台会话同样生效）；
-#   - 当前会话里出现提问 / 计划评审 / 审批卡片。
+#   - 任何会话出现需要用户处理的提问 / 计划评审 / 工具审批（后台会话同样生效）。
 #
 # 本行在 `lib/index.js` 中声明了 Config（所有字段均为 volatile），因此
 # Plugins 页上本 bundle 的配置卡片会把每个 profile 的覆盖值写进该 profile

@@ -1,7 +1,7 @@
 {
   "name": "dsh-notify-sound",
-  "description": "DSH Web 提示音插件：任何会话任务结束时（会话由运行转为空闲，含后台会话）播放提示音，并在当前会话向用户提问或请求审批时响铃",
-  "version": "0.2.2",
+  "description": "DSH Web 提示音插件：任何会话任务结束时（会话由运行转为空闲，含后台会话）播放提示音，任何会话向用户提问或请求审批时也会响铃",
+  "version": "0.2.3",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -15,10 +15,12 @@
     },
     "client": {
       "inject": [
+        "@deepseek-ai/dsh-api-gateway",
+        "@deepseek-ai/dsh-api-session-controller",
         "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-session",
         "@deepseek-ai/dsh-client-ui-settings",
-        "@deepseek-ai/dsh-client-ui-plugin-manager",
-        "@deepseek-ai/dsh-client-ui-conversation"
+        "@deepseek-ai/dsh-client-ui-plugin-manager"
       ],
       "platform": "web"
     }
