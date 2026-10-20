@@ -20,10 +20,12 @@ The model-facing text is `@<absolute path>` or `@<absolute path>#L12-L30`.
 
 ## How it works
 
-The extension owns no server. It reads
-`$DSH_HOME/runtime/external-input/*.json` (written by the patched Host), picks
-the instance whose workspace matches the current VS Code folder, and POSTs one
-authenticated request to `/external-input/v1/insert`. The Host broadcasts it
+The extension owns no server. It reads the instance records the patched Host
+writes under `$DSH_HOME/runtime/external-input` and mirrors to
+`~/.dsh/runtime/external-input`, picks the instance whose workspace matches
+the current VS Code folder, and POSTs one authenticated request to
+`/external-input/v1/insert`. Candidate homes are `dshSend.home` (when set),
+the extension host's `DSH_HOME`, and `~/.dsh`. The Host broadcasts it
 to every open DSH page through the existing forwarded Remote-event channel;
 the page that owns the active Session inserts the reference at its caret and
 acknowledges the request. The extension reports the acknowledgement.

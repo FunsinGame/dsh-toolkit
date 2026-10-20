@@ -31,6 +31,37 @@ export function dshHome(configured: string): string {
 }
 
 /**
+ * Every home an instance record may live under, in preference order: the
+ * explicit setting, the extension host's `DSH_HOME`, then the user-level
+ * `~/.dsh` where the Host mirrors its record.
+ * @param configured - the `dshSend.home` setting.
+ * @returns distinct absolute homes.
+ */
+export function candidateHomes(configured: string): string[] {
+  const homes = new Set<string>()
+  if (configured.trim() !== '') homes.add(expandHome(configured.trim()))
+  const fromEnvironment = process.env.DSH_HOME?.trim()
+  if (fromEnvironment !== undefined && fromEnvironment !== '') homes.add(expandHome(fromEnvironment))
+  homes.add(join(homedir(), '.dsh'))
+  return [...homes]
+}
+
+/**
+ * Read live instances across every candidate home, deduplicated by process id.
+ * @param homes - candidate homes in preference order.
+ * @param exactFile - optional exact instance file path.
+ * @returns live instances.
+ */
+export async function readInstancesFrom(homes: readonly string[], exactFile: string): Promise<DshInstance[]> {
+  if (exactFile.trim() !== '') return readInstances(homes[0] ?? join(homedir(), '.dsh'), exactFile)
+  const byPid = new Map<number, DshInstance>()
+  for (const home of homes) {
+    for (const instance of await readInstances(home, '')) byPid.set(instance.pid, instance)
+  }
+  return [...byPid.values()]
+}
+
+/**
  * Read every live instance file, or exactly one configured file.
  * @param home - resolved harness home.
  * @param exactFile - optional exact instance file path.

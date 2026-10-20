@@ -12,7 +12,7 @@
 import { basename } from 'node:path'
 import * as vscode from 'vscode'
 import { insert, type InsertRequest, type InsertResponse } from './client'
-import { dshHome, readInstances, type DshInstance } from './discovery'
+import { candidateHomes, dshHome, readInstancesFrom, type DshInstance } from './discovery'
 import { lineRangeOf, samePath } from './format'
 
 /** Output channel for discovery and protocol diagnostics. */
@@ -24,12 +24,11 @@ let output: vscode.OutputChannel | undefined
  */
 async function resolveInstance(): Promise<DshInstance | undefined> {
   const config = vscode.workspace.getConfiguration('dshSend')
-  const instances = await readInstances(
-    dshHome(config.get<string>('home', '')),
-    config.get<string>('instance', ''),
-  )
+  const homes = candidateHomes(config.get<string>('home', ''))
+  output?.appendLine(`searching ${homes.join(', ')}`)
+  const instances = await readInstancesFrom(homes, config.get<string>('instance', ''))
+  output?.appendLine(`live instances: ${instances.map(i => `${String(i.pid)}@${String(i.port)}`).join(', ') || '(none)'}`)
   if (instances.length === 0) {
-    output?.appendLine('no live DSH instance file found')
     return undefined
   }
   const cwd = workspaceCwd()

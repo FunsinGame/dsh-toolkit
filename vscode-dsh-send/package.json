@@ -2,7 +2,7 @@
   "name": "vscode-dsh-send",
   "displayName": "DSH Send",
   "description": "Send a file tab or an editor code range into an open DeepSeek Harness composer.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "dsh-toolkit",
   "license": "MIT",
   "private": true,

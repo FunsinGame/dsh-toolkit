@@ -38,10 +38,18 @@ read a Session, submit a prompt, or call a Remote method.
 
 ## Discovery file
 
-Written on Web-app activation and removed on disposal:
+Written on Web-app activation and removed on disposal, at **both**:
 
-```
-$DSH_HOME/runtime/external-input/<pid>.json
+- `$DSH_HOME/runtime/external-input/<pid>.json`
+- `~/.dsh/runtime/external-input/<pid>.json`
+
+`$DSH_HOME` follows the existing home-paths rule: the environment value, else
+`~/.dsh`. The user-level copy is what lets an editor find an instance whose
+Host was launched with a non-default home — for example the desktop
+development build, whose home lives under
+`apps/desktop/.desktop-build/development/home`.
+
+```json
 {
   "schema": 1,
   "pid": 12345,
@@ -53,8 +61,8 @@ $DSH_HOME/runtime/external-input/<pid>.json
 }
 ```
 
-`$DSH_HOME` follows the existing home-paths rule: the environment value, else
-`~/.dsh`.
+The extension searches `dshSend.home` (when set), its own `DSH_HOME`, then
+`~/.dsh`, and deduplicates instances by pid.
 
 ## Range syntax
 
