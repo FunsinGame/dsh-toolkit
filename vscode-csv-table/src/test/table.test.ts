@@ -362,6 +362,84 @@ test('sortRows 对相同的键保持稳定', () => {
   );
 });
 
+test('sortRows 不改变顶部锁定的行，只排序其后的数据行', () => {
+  const rows = [
+    ['##var', 'id', 'name'],
+    ['##type', 'int', 'string'],
+    ['##group', 'c', ''],
+    ['', '3', 'cid'],
+    ['', '1', 'ann'],
+    ['', '2', 'bob'],
+  ];
+  assert.deepEqual(sortRows(rows, 1, 'asc', false, 3), [
+    ['##var', 'id', 'name'],
+    ['##type', 'int', 'string'],
+    ['##group', 'c', ''],
+    ['', '1', 'ann'],
+    ['', '2', 'bob'],
+    ['', '3', 'cid'],
+  ]);
+});
+
+test('sortRows 的锁定行与表头取并集，不会把行数相加', () => {
+  const rows = [
+    ['id', 'name'],
+    ['2', 'bob'],
+    ['9', 'zed'],
+    ['1', 'ann'],
+  ];
+  // 表头本身就在锁定行里（常见：锁定前 2 行），排序仍只跳过最前面的两行。
+  assert.deepEqual(sortRows(rows, 0, 'asc', true, 2), [
+    ['id', 'name'],
+    ['2', 'bob'],
+    ['1', 'ann'],
+    ['9', 'zed'],
+  ]);
+});
+
+test('sortRows 按绝对行号保留锁定行，其余行填回剩下的位置', () => {
+  const rows = [['c'], ['locked'], ['a'], ['b'], ['locked2']];
+  assert.deepEqual(sortRows(rows, 0, 'asc', false, 0, [1, 4]), [
+    ['a'],
+    ['locked'],
+    ['b'],
+    ['c'],
+    ['locked2'],
+  ]);
+});
+
+test('applyOp 排序时把锁定行数传给 sortRows', () => {
+  const rows = [
+    ['##var', 'id'],
+    ['', '3'],
+    ['', '1'],
+    ['', '2'],
+  ];
+  assert.deepEqual(
+    applyOp(rows, { kind: 'sort', column: 1, direction: 'asc', hasHeader: false, frozenRows: 1 }),
+    [
+      ['##var', 'id'],
+      ['', '1'],
+      ['', '2'],
+      ['', '3'],
+    ],
+  );
+});
+
+test('applyOp 排序时优先使用锁定行的绝对行号', () => {
+  const rows = [['c'], ['locked'], ['a'], ['locked2'], ['b']];
+  assert.deepEqual(
+    applyOp(rows, {
+      kind: 'sort',
+      column: 0,
+      direction: 'asc',
+      hasHeader: false,
+      frozenRowIndices: [1, 3],
+    }),
+    [['a'], ['locked'], ['b'], ['locked2'], ['c']],
+  );
+});
+
 test('filterRows 用「包含」匹配每一列', () => {
   const result = filterRows(TABLE, filter({ query: 'a' }), 1);
   assert.deepEqual(result.indices, [1, 2, 3]);

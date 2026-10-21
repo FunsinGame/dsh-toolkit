@@ -225,7 +225,14 @@ function clickCell(harness: Harness, row: number, column: number): void {
  * @param harness - 已载入的视图。
  * @returns 坐标换算需要用到的那几个量。
  */
-function stubGridGeometry(harness: Harness): {
+function stubGridGeometry(
+  harness: Harness,
+  scrollOffset: {
+    readonly top?: number;
+    readonly left?: number;
+    readonly viewport?: { readonly width: number; readonly height: number };
+  } = {},
+): {
   readonly viewport: { width: number; height: number };
   readonly rownumWidth: number;
   readonly columnWidth: number;
@@ -233,11 +240,13 @@ function stubGridGeometry(harness: Harness): {
   readonly rowHeight: number;
 } {
   // 视口要装得下三列，否则拖动到第三列时指针会落到表格之外。
-  const viewport = { width: 600, height: 300 };
+  const viewport = scrollOffset.viewport ?? { width: 600, height: 300 };
   const rownumWidth = 56;
   const columnWidth = 140;
   const headHeight = 30;
   const rowHeight = 26;
+  const scrollTop = scrollOffset.top ?? 0;
+  const scrollLeft = scrollOffset.left ?? 0;
   const document = harness.window.document;
   const scroll = document.getElementById('scroll');
   Object.defineProperty(scroll, 'clientWidth', { value: viewport.width, configurable: true });
@@ -250,14 +259,18 @@ function stubGridGeometry(harness: Harness): {
     width: viewport.width,
     height: viewport.height,
   });
+  scroll.scrollTop = scrollTop;
+  scroll.scrollLeft = scrollLeft;
+  // 单元格的 `getBoundingClientRect` 是视口坐标，滚动后要减去滚动偏移；
+  // 测试里把它当作指针的 clientX / clientY 直接使用。
   for (const cell of Array.from(document.querySelectorAll('tbody td.cell')) as any[]) {
     const row = Number(cell.getAttribute('data-row'));
     const column = Number(cell.getAttribute('data-col'));
     cell.getBoundingClientRect = () => ({
-      top: headHeight + row * rowHeight,
-      bottom: headHeight + (row + 1) * rowHeight,
-      left: rownumWidth + column * columnWidth,
-      right: rownumWidth + (column + 1) * columnWidth,
+      top: headHeight + row * rowHeight - scrollTop,
+      bottom: headHeight + (row + 1) * rowHeight - scrollTop,
+      left: rownumWidth + column * columnWidth - scrollLeft,
+      right: rownumWidth + (column + 1) * columnWidth - scrollLeft,
       width: columnWidth,
       height: rowHeight,
     });
@@ -282,10 +295,17 @@ function centreOf(
   },
   row: number,
   column: number,
+  scrollOffset: { readonly top?: number; readonly left?: number } = {},
 ): [number, number] {
   return [
-    grid.rownumWidth + column * grid.columnWidth + grid.columnWidth / 2,
-    grid.headHeight + row * grid.rowHeight + grid.rowHeight / 2,
+    grid.rownumWidth +
+      column * grid.columnWidth +
+      grid.columnWidth / 2 -
+      (scrollOffset.left ?? 0),
+    grid.headHeight +
+      row * grid.rowHeight +
+      grid.rowHeight / 2 -
+      (scrollOffset.top ?? 0),
   ];
 }
 
@@ -673,8 +693,69 @@ test('点击列号右侧的下拉三角弹出排序菜单', () => {
     new harness.window.MouseEvent('click', { bubbles: true }),
   );
   const op = harness.posted.filter(message => message.type === 'op').pop();
-  assert.deepEqual(plain(op?.op), { kind: 'sort', column: 1, direction: 'desc', hasHeader: true });
+  assert.deepEqual(plain(op?.op), {
+    kind: 'sort',
+    column: 1,
+    direction: 'desc',
+    hasHeader: true,
+    frozenRows: 0,
+    frozenRowIndices: [],
+  });
   assert.equal(menu.hidden, true, '选择后菜单收起');
+});
+
+test('排序时把锁定的行数一起送过去，锁定的行不参与排序', () => {
+  const harness = createHarness();
+  send(harness, updateMessage(SAMPLE, { frozenRows: 2 }));
+  const document = harness.window.document;
+  document
+    .querySelector('thead .sort-button[data-col="1"]')
+    .dispatchEvent(new harness.window.MouseEvent('click', { bubbles: true }));
+  document
+    .querySelectorAll('#menu .menu-item')[0]
+    .dispatchEvent(new harness.window.MouseEvent('click', { bubbles: true }));
+
+  const op = harness.posted.filter(message => message.type === 'op').pop();
+  assert.deepEqual(plain(op?.op), {
+    kind: 'sort',
+    column: 1,
+    direction: 'asc',
+    hasHeader: true,
+    frozenRows: 2,
+    frozenRowIndices: [0, 1],
+  });
+});
+
+test('有筛选时按锁定的真实行号排序，而不是文档前几行', () => {
+  const harness = createHarness();
+  const rows = [
+    ['name', 'age'],
+    ['ann', '31'],
+    ['bob', '9'],
+    ['cid', '105'],
+    ['dot', '7'],
+    ['eve', '3'],
+    ['fay', '1'],
+  ];
+  // 只显示第 2、4、5 行；锁定前 2 行显示出来的行（绝对行号 2、4）。
+  send(harness, updateMessage(rows, { visible: [2, 4, 5], frozenRows: 2, frozenColumns: 1 }));
+  const document = harness.window.document;
+  document
+    .querySelector('thead .sort-button[data-col="1"]')
+    .dispatchEvent(new harness.window.MouseEvent('click', { bubbles: true }));
+  document
+    .querySelectorAll('#menu .menu-item')[0]
+    .dispatchEvent(new harness.window.MouseEvent('click', { bubbles: true }));
+
+  const op = harness.posted.filter(message => message.type === 'op').pop();
+  assert.deepEqual(plain(op?.op), {
+    kind: 'sort',
+    column: 1,
+    direction: 'asc',
+    hasHeader: true,
+    frozenRows: 2,
+    frozenRowIndices: [2, 4],
+  });
 });
 
 test('已排序的列在下拉三角上显示方向并勾选当前方式', () => {
@@ -1103,10 +1184,13 @@ test('选中单元格后编辑条显示原始内容，回车写回', () => {
   const document = harness.window.document;
   const bar = document.getElementById('editbar');
   const input = document.getElementById('edit-input');
-  assert.equal(bar.hidden, true, '没有选中单元格时整行不显示');
+  assert.equal(bar.hidden, false, '编辑条常驻显示');
+  assert.equal(bar.classList.contains('disabled'), true, '没有选中单元格时整行置灰');
+  assert.equal(input.disabled, true, '置灰时输入框不可编辑');
 
   clickCell(harness, 2, 1);
-  assert.equal(bar.hidden, false, '选中单元格后显示');
+  assert.equal(bar.classList.contains('disabled'), false, '选中单元格后恢复可编辑');
+  assert.equal(input.disabled, false);
   assert.equal(document.querySelector('.edit-address').textContent, 'B3', '左边是单元格地址');
   assert.equal(input.value, '9', '输入框里是单元格的原始内容');
 
@@ -1163,56 +1247,95 @@ test('编辑条按 Escape 放弃修改，失焦时写回', () => {
   assert.deepEqual(plain(op?.op), { kind: 'setCell', row: 1, column: 0, value: 'anna' });
 });
 
-test('没有选中单元格时编辑条整行不显示', () => {
+test('没有选中单元格时编辑条整行置灰但仍显示', () => {
   const harness = createHarness();
   send(harness, updateMessage(SAMPLE));
   const document = harness.window.document;
   const bar = document.getElementById('editbar');
-  assert.equal(bar.hidden, true);
+  const input = document.getElementById('edit-input');
+  assert.equal(bar.hidden, false);
+  assert.equal(bar.classList.contains('disabled'), true);
+  assert.equal(input.disabled, true);
+  assert.equal(document.querySelector('.edit-address').textContent, '未选中');
+  assert.equal(input.value, '');
 
   clickCell(harness, 1, 0);
-  assert.equal(bar.hidden, false);
+  assert.equal(bar.classList.contains('disabled'), false);
+  assert.equal(input.disabled, false);
 
   document.dispatchEvent(new harness.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-  assert.equal(bar.hidden, true, '取消选中后收起');
+  assert.equal(bar.hidden, false, '取消选中后仍然显示');
+  assert.equal(bar.classList.contains('disabled'), true, '取消选中后置灰');
+  assert.equal(input.disabled, true);
 });
 
-test('选中整行或整列时不显示编辑条', () => {
+test('选中整行、整列或矩形区域时编辑条置灰', () => {
   const harness = createHarness();
   // 固定列宽：jsdom 量不了文本宽度，坐标换算要有一套确定的几何。
   send(harness, updateMessage(SAMPLE, { viewState: { columnWidths: { 0: 140, 1: 140, 2: 140 } } }));
   const document = harness.window.document;
   const bar = document.getElementById('editbar');
+  const input = document.getElementById('edit-input');
 
   clickCell(harness, 1, 0);
-  assert.equal(bar.hidden, false, '单选一个单元格时显示');
+  assert.equal(bar.classList.contains('disabled'), false, '单选一个单元格时可编辑');
 
   // 整行：焦点格落在行尾，拿它当编辑目标会显示"amsterdam"之类无关的内容。
   document
     .querySelector('tbody td.rownum[data-row="1"]')
     .dispatchEvent(new harness.window.MouseEvent('mousedown', { bubbles: true, clientX: 20, clientY: 40 }));
   document.dispatchEvent(new harness.window.MouseEvent('mouseup', { bubbles: true }));
-  assert.equal(bar.hidden, true, '整行选中时收起');
+  assert.equal(bar.hidden, false);
+  assert.equal(bar.classList.contains('disabled'), true, '整行选中时置灰');
+  assert.equal(input.disabled, true);
 
   // 整列：焦点格落在列尾。
   document
     .querySelector('thead th.head-cell[data-col="1"]')
     .dispatchEvent(new harness.window.MouseEvent('mousedown', { bubbles: true }));
   document.dispatchEvent(new harness.window.MouseEvent('mouseup', { bubbles: true }));
-  assert.equal(bar.hidden, true, '整列选中时收起');
+  assert.equal(bar.classList.contains('disabled'), true, '整列选中时置灰');
+  assert.equal(input.disabled, true);
 
   // 拖出的矩形选区同样只有一个"角"，不是能编辑的那一格。
   const grid = stubGridGeometry(harness);
   const from = centreOf(grid, 1, 0);
   const to = centreOf(grid, 2, 1);
   dragOnGrid(harness, { row: 1, column: 0, x: from[0], y: from[1] }, { x: to[0], y: to[1] });
-  assert.equal(bar.hidden, true, '矩形选区也收起');
+  assert.equal(bar.classList.contains('disabled'), true, '矩形选区也置灰');
+  assert.equal(input.disabled, true);
 
-  // 回到单个单元格后重新出现，编辑条没有被永久关掉。
+  // 回到单个单元格后重新可编辑，编辑条没有被永久关掉。
   clickCell(harness, 2, 2);
-  assert.equal(bar.hidden, false, '重新单选一个单元格时又显示');
+  assert.equal(bar.classList.contains('disabled'), false, '重新单选一个单元格时恢复可编辑');
+  assert.equal(input.disabled, false);
   assert.equal(document.querySelector('.edit-address').textContent, 'C3');
-  assert.equal(document.getElementById('edit-input').value, 'amsterdam');
+  assert.equal(input.value, 'amsterdam');
+});
+
+test('编辑条输入到一半时选中整行：先写回原单元格，再置灰', () => {
+  const harness = createHarness();
+  send(harness, updateMessage(SAMPLE));
+  const document = harness.window.document;
+  const input = document.getElementById('edit-input');
+  clickCell(harness, 1, 0);
+  input.focus();
+  input.value = 'anna';
+
+  document
+    .querySelector('tbody td.rownum[data-row="1"]')
+    .dispatchEvent(new harness.window.MouseEvent('mousedown', { bubbles: true, clientX: 20, clientY: 40 }));
+  document.dispatchEvent(new harness.window.MouseEvent('mouseup', { bubbles: true }));
+
+  const op = harness.posted.filter(message => message.type === 'op').pop();
+  assert.deepEqual(plain(op?.op), { kind: 'setCell', row: 1, column: 0, value: 'anna' });
+  assert.equal(document.getElementById('editbar').classList.contains('disabled'), true);
+  assert.equal(input.disabled, true);
+  assert.equal(
+    harness.posted.filter(message => message.type === 'op').length,
+    1,
+    '置灰触发的失焦不会再重复提交',
+  );
 });
 
 test('在编辑条里改完直接点别的单元格：写回原来那一格，编辑条随即跟着新选区走', () => {
@@ -1344,6 +1467,70 @@ test('拖动中移动距离不足只算单击', () => {
     1,
     '没有超过阈值就还是单个单元格',
   );
+});
+
+test('滚动到较下方后向下拖拽，选区跟着指针往下而不是回跳', () => {
+  const harness = createHarness();
+  const rows = [['id', 'value']];
+  for (let index = 0; index < 100; index += 1) {
+    rows.push([String(index), 'x']);
+  }
+  // 先把视口调高，滚动后要能同时看到拖拽的起点和终点。
+  const viewport = { width: 600, height: 600 };
+  stubGridGeometry(harness, { viewport });
+  send(harness, updateMessage(rows, { viewState: { columnWidths: { 0: 140, 1: 140 } } }));
+  const grid = stubGridGeometry(harness, { top: 300, viewport });
+  const from = centreOf(grid, 20, 0, { top: 300 });
+  const to = centreOf(grid, 28, 0, { top: 300 });
+  dragOnGrid(harness, { row: 20, column: 0, x: from[0], y: from[1] }, { x: to[0], y: to[1] });
+
+  const selected = Array.from(
+    harness.window.document.querySelectorAll('tbody td.cell[data-col="0"].selected'),
+  ).map((cell: any) => Number(cell.getAttribute('data-row')));
+  // 滚动偏移必须加在视口坐标上，而不是减掉；否则向下拖会被算到视口上方。
+  assert.deepEqual(selected, [20, 21, 22, 23, 24, 25, 26, 27, 28]);
+});
+
+test('拖到表格下方时选区跟到末行，并启动贴边自动滚动', async () => {
+  const harness = createHarness();
+  const rows = [['id', 'value']];
+  for (let index = 0; index < 40; index += 1) {
+    rows.push([String(index), 'x']);
+  }
+  send(harness, updateMessage(rows, { viewState: { columnWidths: { 0: 140, 1: 140 } } }));
+  const document = harness.window.document;
+  const grid = stubGridGeometry(harness);
+  const from = centreOf(grid, 2, 0);
+  const start = document.querySelector('tbody td.cell[data-row="2"][data-col="0"]');
+  start.dispatchEvent(
+    new harness.window.MouseEvent('mousedown', {
+      bubbles: true,
+      clientX: from[0],
+      clientY: from[1],
+    }),
+  );
+  // 指针停在表格最底部（仍算拖拽），应当先选到末行，再持续向下滚动。
+  document.dispatchEvent(
+    new harness.window.MouseEvent('mousemove', {
+      bubbles: true,
+      clientX: from[0],
+      clientY: grid.viewport.height - 1,
+    }),
+  );
+  await new Promise(resolve => setTimeout(resolve, 80));
+  document.dispatchEvent(
+    new harness.window.MouseEvent('mouseup', {
+      bubbles: true,
+      clientX: from[0],
+      clientY: grid.viewport.height - 1,
+    }),
+  );
+
+  const scroll = document.getElementById('scroll');
+  assert.ok(scroll.scrollTop > 0, '指针贴底边时自动向下滚动');
+  const address = /A(\d+)/.exec(document.getElementById('status').textContent);
+  assert.ok(address !== null, '状态栏应显示当前焦点单元格');
+  assert.ok(Number(address[1]) - 1 > 10, '选区已经越过拖动开始时可见的最后一行');
 });
 
 test('Ctrl+V 直接粘贴到选中的单元格，并作为锚点铺开', async () => {

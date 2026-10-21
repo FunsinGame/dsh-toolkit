@@ -205,7 +205,8 @@ select {
 /* -------------------------------------------------------------- 单元格编辑条 */
 
 /* 表格上方的一行：左边是单元格地址，右边是选中单元格的原始内容，回车写回。
-   没有选中单元格时整行隐藏；`display: flex` 会盖掉 UA 的 `[hidden]`，所以显式关掉。 */
+   这一行常驻显示，避免选中 / 取消选中时表格区忽高忽低；没有可编辑的单个单元格时
+   整行置灰。 */
 .edit-bar {
   display: flex;
   align-items: center;
@@ -216,8 +217,23 @@ select {
   flex: 0 0 auto;
 }
 
-.edit-bar[hidden] {
-  display: none;
+/* 整行置灰：没有选区，或选中的是整行 / 整列 / 矩形区域，没有唯一的编辑目标。 */
+.edit-bar.disabled {
+  opacity: 0.55;
+}
+
+.edit-bar.disabled .edit-input {
+  cursor: default;
+  color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
+  background: transparent;
+}
+
+.edit-bar.disabled .edit-input::placeholder {
+  color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
+}
+
+.edit-bar.disabled .edit-address {
+  color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
 }
 
 .edit-address {

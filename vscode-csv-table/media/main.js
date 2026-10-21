@@ -61,6 +61,7 @@
     noSelection: '未选中',
     edit: '编辑单元格',
     editBar: '选中单元格的原始内容：回车写回，Esc 放弃',
+    editBarPlaceholder: '选中单元格后可在此编辑',
     copy: '复制',
     paste: '粘贴',
     pasted: '已粘贴 {rows} × {cols}',
@@ -1131,8 +1132,11 @@
       commitEditBar();
     });
 
-    // 点地址那一侧也能开始输入，不要求正好点中输入框。
+    // 点地址那一侧也能开始输入，不要求正好点中输入框；置灰时整行不接收输入。
     editBar.element.addEventListener('mousedown', function (event) {
+      if (editBar.input.disabled) {
+        return;
+      }
       if (event.target !== editBar.input) {
         event.preventDefault();
         editBar.input.focus();
@@ -1167,20 +1171,33 @@
   /**
    * 按当前选区刷新编辑条。
    *
-   * 只有恰好选中一个单元格时才显示：整行、整列、`Ctrl+A` 与拖动出的矩形选区都
-   * 只有一个"焦点格"，把它当成正在编辑的那一格会误导人（整行选中时那是行尾的
-   * 单元格，整列选中时是列尾的单元格）；没有选中单元格时同样整行不显示。
+   * 编辑条常驻显示，避免选中 / 取消选中时表格区忽高忽低：恰好选中一个单元格时
+   * 可编辑；整行、整列、`Ctrl+A`、拖动出的矩形选区与没有选区时整行置灰。非单格
+   * 选区只有一个"焦点格"，把它当成正在编辑的那一格会误导人（整行选中时那是行尾
+   * 的单元格，整列选中时是列尾的单元格）。
    */
   function syncEditBar() {
     const rect = selectionRect();
     const single =
       rect !== null && model.rows.length > 0 && rect.r1 === rect.r2 && rect.c1 === rect.c2;
+    editBar.element.hidden = false;
+    editBar.element.classList.toggle('disabled', !single);
+    editBar.element.setAttribute('aria-disabled', single ? 'false' : 'true');
     if (!single) {
-      editBar.element.hidden = true;
+      // 正在输入时先把内容写回原来那一格，再置灰；置灰会触发失焦，目标先清空，
+      // 免得多发一次修改。
+      if (document.activeElement === editBar.input && editBar.target !== null) {
+        commitEditBar(false);
+      }
       editBar.target = null;
+      editBar.input.disabled = true;
+      editBar.address.textContent = t('noSelection');
+      editBar.input.value = '';
+      editBar.input.placeholder = t('editBarPlaceholder');
       return;
     }
-    editBar.element.hidden = false;
+    editBar.input.disabled = false;
+    editBar.input.placeholder = '';
     editBar.input.readOnly = model.readOnly;
     // 正在输入时既不覆盖用户敲进去的内容，也不换目标格：那一格要留给失焦提交。
     if (document.activeElement === editBar.input) {
@@ -1191,8 +1208,13 @@
     editBar.input.value = editBarValue(rect.r1, rect.c1);
   }
 
-  /** 把编辑条里的内容写回它对应的单元格；内容没变就不发修改。 */
-  function commitEditBar() {
+  /**
+   * 把编辑条里的内容写回它对应的单元格；内容没变就不发修改。
+   *
+   * @param {boolean} [refresh] - 是否在写回后刷新编辑条；置灰流程自己在收尾，
+   *   传 `false` 避免递归回到 {@link syncEditBar}。
+   */
+  function commitEditBar(refresh) {
     const target = editBar.target;
     if (target === null) {
       return;
@@ -1205,7 +1227,9 @@
     }
     // 失焦提交时焦点已经离开，这里顺带让编辑条跟上新的选区；还在输入框里按回车则
     // 会被 `syncEditBar` 的输入保护挡回去。
-    syncEditBar();
+    if (refresh !== false) {
+      syncEditBar();
+    }
   }
 
   /** 放弃编辑条里的修改，恢复成单元格真正的内容。 */
@@ -2045,6 +2069,29 @@
   }
 
   /**
+   * 请求编辑器按某一列排序。
+   *
+   * 顶部锁定的行属于固定区域（配表里的 `##var` / `##type` 等说明行），排序时必须
+   * 原样留在最前面；这里把锁定行数一并送过去，由宿主的排序实现跳过它们。
+   *
+   * @param {number} column - 作为排序依据的列序号。
+   * @param {'asc'|'desc'} direction - 排序方向。
+   */
+  function sortBy(column, direction) {
+    const rows = displayRows();
+    const frozenRows = Math.min(view.frozenRows, rows.length);
+    sendOp({
+      kind: 'sort',
+      column: column,
+      direction: direction,
+      hasHeader: model.hasHeader,
+      frozenRows: frozenRows,
+      // 有筛选时锁定的「前几行」未必是文档的前几行，直接给出真实行号最准确。
+      frozenRowIndices: rows.slice(0, frozenRows),
+    });
+  }
+
+  /**
    * 为正文单元格构建菜单。
    *
    * @param {number} row - 绝对行索引。
@@ -2128,7 +2175,7 @@
         label: t('sortAsc'),
         checked: view.sort !== null && view.sort.column === column && view.sort.direction === 'asc',
         run: function () {
-          sendOp({ kind: 'sort', column: column, direction: 'asc', hasHeader: model.hasHeader });
+          sortBy(column, 'asc');
         },
         disabled: model.readOnly,
       },
@@ -2136,7 +2183,7 @@
         label: t('sortDesc'),
         checked: view.sort !== null && view.sort.column === column && view.sort.direction === 'desc',
         run: function () {
-          sendOp({ kind: 'sort', column: column, direction: 'desc', hasHeader: model.hasHeader });
+          sortBy(column, 'desc');
         },
         disabled: model.readOnly,
       },
@@ -2214,7 +2261,7 @@
         label: t('sortAsc'),
         checked: view.sort !== null && view.sort.column === column && view.sort.direction === 'asc',
         run: function () {
-          sendOp({ kind: 'sort', column: column, direction: 'asc', hasHeader: model.hasHeader });
+          sortBy(column, 'asc');
         },
         disabled: model.readOnly,
       },
@@ -2222,7 +2269,7 @@
         label: t('sortDesc'),
         checked: view.sort !== null && view.sort.column === column && view.sort.direction === 'desc',
         run: function () {
-          sendOp({ kind: 'sort', column: column, direction: 'desc', hasHeader: model.hasHeader });
+          sortBy(column, 'desc');
         },
         disabled: model.readOnly,
       },
@@ -2711,61 +2758,73 @@
    * 有效。
    *
    * @param {MouseEvent} event - mousemove 事件。
-   * @returns {{row: number, col: number}|null} 行号是绝对行索引；不在表格上时为 `null`。
+   * @returns {{row: number, col: number}|null} 行号是绝对行索引；表格为空时为 `null`。
    */
   function cellAtPoint(event) {
     const width = scroll.clientWidth || 0;
     const height = scroll.clientHeight || 0;
     if (width > 0 && height > 0) {
       const bounds = scroll.getBoundingClientRect();
-      const offsetY = event.clientY - bounds.top;
-      const offsetX = event.clientX - bounds.left;
-      if (offsetX >= 0 && offsetX <= width && offsetY >= 0 && offsetY <= height) {
-        const rows = displayRows();
+      // 指针拖到表格外时夹到最近的边缘继续换算，而不是直接放弃：这样拖过表头 /
+      // 状态栏时选区仍会跟到首行 / 末行，贴边自动滚动才有东西可滚。
+      // 夹取后一律按「滚动内容坐标」换算：内容坐标 = 视口坐标 + scrollTop。
+      // 之前这里误减了 scrollTop，滚动之后指针下的行会被算到视口上方去，
+      // 表现就是向下拖、选区反而往上跑。
+      const offsetY = Math.min(
+        Math.max(event.clientY - bounds.top, HEAD_HEIGHT + 1),
+        height,
+      );
+      const offsetX = Math.min(
+        Math.max(event.clientX - bounds.left, ROWNUM_WIDTH + 1),
+        width,
+      );
+      const rows = displayRows();
+      if (rows.length > 0) {
         const frozenRows = Math.min(view.frozenRows, rows.length);
         const frozenColumns = Math.min(view.frozenColumns, model.columnCount);
         const bodyTop = offsetY - HEAD_HEIGHT;
-        if (bodyTop >= 0) {
-          let index = -1;
-          if (frozenRows > 0 && bodyTop < frozenRows * ROW_HEIGHT) {
-            index = Math.floor(bodyTop / ROW_HEIGHT);
-          } else if (bodyTop >= scroll.scrollTop + frozenRows * ROW_HEIGHT) {
-            index = Math.floor((bodyTop - scroll.scrollTop) / ROW_HEIGHT);
-          }
-          if (index >= 0 && index < rows.length) {
-            let column = -1;
-            const bodyLeft = offsetX - ROWNUM_WIDTH;
-            if (bodyLeft >= 0) {
-              if (frozenColumns > 0 && bodyLeft < frozenColumns * DEFAULT_COLUMN_WIDTH) {
-                // 锁定的列固定在左侧，不随横向滚动移动。
-                let left = 0;
-                for (let candidate = 0; candidate < frozenColumns; candidate += 1) {
-                  left += columnWidth(candidate);
-                  if (bodyLeft < left) {
-                    column = candidate;
-                    break;
-                  }
-                }
-              } else {
-                let left = 0;
-                for (let candidate = 0; candidate < frozenColumns; candidate += 1) {
-                  left += columnWidth(candidate);
-                }
-                const scrolled = bodyLeft - left + scroll.scrollLeft;
-                let offset = 0;
-                for (let candidate = frozenColumns; candidate < model.columnCount; candidate += 1) {
-                  offset += columnWidth(candidate);
-                  if (scrolled < offset) {
-                    column = candidate;
-                    break;
-                  }
-                }
-              }
-            }
-            if (column >= 0 && column < model.columnCount) {
-              return { row: rows[index], col: column };
+        let index;
+        if (frozenRows > 0 && bodyTop < frozenRows * ROW_HEIGHT) {
+          // 指针在顶部锁定行上：它们固定在表头下方，不随滚动移动。
+          index = Math.floor(bodyTop / ROW_HEIGHT);
+        } else {
+          index = Math.floor((bodyTop + scroll.scrollTop) / ROW_HEIGHT);
+        }
+        index = Math.min(rows.length - 1, Math.max(0, index));
+
+        let column = -1;
+        const bodyLeft = offsetX - ROWNUM_WIDTH;
+        let frozenWidth = 0;
+        for (let candidate = 0; candidate < frozenColumns; candidate += 1) {
+          frozenWidth += columnWidth(candidate);
+        }
+        if (frozenColumns > 0 && bodyLeft < frozenWidth) {
+          // 锁定的列固定在左侧，不随横向滚动移动。
+          let left = 0;
+          for (let candidate = 0; candidate < frozenColumns; candidate += 1) {
+            left += columnWidth(candidate);
+            if (bodyLeft < left) {
+              column = candidate;
+              break;
             }
           }
+        } else {
+          const scrolled = bodyLeft - frozenWidth + scroll.scrollLeft;
+          let offset = 0;
+          for (let candidate = frozenColumns; candidate < model.columnCount; candidate += 1) {
+            offset += columnWidth(candidate);
+            if (scrolled < offset) {
+              column = candidate;
+              break;
+            }
+          }
+        }
+        if (column < 0 && model.columnCount > 0) {
+          // 指针落在最后一列右侧的空白处（或行号列上）时贴到最近的一列。
+          column = model.columnCount - 1;
+        }
+        if (column >= 0 && column < model.columnCount) {
+          return { row: rows[index], col: column };
         }
       }
     }
@@ -2778,6 +2837,18 @@
       return null;
     }
     return { row: Number(cell.getAttribute('data-row')), col: Number(cell.getAttribute('data-col')) };
+  }
+
+  /** 指针是否已经贴到（或越过）表格边缘、需要自动滚动。 */
+  function needsAutoScroll(event) {
+    const bounds = scroll.getBoundingClientRect();
+    const edge = 24;
+    return (
+      event.clientX < bounds.left + edge ||
+      event.clientX > bounds.right - edge ||
+      event.clientY < bounds.top + edge ||
+      event.clientY > bounds.bottom - edge
+    );
   }
 
   /** 指针贴着表格边缘时自动滚动，便于拖拽到看不见的行列。 */
@@ -2845,21 +2916,13 @@
     ) {
       return;
     }
-    const inside =
-      event.clientX >= 0 &&
-      event.clientY >= 0 &&
-      event.clientX <= (window.innerWidth || 0) &&
-      event.clientY <= (window.innerHeight || 0);
-    if (!inside) {
-      // 指针移出窗口时由自动滚动继续扩展选区。
-      cellSelect.autoScroll = true;
-      if (cellSelect.frame === null) {
-        cellSelect.frame = raf(autoScrollStep);
-      }
-      return;
-    }
     cellSelect.active = true;
     extendCellSelection(event);
+    // 指针贴边就持续滚动；移到中间后下一帧会自然停下，不需要等指针离开窗口。
+    cellSelect.autoScroll = needsAutoScroll(event);
+    if (cellSelect.autoScroll && cellSelect.frame === null) {
+      cellSelect.frame = raf(autoScrollStep);
+    }
   }
 
   /** 自动滚动的一帧：滚动后按最近一次指针位置重新扩展选区。 */
@@ -2868,9 +2931,15 @@
       return;
     }
     cellSelect.frame = null;
-    if (cellSelect.autoScroll) {
-      autoScrollFor(cellSelect.lastEvent);
-      extendCellSelection(cellSelect.lastEvent);
+    if (!cellSelect.autoScroll) {
+      return;
+    }
+    const beforeTop = scroll.scrollTop;
+    const beforeLeft = scroll.scrollLeft;
+    autoScrollFor(cellSelect.lastEvent);
+    extendCellSelection(cellSelect.lastEvent);
+    // 已经滚到头就不再空转；指针再次贴边时由 mousemove 重新启动。
+    if (scroll.scrollTop !== beforeTop || scroll.scrollLeft !== beforeLeft) {
       cellSelect.frame = raf(autoScrollStep);
     }
   }

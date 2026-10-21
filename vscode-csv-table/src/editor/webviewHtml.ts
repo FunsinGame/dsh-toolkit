@@ -62,7 +62,7 @@ export function renderTableHtml(webview: vscode.Webview, extensionUri: vscode.Ur
   <div id="toolbar" class="toolbar" role="toolbar"></div>
   <div id="chips" class="chips" hidden></div>
   <div id="banner" class="banner" hidden></div>
-  <div id="editbar" class="edit-bar" hidden></div>
+  <div id="editbar" class="edit-bar disabled" aria-disabled="true"></div>
   <div id="scroll" class="grid-scroll" tabindex="0" role="grid"></div>
   <div id="status" class="status" role="status"></div>
   <div id="menu" class="menu" hidden role="menu"></div>

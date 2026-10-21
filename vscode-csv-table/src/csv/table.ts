@@ -66,7 +66,19 @@ export type CsvOp =
   | { readonly kind: 'insertColumns'; readonly index: number; readonly count: number }
   | { readonly kind: 'deleteColumns'; readonly indices: readonly number[] }
   | { readonly kind: 'moveColumns'; readonly indices: readonly number[]; readonly to: number }
-  | { readonly kind: 'sort'; readonly column: number; readonly direction: SortDirection; readonly hasHeader: boolean }
+  | {
+      readonly kind: 'sort';
+      readonly column: number;
+      readonly direction: SortDirection;
+      readonly hasHeader: boolean;
+      /** 顶部锁定的行数：这些行不回写排序结果，始终留在最前面。 */
+      readonly frozenRows?: number;
+      /**
+       * 锁定行在文档里的绝对行号。有筛选时锁定的是「显示顺序里的前几行」，
+       * 它们未必是文档的前几行，所以视图会直接给出这些行的真实行号。
+       */
+      readonly frozenRowIndices?: readonly number[];
+    }
   | { readonly kind: 'setDelimiter'; readonly delimiter: string };
 
 /** 对一段行区间应用过滤条件的结果。 */
@@ -223,14 +235,18 @@ function compareForSort(left: string, right: string, direction: SortDirection): 
 }
 
 /**
- * 按某一列排序，表头行保持不动。
+ * 按某一列排序，表头行与顶部锁定的行保持不动。
  *
- * 排序是稳定的：键值相同的行保持原有的文档顺序。
+ * 锁定行是用户在视图里固定住的前几行（例如配表头部的 `##var` / `##type` 说明行），
+ * 它们不参与排序，也不应该被排序结果换掉。排序是稳定的：键值相同的行保持原有的
+ * 文档顺序。
  *
  * @param rows - 要排序的行。
  * @param column - 作为排序依据的列序号。
  * @param direction - 排序方向。
  * @param hasHeader - 第 `0` 行是否为需要固定在最前的表头。
+ * @param frozenRows - 顶部锁定的行数；没有给出具体行号时使用。
+ * @param frozenRowIndices - 锁定行的绝对行号，优先于 {@link frozenRows}。
  * @returns 排序后的副本。
  */
 export function sortRows(
@@ -238,14 +254,48 @@ export function sortRows(
   column: number,
   direction: SortDirection,
   hasHeader: boolean,
+  frozenRows = 0,
+  frozenRowIndices?: readonly number[],
 ): string[][] {
-  const start = hasHeader && rows.length > 0 ? 1 : 0;
-  const body = rows.slice(start).map((row, index) => ({ row: row.slice(), index }));
+  const locked = new Set<number>();
+  let usedIndices = false;
+  if (frozenRowIndices !== undefined) {
+    for (const index of frozenRowIndices) {
+      if (Number.isInteger(index) && index >= 0 && index < rows.length) {
+        locked.add(index);
+        usedIndices = true;
+      }
+    }
+  }
+  if (!usedIndices) {
+    const count = Number.isFinite(frozenRows)
+      ? Math.min(Math.max(0, Math.floor(frozenRows)), rows.length)
+      : 0;
+    for (let index = 0; index < count; index += 1) {
+      locked.add(index);
+    }
+  }
+  if (hasHeader && rows.length > 0) {
+    locked.add(0);
+  }
+
+  // 锁定行留在原来的行号上，其余行按排序结果依次填回剩下的位置。
+  const movable: number[] = [];
+  for (let index = 0; index < rows.length; index += 1) {
+    if (!locked.has(index)) {
+      movable.push(index);
+    }
+  }
+  const body = movable.map((rowIndex, index) => ({ row: rows[rowIndex].slice(), index }));
   body.sort((left, right) => {
     const result = compareForSort(left.row[column] ?? '', right.row[column] ?? '', direction);
     return result !== 0 ? result : left.index - right.index;
   });
-  return [...cloneRows(rows.slice(0, start)), ...body.map(entry => entry.row)];
+  const result = rows.map(row => row.slice());
+  for (let position = 0; position < movable.length; position += 1) {
+    result[movable[position]] = body[position].row;
+  }
+  return result;
 }
 
 /**
@@ -524,7 +574,15 @@ export function applyOp(rows: readonly (readonly string[])[], op: CsvOp): string
     }
 
     case 'sort':
-      return sortRows(rows, op.column, op.direction, op.hasHeader);
+      // 锁定的列只决定横向固定位置，排序始终按行进行；顶部锁定的行则必须跳过。
+      return sortRows(
+        rows,
+        op.column,
+        op.direction,
+        op.hasHeader,
+        op.frozenRows ?? 0,
+        op.frozenRowIndices,
+      );
 
     case 'setDelimiter':
       return cloneRows(rows);
