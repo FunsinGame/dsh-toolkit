@@ -183,10 +183,16 @@ try {
   const described = await json('/dsh-sound-desk')
   check('plugin descriptor', described.plugin === 'dsh-sound-desk' && typeof described.version === 'string')
 
+  // The point of the lazy host half: applying the plugin must leave the engine
+  // untouched. A plain status (no `wait`) answers from the host without starting it.
+  const idle = await json('/dsh-sound-desk/host/status')
+  check('engine is idle after apply()', idle.state === 'idle', JSON.stringify(idle).slice(0, 300))
+  check('no engine is listening yet', idle.engineUrl === null && idle.stats === null)
+
   const status = await json('/dsh-sound-desk/host/status?wait=1')
-  check('engine starts on demand', status.state === 'ready', JSON.stringify(status).slice(0, 300))
+  check('engine starts on the first entry', status.state === 'ready', JSON.stringify(status).slice(0, 300))
   check('data dir resolves under DSH_HOME', status.dataDir.startsWith(dshHome), status.dataDir)
-  check('settings are exposed', status.settings.autoStart === true)
+  check('settings no longer expose autoStart', !('autoStart' in status.settings), JSON.stringify(status.settings))
   check('ffmpeg status is reported', 'ffmpeg' in status)
 
   console.log('engine API through the prefix proxy')

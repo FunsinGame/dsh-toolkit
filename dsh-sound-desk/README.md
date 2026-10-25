@@ -60,6 +60,8 @@ dsh plugin --profile desktop remove dsh-sound-desk
 
 ## 使用
 
+插件在 DSH 启动时**不做任何初始化**：只注册活动栏入口与同源路由，宿主半侧（引擎、UCS 数据）在你第一次点开「音效工作台」时才加载，引擎也在那一刻才启动。之后引擎常驻，切回会话不会中断试听。
+
 1. 点左侧活动栏的波形图标（或 `Ctrl+Alt+S`）打开「音效工作台」。
 2. 第一次使用点「＋ 添加本地素材库」，选一个目录或粘贴路径。导入会依次跑完 **扫描元数据 → 生成波形 → 计算声音指纹**，期间工作台显示整页进度并暂时不可操作（只锁住音效工作台这一页，不影响 DSH 的其他页面）。
 3. 顶栏输入自然语言（例如「金属门重重关上」）或文件名/关键词语法（`wind (gust*, blow*) -window`）。
@@ -77,7 +79,6 @@ dsh plugin --profile desktop remove dsh-sound-desk
 | --- | --- | --- |
 | 数据目录 | 空（`$DSH_HOME/sound-desk`） | 索引库、波形缓存、模型与备份的位置 |
 | 加载声音指纹模型（CLAP） | 关 | 语义搜索与以声搜声的前提；首次需下载数百 MB，改完需重启引擎 |
-| 随 DSH 启动 | 开 | 关闭后引擎在第一次打开工作台时才启动 |
 | ffmpeg 路径 | 空（自动） | 没有 ffmpeg 时只有 WAV/BWF 能生成波形与播放 |
 | 可选依赖目录 | 空 | 到哪找 `@huggingface/transformers` 与 `ffmpeg-static`，默认还会查插件自身与 `../sound-desk` |
 | 日志级别 | 常规 | 关闭 / 常规（警告与错误）/ 详细；设置里可看最近日志 |
@@ -118,13 +119,15 @@ DSH 客户端（浏览器页）
                 │  同源、凭据由 DSH 负责
                 ▼
 DSH 宿主（插件 host 半侧）
-  ├─ ctx.webServer.register('/dsh-sound-desk')    路由 + 鉴权
+  ├─ ctx.webServer.register('/dsh-sound-desk')    启动时只做这一步：路由 + 鉴权
+  ├─ 首次请求 → 动态加载 host 半侧 → 引擎在此时启动
   ├─ 代理 → 127.0.0.1:<随机端口>（注入引擎令牌、剥离 Origin）
   └─ @sounddesk/engine（进程内）SQLite / 索引 / 检索 / 波形 / 导出
 ```
 
 几个有意为之的决定：
 
+- **启动零初始化**：插件入口只注册一条路由；`import('./host')` 是动态的，所以引擎、UCS 数据集与 SQLite schema 这些模块级初始化都要等第一次请求（也就是第一次打开工作台）才执行。DSH 启动时不占内存、不打开索引库、不加载模型。
 - **引擎进程内运行**，与 VS Code 扩展一致：没有子进程要回收，也不用解析 stdout 找端口。
 - **同源代理**而不是第二个端口：`<audio>`、波形、Range seek 全都不需要 CORS 或令牌握手，桌面端 `dsh-app://` 页面也照常工作。
 - **事件用轮询**：引擎自带的 WebSocket 不再代理，任务进度每 900 ms 轮询一次，比一次扫描步进更快，也少一条会断的传输。
@@ -145,7 +148,7 @@ node scripts/test-e2e.mjs --screenshot docs/screenshot.png   # 真实数据出�
 
 测试说明：
 
-- `npm run test:host` 用 `apply(ctx)` 装载真实产物，在普通 HTTP 服务上跑通：鉴权、引擎冷启动、UCS 数据集、导入一个真实 WAV、关键词搜索、Range 流、波形、下载、设置与日志；并断言可选依赖解析到了正确的包根目录与 ESM 入口。
+- `npm run test:host` 用 `apply(ctx)` 装载真实产物，在普通 HTTP 服务上跑通：鉴权、启动零初始化（未进入工作台时引擎保持 idle）、引擎冷启动、UCS 数据集、导入一个真实 WAV、关键词搜索、Range 流、波形、下载、设置与日志；并断言可选依赖解析到了正确的包根目录与 ESM 入口。
 - `npm run test:client` 在 jsdom 里用假的 DSH slot 宿主加载 `lib/client.js`，挂载活动页、打开设置与导入对话框。
 - `npm run test:model` 用 `loadModel: true` 启动真实产物，断言 `@huggingface/transformers` 从包根目录加载、没有模块加载错误（模型主机指向本地 404，不联网、不下载）。
 - `npm run test:e2e` 在真实 Chrome 里跑完整链路：宿主半侧 + 引擎 + 8 个生成的真实 WAV + 真实 `lib/client.js`，验证浏览、选中、播放、波形、设置对话框，并可 `--screenshot` 出图（README 的图就是这么来的）。

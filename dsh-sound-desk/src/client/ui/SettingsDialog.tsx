@@ -14,7 +14,6 @@ import { getClient, type HostLogLine, type HostSettings, type HostStatus } from 
 interface Draft {
   dataDir: string
   loadModel: boolean
-  autoStart: boolean
   ffmpegPath: string
   referenceDir: string
   logLevel: HostSettings['logLevel']
@@ -24,7 +23,6 @@ function draftOf(settings: HostSettings): Draft {
   return {
     dataDir: settings.dataDir,
     loadModel: settings.loadModel,
-    autoStart: settings.autoStart,
     ffmpegPath: settings.ffmpegPath,
     referenceDir: settings.referenceDir,
     logLevel: settings.logLevel,
@@ -159,6 +157,10 @@ export function SettingsDialog({
             <div className="dsh-sdk-note dsh-sdk-warn">声音指纹未加载：{status.embedderError}</div>
           )}
 
+          <div className="dsh-sdk-note">
+            引擎在第一次打开工作台时启动，之后常驻；离开页面不会中断试听。DSH 启动时插件不做任何初始化。
+          </div>
+
           {draft !== null && (
             <>
               <div className="dsh-sdk-field">
@@ -184,18 +186,6 @@ export function SettingsDialog({
                     语义搜索与以声搜声的前提。首次加载需要下载数百 MB 权重，并在启动时占用一段时间；关闭后仅关键词
                     + UCS 分类可用。
                   </span>
-                </span>
-              </label>
-
-              <label className="dsh-sdk-switch">
-                <input
-                  type="checkbox"
-                  checked={draft.autoStart}
-                  onChange={(event) => setDraft({ ...draft, autoStart: event.target.checked })}
-                />
-                <span className="dsh-sdk-switch-text">
-                  <b>随 DSH 启动</b>
-                  <span>关闭后引擎在第一次打开工作台时才启动。</span>
                 </span>
               </label>
 

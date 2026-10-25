@@ -13,6 +13,14 @@ import { fileURLToPath } from 'node:url'
 
 export const PLUGIN_NAME = 'dsh-sound-desk'
 
+/**
+ * Mount point on DSH's own Web server.
+ *
+ * Kept here rather than beside the engine so the plugin entry can register the
+ * route without importing the engine half.
+ */
+export const ROUTE_PREFIX = '/dsh-sound-desk'
+
 /* Replaced at build time by scripts/build.mjs. */
 export const VERSION: string = typeof __SOUND_DESK_VERSION__ === 'string' ? __SOUND_DESK_VERSION__ : '0.1.0'
 

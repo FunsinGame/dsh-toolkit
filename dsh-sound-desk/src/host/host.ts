@@ -10,6 +10,11 @@
  * engine API. Only host actions use the small `/host/*` surface, so there is one
  * source of truth for engine behaviour and the UI stays identical in Web and
  * Desktop.
+ *
+ * Nothing here starts at DSH start-up. `src/host/index.ts` imports this module on
+ * the first request from the workbench, and the engine itself still waits for the
+ * page's first `status?wait=1`; so the plugin is inert until the user opens the
+ * activity for the first time.
  */
 
 import { spawn } from 'node:child_process'
@@ -20,11 +25,9 @@ import { resolve } from 'node:path'
 
 import { Engine, errorMessage, resolveFfmpeg } from './engine'
 import { Logger, levelVisible } from './log'
-import { PLUGIN_NAME, VERSION } from './paths'
+import { PLUGIN_NAME, ROUTE_PREFIX, VERSION } from './paths'
 import { proxyRequest, sendProxyError } from './proxy'
 import { SettingsStore, type SoundDeskSettings } from './settings'
-
-export const ROUTE_PREFIX = '/dsh-sound-desk'
 
 const MAX_BODY_BYTES = 1024 * 1024
 
@@ -84,8 +87,6 @@ export class SoundDeskHost {
   private readonly settings = new SettingsStore()
   private readonly log = new Logger()
   private readonly connectionOf: () => ConnectionLike | null
-  private disposers: Array<() => void> = []
-  private disposed = false
   private electron: Record<string, any> | null | undefined
 
   constructor(connectionOf: () => ConnectionLike | null = () => null) {
@@ -93,40 +94,17 @@ export class SoundDeskHost {
     this.engine = new Engine(this.settings, this.log)
   }
 
-  /** Start now when the user asked for it; otherwise the first request starts it. */
-  startIfConfigured(): void {
-    if (!this.settings.get().autoStart) return
-    void this.engine.ensure().catch(() => undefined)
-  }
-
-  register(webServer: {
-    register: (route: {
-      kind: 'exact' | 'prefix'
-      path: string
-      handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
-    }) => () => void
-  }): () => void {
-    const dispose = webServer.register({
-      kind: 'prefix',
-      path: ROUTE_PREFIX,
-      handler: (req, res) => this.handle(req, res),
-    })
-    this.disposers.push(dispose)
-    return () => {
-      dispose()
-      this.disposers = this.disposers.filter((entry) => entry !== dispose)
-    }
+  /**
+   * Handle one request on the plugin's prefix.
+   *
+   * The route itself is registered by the plugin entry, which owns the lazy
+   * import; this is the seam it calls once the host half exists.
+   */
+  handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    return this.handle(req, res)
   }
 
   async dispose(): Promise<void> {
-    this.disposed = true
-    for (const dispose of this.disposers.splice(0)) {
-      try {
-        dispose()
-      } catch {
-        /* already gone */
-      }
-    }
     await this.engine.dispose()
   }
 
@@ -374,7 +352,6 @@ function coerceSettings(body: JsonObject): Partial<SoundDeskSettings> {
   const patch: Partial<SoundDeskSettings> = {}
   if (typeof body.dataDir === 'string') patch.dataDir = body.dataDir
   if (typeof body.loadModel === 'boolean') patch.loadModel = body.loadModel
-  if (typeof body.autoStart === 'boolean') patch.autoStart = body.autoStart
   if (typeof body.ffmpegPath === 'string') patch.ffmpegPath = body.ffmpegPath
   if (typeof body.referenceDir === 'string') patch.referenceDir = body.referenceDir
   if (body.logLevel === 'off' || body.logLevel === 'normal' || body.logLevel === 'verbose') {

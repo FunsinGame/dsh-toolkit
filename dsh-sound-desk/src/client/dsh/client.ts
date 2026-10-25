@@ -33,7 +33,6 @@ export interface HostStats {
 export interface HostSettings {
   dataDir: string
   loadModel: boolean
-  autoStart: boolean
   ffmpegPath: string
   referenceDir: string
   logLevel: 'off' | 'normal' | 'verbose'

@@ -5,6 +5,10 @@
  * every use rather than cached so a hand edit is picked up without a restart —
  * except for the engine options, which are snapshotted when the engine launches
  * and only take effect after a restart (the UI says so).
+ *
+ * There is no "start with DSH" switch on purpose: the engine starts when the
+ * workbench is first opened and at no other time. The old `autoStart` key is
+ * ignored when read, so an existing file keeps loading.
  */
 
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
@@ -19,8 +23,6 @@ export interface SoundDeskSettings {
   dataDir: string
   /** Load the CLAP fingerprint model (semantic search). Heavy: hundreds of MB. */
   loadModel: boolean
-  /** Start the engine when the plugin loads instead of on the first request. */
-  autoStart: boolean
   /** Explicit ffmpeg binary; empty means auto-discover. */
   ffmpegPath: string
   /** Extra search root for the optional heavy dependencies. */
@@ -31,7 +33,6 @@ export interface SoundDeskSettings {
 export const DEFAULT_SETTINGS: SoundDeskSettings = {
   dataDir: '',
   loadModel: false,
-  autoStart: true,
   ffmpegPath: '',
   referenceDir: '',
   logLevel: 'normal',
@@ -45,7 +46,6 @@ function coerce(raw: unknown): SoundDeskSettings {
   return {
     dataDir: text(source.dataDir, DEFAULT_SETTINGS.dataDir),
     loadModel: bool(source.loadModel, DEFAULT_SETTINGS.loadModel),
-    autoStart: bool(source.autoStart, DEFAULT_SETTINGS.autoStart),
     ffmpegPath: text(source.ffmpegPath, DEFAULT_SETTINGS.ffmpegPath),
     referenceDir: text(source.referenceDir, DEFAULT_SETTINGS.referenceDir),
     logLevel: level === 'off' || level === 'verbose' || level === 'normal' ? level : DEFAULT_SETTINGS.logLevel,

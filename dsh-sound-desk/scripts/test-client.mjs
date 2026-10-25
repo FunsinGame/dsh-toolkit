@@ -187,7 +187,6 @@ const assets = [
 const settings = {
   dataDir: '',
   loadModel: false,
-  autoStart: true,
   ffmpegPath: '',
   referenceDir: '',
   logLevel: 'normal',

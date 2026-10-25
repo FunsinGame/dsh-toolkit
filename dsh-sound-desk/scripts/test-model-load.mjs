@@ -37,7 +37,7 @@ await rm(tmp, { recursive: true, force: true })
 await mkdir(join(dshHome, 'sound-desk'), { recursive: true })
 await writeFile(
   join(dshHome, 'sound-desk', 'settings.json'),
-  JSON.stringify({ loadModel: true, autoStart: true, logLevel: 'verbose' }, null, 2),
+  JSON.stringify({ loadModel: true, logLevel: 'verbose' }, null, 2),
 )
 
 const routes = []

@@ -271,7 +271,6 @@ function peakBytes(): Uint8Array {
 const settings = {
   dataDir: '',
   loadModel: true,
-  autoStart: true,
   ffmpegPath: '',
   referenceDir: '',
   logLevel: 'normal',

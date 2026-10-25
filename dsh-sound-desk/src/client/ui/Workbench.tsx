@@ -1,10 +1,15 @@
 /**
  * The activity page.
  *
- * Boots the engine (the host waits for a cold start when asked), hands the shared
- * workbench store its client once, and then renders the SoundDesk workbench. The
- * store and the audio graph are module singletons, so switching to the conversation
- * and back keeps the library, the query and anything currently playing.
+ * This component is the plugin's initialization point. The shell mounts it only
+ * when the user selects the activity, and its first `status(true)` is what makes
+ * the host import the engine half and start the engine. Nothing runs before that:
+ * DSH start-up registers the rail glyph and the route, and mounts no page.
+ *
+ * Boots the engine once, hands the shared workbench store its client once, and
+ * then renders the SoundDesk workbench. The store and the audio graph are module
+ * singletons, so switching to the conversation and back keeps the library, the
+ * query and anything currently playing.
  */
 
 import { useEffect, useState } from 'react'
