@@ -1,0 +1,9 @@
+# dsh-video-player bundle patch.
+#
+# The host half is deliberately empty: the player reads a local video through the
+# browser's File API, so it needs no route, no port, and no host state. The row
+# exists so the client-module registry can attach the browser half declared by
+# `dsh.client`, which contributes the activity-bar entry and its page.
+- insert:
+    - id: dsh-video-player
+      name: dsh-video-player

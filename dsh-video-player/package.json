@@ -1,0 +1,63 @@
+{
+  "name": "dsh-video-player",
+  "version": "0.1.0",
+  "description": "DSH 视频逐帧播放器：在左侧活动栏打开，选择本地 MP4 视频，左右方向键逐帧（按住连续），支持倒放、进度跳转与静音。",
+  "type": "module",
+  "main": "lib/index.js",
+  "icon": "media/icon.svg",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./icon": "./media/icon.svg",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "engines": {
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "files": [
+    "lib",
+    "media",
+    "docs/screenshot.png",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "check": "node --check lib/index.js && node --check lib/client.js",
+    "test:parser": "node scripts/test-parser.mjs",
+    "test:client": "node scripts/test-client.mjs",
+    "test:e2e": "node scripts/test-e2e.mjs",
+    "fixtures": "node scripts/make-fixtures.mjs",
+    "test": "npm run fixtures && npm run test:parser && npm run test:client",
+    "screenshot": "node scripts/screenshot.mjs"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "video",
+    "frame",
+    "mp4"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.7",
+    "esbuild": "^0.28.2",
+    "jsdom": "^30.1.3",
+    "playwright-core": "^1.64.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.9.3"
+  }
+}
