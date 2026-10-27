@@ -189,6 +189,13 @@ export const CSS = String.raw`
 .dsh-notes-markdown th { background: var(--notes-bg-inset); font-weight: 600; }
 .dsh-notes-markdown hr { border: 0; border-top: 1px solid var(--notes-border); margin: 1.4em 0; }
 .dsh-notes-markdown img { max-width: 100%; height: auto; border-radius: 6px; }
+.dsh-notes-markdown img[data-attachment-id] { cursor: zoom-in; }
+.dsh-notes-markdown img[data-media-state="loading"] { min-width: 64px; min-height: 20px; background: var(--notes-bg-hover); }
+.dsh-notes-markdown img[data-media-state="error"] {
+  min-width: 180px; min-height: 34px; padding: 8px 10px; background: var(--notes-bg-inset);
+  border: 1px dashed color-mix(in srgb, var(--notes-danger) 45%, var(--notes-border));
+  color: var(--notes-text-faint); font-size: 11.5px;
+}
 .dsh-notes-markdown .dsh-notes-attachment-link { display: inline-flex; align-items: center; gap: 4px; }
 .dsh-notes-markdown .hljs-comment, .dsh-notes-markdown .hljs-quote { color: #6a737d; }
 .dsh-notes-markdown .hljs-keyword, .dsh-notes-markdown .hljs-selector-tag, .dsh-notes-markdown .hljs-literal { color: #cf222e; }
@@ -234,7 +241,17 @@ export const CSS = String.raw`
 .dsh-notes-attachments-head .grow { flex: 1; }
 .dsh-notes-attachment { display: flex; align-items: center; gap: 9px; padding: 6px 14px; border-bottom: 1px solid var(--notes-border-soft); }
 .dsh-notes-attachment:last-child { border-bottom: 0; }
-.dsh-notes-attachment-thumb { width: 34px; height: 34px; border-radius: 6px; object-fit: cover; background: var(--notes-bg); border: 1px solid var(--notes-border-soft); flex: none; }
+.dsh-notes-attachment-thumb-btn {
+  flex: none; width: 38px; height: 38px; padding: 0; border: 0; border-radius: 7px;
+  background: transparent; display: grid; place-items: center; overflow: hidden; cursor: zoom-in;
+}
+.dsh-notes-attachment-thumb-btn:hover .dsh-notes-attachment-thumb { border-color: var(--notes-accent); transform: scale(1.06); }
+.dsh-notes-attachment-thumb-btn:focus-visible { outline: 2px solid var(--notes-accent); outline-offset: 1px; }
+.dsh-notes-attachment-thumb { width: 36px; height: 36px; border-radius: 6px; object-fit: cover; background: var(--notes-bg); border: 1px solid var(--notes-border-soft); flex: none; display: block; transition: transform .12s ease, border-color .12s ease; }
+.dsh-notes-attachment-thumb-btn.is-empty { cursor: default; border: 1px dashed var(--notes-border-soft); background: var(--notes-bg); border-radius: 6px; }
+.dsh-notes-attachment-thumb-btn.is-empty.is-error { cursor: pointer; border-color: color-mix(in srgb, var(--notes-danger) 50%, var(--notes-border)); }
+.dsh-notes-attachment-thumb-fallback { display: grid; place-items: center; font-size: 12px; color: var(--notes-text-faint); }
+.dsh-notes-attachment-thumb-btn.is-empty:not(.is-error) .dsh-notes-attachment-thumb-fallback { width: 12px; height: 12px; border-radius: 50%; background: var(--notes-border); animation: dsh-notes-pulse 1s ease-in-out infinite; }
 .dsh-notes-attachment-icon { width: 34px; height: 34px; border-radius: 6px; display: grid; place-items: center; background: var(--notes-bg); border: 1px solid var(--notes-border-soft); color: var(--notes-text-faint); flex: none; }
 .dsh-notes-attachment-main { flex: 1; min-width: 0; }
 .dsh-notes-attachment-name { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -273,6 +290,30 @@ export const CSS = String.raw`
 .dsh-notes-toast { padding: 8px 12px; border-radius: 8px; border: 1px solid var(--notes-border); background: var(--notes-bg-elevated); box-shadow: var(--notes-shadow); font-size: 12px; }
 .dsh-notes-toast.is-error { border-color: color-mix(in srgb, var(--notes-danger) 45%, var(--notes-border)); color: var(--notes-danger); }
 .dsh-notes-toast.is-success { border-color: color-mix(in srgb, var(--notes-success) 45%, var(--notes-border)); color: var(--notes-success); }
+
+.dsh-notes-lightbox {
+  position: absolute; inset: 0; z-index: 70; display: flex; flex-direction: column;
+  background: rgba(8,10,14,.9); color: #f2f4f8; backdrop-filter: blur(2px);
+}
+.dsh-notes-lightbox-bar {
+  flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  background: rgba(0,0,0,.35); border-bottom: 1px solid rgba(255,255,255,.1); font-size: 12px;
+}
+.dsh-notes-lightbox-bar .grow { flex: 1; }
+.dsh-notes-lightbox-title { max-width: 62%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .86; }
+.dsh-notes-lightbox-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 26px; padding: 0 9px;
+  border: 1px solid rgba(255,255,255,.18); border-radius: 6px; background: rgba(255,255,255,.07);
+  color: inherit; font-size: 12px; white-space: nowrap;
+}
+.dsh-notes-lightbox-btn:hover { background: rgba(255,255,255,.16); }
+.dsh-notes-lightbox-stage { flex: 1; min-height: 0; overflow: auto; display: grid; place-items: center; padding: 18px; }
+.dsh-notes-lightbox-stage img {
+  display: block; max-width: 100%; max-height: 100%; border-radius: 4px;
+  box-shadow: 0 18px 48px rgba(0,0,0,.55); cursor: zoom-in; user-select: none;
+}
+.dsh-notes-lightbox-stage.is-actual { place-items: start center; }
+.dsh-notes-lightbox-stage.is-actual img { max-width: none; max-height: none; cursor: zoom-out; }
 
 .dsh-notes-login { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: var(--notes-bg); color: var(--notes-text); font-family: var(--notes-font); }
 .dsh-notes-login-card { width: 380px; max-width: 100%; border: 1px solid var(--notes-border); border-radius: var(--notes-radius); background: var(--notes-bg-elevated); padding: 26px 26px 22px; box-shadow: var(--notes-shadow); }

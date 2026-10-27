@@ -29,10 +29,20 @@ export function renderMarkdown(markdown: string, options: MarkdownOptions): stri
   for (const element of Array.from(root.querySelectorAll('img'))) {
     const src = element.getAttribute('src') ?? ''
     const id = attachmentIdFromHref(src)
-    if (id !== null) element.setAttribute('src', options.resolveAttachment(id))
-    element.setAttribute('loading', 'lazy')
-    element.setAttribute('class', `${element.getAttribute('class') ?? ''} dsh-notes-md-image`.trim())
     element.setAttribute('alt', element.getAttribute('alt') ?? '')
+    element.setAttribute('class', `${element.getAttribute('class') ?? ''} dsh-notes-md-image`.trim())
+    if (id !== null) {
+      // The preview swaps in an object URL read over the API and keeps this
+      // direct URL only as a last-resort fallback: pointing `src` here makes the
+      // browser issue an unauthenticated subresource request for every image.
+      element.removeAttribute('src')
+      element.setAttribute('data-attachment-src', options.resolveAttachment(id))
+      element.setAttribute('data-attachment-id', id)
+      element.setAttribute('title', '双击放大')
+      element.removeAttribute('loading')
+    } else {
+      element.setAttribute('loading', 'lazy')
+    }
   }
   for (const element of Array.from(root.querySelectorAll('a'))) {
     const href = element.getAttribute('href') ?? ''
@@ -69,7 +79,8 @@ export function renderMarkdown(markdown: string, options: MarkdownOptions): stri
     ADD_TAGS: ['input', 'audio', 'video', 'source', 'details', 'summary', 'del', 'ins', 'mark'],
     ADD_ATTR: [
       'checked', 'disabled', 'type', 'class', 'target', 'rel', 'loading', 'data-attachment-id',
-      'data-note-link', 'controls', 'src', 'alt', 'title', 'start', 'colspan', 'rowspan', 'align',
+      'data-attachment-src', 'data-note-link', 'controls', 'src', 'alt', 'title', 'start', 'colspan',
+      'rowspan', 'align',
     ],
     FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form', 'base', 'link', 'meta'],
     FORBID_ATTR: ['style', 'onerror', 'onload', 'onclick', 'onmouseover'],

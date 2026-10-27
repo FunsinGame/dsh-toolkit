@@ -220,13 +220,62 @@ try {
 
   await step('attachment upload proxies through the host', async () => {
     const imagePath = join(dshHome, 'pixel.png')
-    await writeFile(imagePath, pngBuffer())
+    await writeFile(imagePath, pngBuffer(320, 200))
     await page.locator('input[type=file]').setInputFiles(imagePath)
     await waitFor(async () => (await page.locator('.dsh-notes-attachments').innerText()).includes('pixel.png'), { timeoutMs: 15000, label: 'DSH attachment row' })
     await waitFor(async () => {
       const note = await request(remote.base, `/api/notes/${seedId}`, { token })
       return note.payload.note.attachments.some((item) => item.filename === 'pixel.png')
     }, { timeoutMs: 15000, intervalMs: 500, label: 'attachment on server' })
+  })
+
+  await step('pasting a screenshot uploads it through the host', async () => {
+    const payload = pngBuffer(320, 200).toString('base64')
+    const textarea = page.locator('textarea.dsh-notes-textarea')
+    await textarea.click()
+    await textarea.press('End')
+    await page.evaluate(({ base64 }) => {
+      const binary = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+      const data = new DataTransfer()
+      data.items.add(new File([binary], 'clipboard.png', { type: 'image/png' }))
+      const area = document.querySelector('textarea.dsh-notes-textarea')
+      if (area === null) throw new Error('textarea missing')
+      area.focus()
+      area.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+    }, { base64: payload })
+    await waitFor(async () => (await page.locator('.dsh-notes-attachments').innerText()).includes('粘贴图片-'), { timeoutMs: 15000, label: 'DSH pasted attachment row' })
+    assert(/!\[粘贴图片-[^\]]*\]\(api\/attachments\/[A-Za-z0-9-]+\)/u.test(await textarea.inputValue()), 'pasted markdown inserted')
+    await page.screenshot({ path: join(root, 'tmp', 'dsh-paste.png') })
+    await waitFor(async () => {
+      const note = await request(remote.base, `/api/notes/${seedId}`, { token })
+      return note.payload.note.attachments.some((item) => item.filename.startsWith('粘贴图片-'))
+    }, { timeoutMs: 20000, intervalMs: 500, label: 'pasted attachment on server' })
+  })
+
+  await step('preview image loads over the host attachment route', async () => {
+    const image = page.locator('.dsh-notes-markdown img').first()
+    await waitFor(async () => (await image.evaluate((element) => element.naturalWidth)) > 0, { timeoutMs: 15000, label: 'DSH preview image' })
+    assertEqual(await image.evaluate((element) => element.naturalWidth), 320, 'preview image width')
+    const src = await image.getAttribute('src')
+    assert(src !== null && src.startsWith('blob:'), `preview image renders an object URL (${src})`)
+    await page.screenshot({ path: join(root, 'tmp', 'dsh-preview-image.png') })
+  })
+
+  await step('attachment thumbnail and preview image open the lightbox', async () => {
+    await page.locator('.dsh-notes-attachment-thumb-btn').first().click()
+    await page.waitForSelector('.dsh-notes-lightbox', { timeout: 5000 })
+    const stageImage = page.locator('.dsh-notes-lightbox-stage img')
+    await waitFor(async () => (await stageImage.evaluate((element) => element.naturalWidth)) > 0, { label: 'DSH lightbox image' })
+    await page.screenshot({ path: join(root, 'tmp', 'dsh-lightbox.png') })
+    await page.keyboard.press('Escape')
+    await page.locator('.dsh-notes-lightbox').waitFor({ state: 'detached', timeout: 5000 })
+
+    await page.locator('.dsh-notes-markdown img').first().dblclick()
+    await page.waitForSelector('.dsh-notes-lightbox', { timeout: 5000 })
+    await page.locator('.dsh-notes-lightbox-stage img').click()
+    assert((await page.locator('.dsh-notes-lightbox-stage').getAttribute('class')).includes('is-actual'), 'actual-size toggle')
+    await page.locator('.dsh-notes-lightbox-btn[title="关闭 (Esc)"]').click()
+    await page.locator('.dsh-notes-lightbox').waitFor({ state: 'detached', timeout: 5000 })
   })
 
   console.log(`\n${passed} DSH integration tests passed`)

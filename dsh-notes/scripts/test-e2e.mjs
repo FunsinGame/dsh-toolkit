@@ -113,13 +113,36 @@ try {
     const imagePath = join(dataDir, 'pixel.png')
     const audioPath = join(dataDir, 'tone.wav')
     const { writeFile } = await import('node:fs/promises')
-    await writeFile(imagePath, pngBuffer())
+    await writeFile(imagePath, pngBuffer(320, 200))
     await writeFile(audioPath, wavBuffer())
     await fileInput.setInputFiles(imagePath)
     await waitFor(async () => (await page.locator('.dsh-notes-attachments').innerText()).includes('pixel.png'), { label: 'image upload' })
     await fileInput.setInputFiles(audioPath)
     await waitFor(async () => (await page.locator('.dsh-notes-attachments').innerText()).includes('tone.wav'), { label: 'audio upload' })
     assert(await page.locator('.dsh-notes-attachments audio').count() > 0, 'audio player')
+  })
+
+  await step('pasting a screenshot uploads it and inserts markdown at the caret', async () => {
+    const payload = pngBuffer(320, 200).toString('base64')
+    const textarea = page.locator('textarea.dsh-notes-textarea')
+    await textarea.click()
+    await textarea.press('End')
+    const before = await page.locator('.dsh-notes-attachments .dsh-notes-attachment').count()
+    await page.evaluate(({ base64 }) => {
+      const binary = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+      const data = new DataTransfer()
+      data.items.add(new File([binary], 'clipboard.png', { type: 'image/png' }))
+      const area = document.querySelector('textarea.dsh-notes-textarea')
+      if (area === null) throw new Error('textarea missing')
+      area.focus()
+      area.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+    }, { base64: payload })
+    await waitFor(async () => (await page.locator('.dsh-notes-attachments').innerText()).includes('粘贴图片-'), { label: 'pasted image attachment row' })
+    assertEqual(await page.locator('.dsh-notes-attachments .dsh-notes-attachment').count(), before + 1, 'pasted attachment row added')
+    const content = await textarea.inputValue()
+    assert(/!\[粘贴图片-[^\]]*\]\(api\/attachments\/[A-Za-z0-9-]+\)/u.test(content), content.slice(-160))
+    await page.screenshot({ path: join(root, 'tmp', 'e2e-paste.png') })
+    await waitFor(async () => (await page.locator('.dsh-notes-statusbar').innerText()).includes('已保存'), { label: 'pasted image saved' })
   })
 
   await step('preview renders markdown, code, image and link', async () => {
@@ -130,6 +153,49 @@ try {
     assert(await page.locator('.dsh-notes-markdown img').count() > 0, 'image')
     assert(await page.locator('.dsh-notes-markdown a.dsh-notes-attachment-link').count() > 0, 'attachment link')
     await page.screenshot({ path: join(root, 'tmp', 'e2e-desktop.png'), fullPage: true })
+  })
+
+  await step('preview image decodes from the authenticated attachment read', async () => {
+    const image = page.locator('.dsh-notes-markdown img').first()
+    await waitFor(async () => (await image.evaluate((element) => element.naturalWidth)) > 0, { label: 'preview image decoded' })
+    assertEqual(await image.evaluate((element) => element.naturalWidth), 320, 'preview image width')
+    const src = await image.getAttribute('src')
+    assert(src !== null && src.startsWith('blob:'), `preview image renders an object URL (${src})`)
+  })
+
+  await step('clicking an attachment thumbnail opens the image lightbox', async () => {
+    await page.locator('.dsh-notes-attachment-thumb-btn').first().click()
+    await page.waitForSelector('.dsh-notes-lightbox', { timeout: 5000 })
+    const stageImage = page.locator('.dsh-notes-lightbox-stage img')
+    await waitFor(async () => (await stageImage.evaluate((element) => element.naturalWidth)) > 0, { label: 'lightbox image decoded' })
+    assertEqual(await stageImage.evaluate((element) => element.naturalWidth), 320, 'lightbox image width')
+    assert((await page.locator('.dsh-notes-lightbox-title').innerText()).includes('pixel.png'), 'lightbox title')
+    await page.screenshot({ path: join(root, 'tmp', 'e2e-lightbox.png') })
+    await page.keyboard.press('Escape')
+    await page.locator('.dsh-notes-lightbox').waitFor({ state: 'detached', timeout: 5000 })
+  })
+
+  await step('double-clicking a preview image opens the lightbox at actual size', async () => {
+    await page.locator('.dsh-notes-markdown img').first().dblclick()
+    await page.waitForSelector('.dsh-notes-lightbox', { timeout: 5000 })
+    await page.locator('.dsh-notes-lightbox-stage img').click()
+    assert((await page.locator('.dsh-notes-lightbox-stage').getAttribute('class')).includes('is-actual'), 'actual-size toggle')
+    await page.locator('.dsh-notes-lightbox-btn[title="关闭 (Esc)"]').click()
+    await page.locator('.dsh-notes-lightbox').waitFor({ state: 'detached', timeout: 5000 })
+  })
+
+  await step('an image attachment link opens the viewer instead of navigating', async () => {
+    const attachmentId = await page.locator('.dsh-notes-markdown img').first().getAttribute('data-attachment-id')
+    assert(attachmentId !== null, 'attachment id on the preview image')
+    await page.locator('button[title="编辑"]').click()
+    const textarea = page.locator('textarea.dsh-notes-textarea')
+    await textarea.fill(`${await textarea.inputValue()}\n\n[查看图片](api/attachments/${attachmentId})\n`)
+    await page.locator('button[title="预览"]').click()
+    await page.locator('.dsh-notes-markdown a.dsh-notes-attachment-link').last().click()
+    await page.waitForSelector('.dsh-notes-lightbox', { timeout: 5000 })
+    assert((await page.locator('.dsh-notes-lightbox-title').innerText()).includes('pixel.png'), 'linked image title')
+    await page.keyboard.press('Escape')
+    await page.locator('.dsh-notes-lightbox').waitFor({ state: 'detached', timeout: 5000 })
   })
 
   await step('create folder and move the note', async () => {

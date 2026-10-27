@@ -102,6 +102,43 @@ export function replaceAll(value: string, needle: string, replacement: string): 
   return value.split(needle).join(replacement)
 }
 
+/** Images a paste event carries, in clipboard order (screenshots are a single PNG). */
+export function clipboardImageFiles(data: DataTransfer | null | undefined): File[] {
+  if (data === null || data === undefined) return []
+  const files: File[] = []
+  const seen = new Set<string>()
+  const push = (file: File | null): void => {
+    if (file === null || !file.type.startsWith('image/')) return
+    // `items` and `files` describe the same clipboard entries; key on content so
+    // an implementation that hands back distinct File objects cannot upload twice.
+    const key = `${file.name}|${file.size}|${file.type}|${file.lastModified}`
+    if (seen.has(key)) return
+    seen.add(key)
+    files.push(file)
+  }
+  for (const item of Array.from(data.items ?? [])) {
+    if (item.kind === 'file') push(item.getAsFile())
+  }
+  for (const file of Array.from(data.files ?? [])) push(file)
+  return files
+}
+
+const PASTE_IMAGE_EXTENSIONS: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'image/avif': 'avif',
+}
+
+/** Stable, readable filename for a pasted clipboard image (`粘贴图片-20261027-141806.png`). */
+export function pasteImageName(mime: string, at: Date, index = 0): string {
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  const stamp = `${at.getFullYear()}${pad(at.getMonth() + 1)}${pad(at.getDate())}-${pad(at.getHours())}${pad(at.getMinutes())}${pad(at.getSeconds())}`
+  const extension = PASTE_IMAGE_EXTENSIONS[mime] ?? 'png'
+  return `粘贴图片-${stamp}${index === 0 ? '' : `-${index + 1}`}.${extension}`
+}
+
 function escape(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
@@ -120,7 +157,7 @@ export const TOOLBAR_ACTIONS = [
   { id: 'code', label: '代码', title: '行内代码' },
   { id: 'codeblock', label: '代码块', title: '代码块' },
   { id: 'link', label: '链接', title: '链接 (Ctrl+K)' },
-  { id: 'image', label: '图片', title: '图片/附件' },
+  { id: 'image', label: '图片', title: '图片/附件（也可 Ctrl+V 粘贴剪贴板图片）' },
   { id: 'table', label: '表格', title: '表格' },
   { id: 'hr', label: '分隔线', title: '分隔线' },
 ] as const

@@ -61,6 +61,16 @@ export interface AppBackend {
   uploadAttachment(noteId: string, file: File, onProgress?: (percent: number) => void): Promise<{ attachment: AttachmentMeta; markdown: string }>
   deleteAttachment(id: string): Promise<void>
   attachmentUrl(id: string): string
+  /**
+   * Read one attachment's bytes over this surface's authenticated transport.
+   *
+   * Images are rendered from these bytes as object URLs instead of pointing an
+   * `<img src>` at `attachmentUrl()`: a browser subresource request cannot carry
+   * the surface's authentication (the DSH desktop page lives on a custom scheme
+   * and the standalone server fences direct file reads), so the direct URL can
+   * answer 401/403 and show a broken image even though the API works.
+   */
+  fetchAttachment(id: string): Promise<Blob>
   getState?(): Promise<HostState>
   syncNow?(): Promise<HostState>
   getConflicts?(): Promise<ConflictSummary[]>

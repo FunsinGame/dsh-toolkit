@@ -236,6 +236,14 @@ export class WebBackend implements AppBackend {
     return apiUrl(`api/attachments/${encodeURIComponent(id)}`)
   }
 
+  async fetchAttachment(id: string): Promise<Blob> {
+    const response = await fetch(this.attachmentUrl(id), { credentials: 'same-origin' })
+    if (!response.ok) {
+      throw new NotesApiError(`附件读取失败（HTTP ${response.status}）`, { status: response.status })
+    }
+    return response.blob()
+  }
+
   subscribe(listener: () => void): () => void {
     if (typeof EventSource === 'undefined') return () => undefined
     const source = new EventSource(apiUrl('api/events'))

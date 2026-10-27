@@ -209,6 +209,15 @@ export class DshBackend implements AppBackend {
     return new URL(`attachments/${encodeURIComponent(id)}`, mount()).href
   }
 
+  async fetchAttachment(id: string): Promise<Blob> {
+    const url = this.attachmentUrl(id)
+    const response = await fetch(url, { credentials: 'same-origin' })
+    if (!response.ok) {
+      throw new NotesApiError(`附件读取失败（HTTP ${response.status}）`, { status: response.status })
+    }
+    return response.blob()
+  }
+
   async getState(): Promise<HostState> {
     const data = await request<{ state: HostState }>('state')
     return data.state

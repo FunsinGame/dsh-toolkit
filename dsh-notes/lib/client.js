@@ -18622,10 +18622,17 @@ function renderMarkdown(markdown, options2) {
   for (const element of Array.from(root.querySelectorAll("img"))) {
     const src = element.getAttribute("src") ?? "";
     const id = attachmentIdFromHref(src);
-    if (id !== null) element.setAttribute("src", options2.resolveAttachment(id));
-    element.setAttribute("loading", "lazy");
-    element.setAttribute("class", `${element.getAttribute("class") ?? ""} dsh-notes-md-image`.trim());
     element.setAttribute("alt", element.getAttribute("alt") ?? "");
+    element.setAttribute("class", `${element.getAttribute("class") ?? ""} dsh-notes-md-image`.trim());
+    if (id !== null) {
+      element.removeAttribute("src");
+      element.setAttribute("data-attachment-src", options2.resolveAttachment(id));
+      element.setAttribute("data-attachment-id", id);
+      element.setAttribute("title", "\u53CC\u51FB\u653E\u5927");
+      element.removeAttribute("loading");
+    } else {
+      element.setAttribute("loading", "lazy");
+    }
   }
   for (const element of Array.from(root.querySelectorAll("a"))) {
     const href = element.getAttribute("href") ?? "";
@@ -18666,6 +18673,7 @@ function renderMarkdown(markdown, options2) {
       "rel",
       "loading",
       "data-attachment-id",
+      "data-attachment-src",
       "data-note-link",
       "controls",
       "src",
@@ -18679,6 +18687,56 @@ function renderMarkdown(markdown, options2) {
     FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form", "base", "link", "meta"],
     FORBID_ATTR: ["style", "onerror", "onload", "onclick", "onmouseover"]
   });
+}
+
+// src/shared/ui/attachmentMedia.ts
+var cache = /* @__PURE__ */ new Map();
+function cacheKey(backend2, id) {
+  return `${backend2.kind}:${id}`;
+}
+function revoke(url) {
+  if (url === null) return;
+  try {
+    URL.revokeObjectURL(url);
+  } catch {
+  }
+}
+function canUseObjectUrls() {
+  return typeof URL !== "undefined" && typeof URL.createObjectURL === "function";
+}
+function loadAttachmentObjectUrl(backend2, id) {
+  if (!canUseObjectUrls()) return Promise.resolve(backend2.attachmentUrl(id));
+  const key = cacheKey(backend2, id);
+  const existing = cache.get(key);
+  if (existing !== void 0) return existing.promise;
+  const promise = backend2.fetchAttachment(id).then((blob) => {
+    const url = URL.createObjectURL(blob);
+    const entry = cache.get(key);
+    if (entry !== void 0) entry.url = url;
+    return url;
+  });
+  promise.catch(() => {
+    cache.delete(key);
+  });
+  cache.set(key, { url: null, promise });
+  return promise;
+}
+function cachedAttachmentObjectUrl(backend2, id) {
+  return cache.get(cacheKey(backend2, id))?.url ?? null;
+}
+function forgetAttachmentObjectUrl(backend2, id) {
+  if (id !== void 0) {
+    const key = cacheKey(backend2, id);
+    revoke(cache.get(key)?.url ?? null);
+    cache.delete(key);
+    return;
+  }
+  const prefix = `${backend2.kind}:`;
+  for (const [key, entry] of Array.from(cache.entries())) {
+    if (!key.startsWith(prefix)) continue;
+    revoke(entry.url);
+    cache.delete(key);
+  }
 }
 
 // src/shared/ui/styles.ts
@@ -18864,6 +18922,13 @@ var CSS = String.raw`
 .dsh-notes-markdown th { background: var(--notes-bg-inset); font-weight: 600; }
 .dsh-notes-markdown hr { border: 0; border-top: 1px solid var(--notes-border); margin: 1.4em 0; }
 .dsh-notes-markdown img { max-width: 100%; height: auto; border-radius: 6px; }
+.dsh-notes-markdown img[data-attachment-id] { cursor: zoom-in; }
+.dsh-notes-markdown img[data-media-state="loading"] { min-width: 64px; min-height: 20px; background: var(--notes-bg-hover); }
+.dsh-notes-markdown img[data-media-state="error"] {
+  min-width: 180px; min-height: 34px; padding: 8px 10px; background: var(--notes-bg-inset);
+  border: 1px dashed color-mix(in srgb, var(--notes-danger) 45%, var(--notes-border));
+  color: var(--notes-text-faint); font-size: 11.5px;
+}
 .dsh-notes-markdown .dsh-notes-attachment-link { display: inline-flex; align-items: center; gap: 4px; }
 .dsh-notes-markdown .hljs-comment, .dsh-notes-markdown .hljs-quote { color: #6a737d; }
 .dsh-notes-markdown .hljs-keyword, .dsh-notes-markdown .hljs-selector-tag, .dsh-notes-markdown .hljs-literal { color: #cf222e; }
@@ -18909,7 +18974,17 @@ var CSS = String.raw`
 .dsh-notes-attachments-head .grow { flex: 1; }
 .dsh-notes-attachment { display: flex; align-items: center; gap: 9px; padding: 6px 14px; border-bottom: 1px solid var(--notes-border-soft); }
 .dsh-notes-attachment:last-child { border-bottom: 0; }
-.dsh-notes-attachment-thumb { width: 34px; height: 34px; border-radius: 6px; object-fit: cover; background: var(--notes-bg); border: 1px solid var(--notes-border-soft); flex: none; }
+.dsh-notes-attachment-thumb-btn {
+  flex: none; width: 38px; height: 38px; padding: 0; border: 0; border-radius: 7px;
+  background: transparent; display: grid; place-items: center; overflow: hidden; cursor: zoom-in;
+}
+.dsh-notes-attachment-thumb-btn:hover .dsh-notes-attachment-thumb { border-color: var(--notes-accent); transform: scale(1.06); }
+.dsh-notes-attachment-thumb-btn:focus-visible { outline: 2px solid var(--notes-accent); outline-offset: 1px; }
+.dsh-notes-attachment-thumb { width: 36px; height: 36px; border-radius: 6px; object-fit: cover; background: var(--notes-bg); border: 1px solid var(--notes-border-soft); flex: none; display: block; transition: transform .12s ease, border-color .12s ease; }
+.dsh-notes-attachment-thumb-btn.is-empty { cursor: default; border: 1px dashed var(--notes-border-soft); background: var(--notes-bg); border-radius: 6px; }
+.dsh-notes-attachment-thumb-btn.is-empty.is-error { cursor: pointer; border-color: color-mix(in srgb, var(--notes-danger) 50%, var(--notes-border)); }
+.dsh-notes-attachment-thumb-fallback { display: grid; place-items: center; font-size: 12px; color: var(--notes-text-faint); }
+.dsh-notes-attachment-thumb-btn.is-empty:not(.is-error) .dsh-notes-attachment-thumb-fallback { width: 12px; height: 12px; border-radius: 50%; background: var(--notes-border); animation: dsh-notes-pulse 1s ease-in-out infinite; }
 .dsh-notes-attachment-icon { width: 34px; height: 34px; border-radius: 6px; display: grid; place-items: center; background: var(--notes-bg); border: 1px solid var(--notes-border-soft); color: var(--notes-text-faint); flex: none; }
 .dsh-notes-attachment-main { flex: 1; min-width: 0; }
 .dsh-notes-attachment-name { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -18948,6 +19023,30 @@ var CSS = String.raw`
 .dsh-notes-toast { padding: 8px 12px; border-radius: 8px; border: 1px solid var(--notes-border); background: var(--notes-bg-elevated); box-shadow: var(--notes-shadow); font-size: 12px; }
 .dsh-notes-toast.is-error { border-color: color-mix(in srgb, var(--notes-danger) 45%, var(--notes-border)); color: var(--notes-danger); }
 .dsh-notes-toast.is-success { border-color: color-mix(in srgb, var(--notes-success) 45%, var(--notes-border)); color: var(--notes-success); }
+
+.dsh-notes-lightbox {
+  position: absolute; inset: 0; z-index: 70; display: flex; flex-direction: column;
+  background: rgba(8,10,14,.9); color: #f2f4f8; backdrop-filter: blur(2px);
+}
+.dsh-notes-lightbox-bar {
+  flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  background: rgba(0,0,0,.35); border-bottom: 1px solid rgba(255,255,255,.1); font-size: 12px;
+}
+.dsh-notes-lightbox-bar .grow { flex: 1; }
+.dsh-notes-lightbox-title { max-width: 62%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .86; }
+.dsh-notes-lightbox-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 26px; padding: 0 9px;
+  border: 1px solid rgba(255,255,255,.18); border-radius: 6px; background: rgba(255,255,255,.07);
+  color: inherit; font-size: 12px; white-space: nowrap;
+}
+.dsh-notes-lightbox-btn:hover { background: rgba(255,255,255,.16); }
+.dsh-notes-lightbox-stage { flex: 1; min-height: 0; overflow: auto; display: grid; place-items: center; padding: 18px; }
+.dsh-notes-lightbox-stage img {
+  display: block; max-width: 100%; max-height: 100%; border-radius: 4px;
+  box-shadow: 0 18px 48px rgba(0,0,0,.55); cursor: zoom-in; user-select: none;
+}
+.dsh-notes-lightbox-stage.is-actual { place-items: start center; }
+.dsh-notes-lightbox-stage.is-actual img { max-width: none; max-height: none; cursor: zoom-out; }
 
 .dsh-notes-login { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: var(--notes-bg); color: var(--notes-text); font-family: var(--notes-font); }
 .dsh-notes-login-card { width: 380px; max-width: 100%; border: 1px solid var(--notes-border); border-radius: var(--notes-radius); background: var(--notes-bg-elevated); padding: 26px 26px 22px; box-shadow: var(--notes-shadow); }
@@ -19079,6 +19178,36 @@ function replaceAll(value, needle, replacement) {
   if (needle === "") return value;
   return value.split(needle).join(replacement);
 }
+function clipboardImageFiles(data) {
+  if (data === null || data === void 0) return [];
+  const files = [];
+  const seen = /* @__PURE__ */ new Set();
+  const push = (file) => {
+    if (file === null || !file.type.startsWith("image/")) return;
+    const key = `${file.name}|${file.size}|${file.type}|${file.lastModified}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    files.push(file);
+  };
+  for (const item of Array.from(data.items ?? [])) {
+    if (item.kind === "file") push(item.getAsFile());
+  }
+  for (const file of Array.from(data.files ?? [])) push(file);
+  return files;
+}
+var PASTE_IMAGE_EXTENSIONS = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "image/avif": "avif"
+};
+function pasteImageName(mime, at, index = 0) {
+  const pad = (value) => String(value).padStart(2, "0");
+  const stamp = `${at.getFullYear()}${pad(at.getMonth() + 1)}${pad(at.getDate())}-${pad(at.getHours())}${pad(at.getMinutes())}${pad(at.getSeconds())}`;
+  const extension = PASTE_IMAGE_EXTENSIONS[mime] ?? "png";
+  return `\u7C98\u8D34\u56FE\u7247-${stamp}${index === 0 ? "" : `-${index + 1}`}.${extension}`;
+}
 function escape3(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -19096,7 +19225,7 @@ var TOOLBAR_ACTIONS = [
   { id: "code", label: "\u4EE3\u7801", title: "\u884C\u5185\u4EE3\u7801" },
   { id: "codeblock", label: "\u4EE3\u7801\u5757", title: "\u4EE3\u7801\u5757" },
   { id: "link", label: "\u94FE\u63A5", title: "\u94FE\u63A5 (Ctrl+K)" },
-  { id: "image", label: "\u56FE\u7247", title: "\u56FE\u7247/\u9644\u4EF6" },
+  { id: "image", label: "\u56FE\u7247", title: "\u56FE\u7247/\u9644\u4EF6\uFF08\u4E5F\u53EF Ctrl+V \u7C98\u8D34\u526A\u8D34\u677F\u56FE\u7247\uFF09" },
   { id: "table", label: "\u8868\u683C", title: "\u8868\u683C" },
   { id: "hr", label: "\u5206\u9694\u7EBF", title: "\u5206\u9694\u7EBF" }
 ];
@@ -19275,6 +19404,7 @@ function NotesApp({ backend: backend2, onLogout, brand = "\u7B14\u8BB0" }) {
   const [replaceText, setReplaceText] = (0, import_react.useState)("");
   const [uploadProgress, setUploadProgress] = (0, import_react.useState)(null);
   const [attachmentBusy, setAttachmentBusy] = (0, import_react.useState)(false);
+  const [lightbox, setLightbox] = (0, import_react.useState)(null);
   const selectedRef = (0, import_react.useRef)(null);
   const noteRef = (0, import_react.useRef)(null);
   const draftRef = (0, import_react.useRef)(null);
@@ -19286,6 +19416,7 @@ function NotesApp({ backend: backend2, onLogout, brand = "\u7B14\u8BB0" }) {
   const textareaRef = (0, import_react.useRef)(null);
   const selectionRef = (0, import_react.useRef)(null);
   const fileInputRef = (0, import_react.useRef)(null);
+  const previewRef = (0, import_react.useRef)(null);
   const toastTimerRef = (0, import_react.useRef)(null);
   const lastSyncRef = (0, import_react.useRef)(null);
   const reloadingRef = (0, import_react.useRef)(false);
@@ -19712,14 +19843,15 @@ function NotesApp({ backend: backend2, onLogout, brand = "\u7B14\u8BB0" }) {
       area.setSelectionRange(next.start, next.end);
     });
   }, [updateDraft]);
-  const insertIntoNote = (0, import_react.useCallback)((text2) => {
+  const insertIntoNote = (0, import_react.useCallback)((text2, options2 = {}) => {
     const currentDraft = draftRef.current;
     if (currentDraft === null) return;
     const area = textareaRef.current;
     const remembered = selectionRef.current;
     const start = remembered?.start ?? currentDraft.content.length;
     const end = remembered?.end ?? currentDraft.content.length;
-    const result = insertAtCursor({ value: currentDraft.content, start, end }, text2);
+    const state = { value: currentDraft.content, start, end };
+    const result = options2.block === true ? insertBlock(state, text2) : insertAtCursor(state, text2);
     updateDraft({ content: result.value });
     selectionRef.current = { start: result.start, end: result.end };
     window.requestAnimationFrame(() => {
@@ -19728,7 +19860,7 @@ function NotesApp({ backend: backend2, onLogout, brand = "\u7B14\u8BB0" }) {
       area.setSelectionRange(result.start, result.end);
     });
   }, [updateDraft]);
-  const handleUpload = (0, import_react.useCallback)(async (files) => {
+  const handleUpload = (0, import_react.useCallback)(async (files, options2 = {}) => {
     const id = selectedRef.current;
     if (id === null) {
       showToast("\u8BF7\u5148\u9009\u62E9\u6216\u521B\u5EFA\u4E00\u6761\u7B14\u8BB0", "error");
@@ -19742,7 +19874,7 @@ function NotesApp({ backend: backend2, onLogout, brand = "\u7B14\u8BB0" }) {
       for (const file of list2) {
         const uploaded = await backend2.uploadAttachment(id, file, (percent) => setUploadProgress(percent));
         setNote((previous) => previous === null ? previous : { ...previous, attachments: [...previous.attachments, uploaded.attachment] });
-        insertIntoNote(uploaded.markdown);
+        insertIntoNote(uploaded.markdown, { block: options2.block === true });
       }
       showToast(`\u5DF2\u4E0A\u4F20 ${list2.length} \u4E2A\u9644\u4EF6`, "success");
       void saveDraftInternal();
@@ -19753,9 +19885,26 @@ function NotesApp({ backend: backend2, onLogout, brand = "\u7B14\u8BB0" }) {
       setUploadProgress(null);
     }
   }, [backend2, insertIntoNote, saveDraftInternal, showToast]);
+  const handlePaste = (0, import_react.useCallback)((event) => {
+    const images = clipboardImageFiles(event.clipboardData);
+    if (images.length === 0) return;
+    if ((event.clipboardData?.getData("text/plain") ?? "").trim() !== "") return;
+    event.preventDefault();
+    const area = textareaRef.current;
+    if (area !== null) selectionRef.current = { start: area.selectionStart, end: area.selectionEnd };
+    const at = /* @__PURE__ */ new Date();
+    const named = images.map((file, index) => {
+      const type = file.type === "" ? "image/png" : file.type;
+      return new File([file], pasteImageName(type, at, index), { type });
+    });
+    void handleUpload(named, { block: true });
+  }, [handleUpload]);
   const handleDeleteAttachment = (0, import_react.useCallback)(async (attachmentId) => {
     try {
       await backend2.deleteAttachment(attachmentId);
+      const removed = cachedAttachmentObjectUrl(backend2, attachmentId);
+      forgetAttachmentObjectUrl(backend2, attachmentId);
+      setLightbox((current) => current !== null && removed !== null && current.src === removed ? null : current);
       setNote((previous) => previous === null ? previous : {
         ...previous,
         attachments: previous.attachments.filter((item) => item.id !== attachmentId)
@@ -19765,6 +19914,14 @@ function NotesApp({ backend: backend2, onLogout, brand = "\u7B14\u8BB0" }) {
       showToast(errorMessage(caught), "error");
     }
   }, [backend2, showToast]);
+  const openLightbox = (0, import_react.useCallback)((src, alt) => {
+    if (src === "") return;
+    setLightbox({ src, alt });
+  }, []);
+  const closeLightbox = (0, import_react.useCallback)(() => setLightbox(null), []);
+  (0, import_react.useEffect)(() => () => {
+    forgetAttachmentObjectUrl(backend2);
+  }, [backend2]);
   const markdownHtml = (0, import_react.useMemo)(() => {
     if (draft === null) return "";
     const mimes = /* @__PURE__ */ new Map();
@@ -19778,6 +19935,33 @@ function NotesApp({ backend: backend2, onLogout, brand = "\u7B14\u8BB0" }) {
       return "<p>\u9884\u89C8\u5931\u8D25\u3002</p>";
     }
   }, [backend2, draft?.content, note?.attachments]);
+  (0, import_react.useEffect)(() => {
+    const root = previewRef.current;
+    if (root === null) return;
+    for (const element of Array.from(root.querySelectorAll("img[data-attachment-id]"))) {
+      const image = element;
+      const id = image.dataset.attachmentId ?? "";
+      if (id === "" || image.dataset.mediaState !== void 0) continue;
+      const ready = cachedAttachmentObjectUrl(backend2, id);
+      if (ready !== null) {
+        image.src = ready;
+        image.dataset.mediaState = "ready";
+        continue;
+      }
+      image.dataset.mediaState = "loading";
+      void loadAttachmentObjectUrl(backend2, id).then((url) => {
+        if (!image.isConnected) return;
+        image.src = url;
+        image.dataset.mediaState = "ready";
+      }).catch(() => {
+        if (!image.isConnected) return;
+        const fallback = image.dataset.attachmentSrc ?? "";
+        if (fallback !== "") image.src = fallback;
+        image.dataset.mediaState = "error";
+        image.title = "\u56FE\u7247\u52A0\u8F7D\u5931\u8D25";
+      });
+    }
+  }, [backend2, markdownHtml]);
   const handlePreviewClick = (0, import_react.useCallback)((event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
@@ -19787,8 +19971,22 @@ function NotesApp({ backend: backend2, onLogout, brand = "\u7B14\u8BB0" }) {
     if (noteLink !== null) {
       event.preventDefault();
       void openNote(noteLink);
+      return;
     }
-  }, [openNote]);
+    const attachmentId = anchor.getAttribute("data-attachment-id");
+    if (attachmentId === null) return;
+    const meta = noteRef.current?.attachments.find((item) => item.id === attachmentId);
+    if (meta === void 0 || !meta.mime.startsWith("image/")) return;
+    event.preventDefault();
+    void loadAttachmentObjectUrl(backend2, attachmentId).then((url) => openLightbox(url, meta.filename)).catch(() => showToast("\u56FE\u7247\u52A0\u8F7D\u5931\u8D25", "error"));
+  }, [backend2, openLightbox, openNote, showToast]);
+  const handlePreviewDoubleClick = (0, import_react.useCallback)((event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLImageElement)) return;
+    event.preventDefault();
+    const src = target.currentSrc !== "" ? target.currentSrc : target.src;
+    openLightbox(src, target.alt);
+  }, [openLightbox]);
   const handleKeyDown = (0, import_react.useCallback)((event) => {
     const primary = event.ctrlKey || event.metaKey;
     if (primary && event.key.toLowerCase() === "s") {
@@ -20202,6 +20400,7 @@ function NotesApp({ backend: backend2, onLogout, brand = "\u7B14\u8BB0" }) {
               value: draft.content,
               onChange: (event) => updateDraft({ content: event.target.value }),
               onKeyDown: handleKeyDown,
+              onPaste: handlePaste,
               onKeyUp: rememberSelection,
               onSelect: rememberSelection,
               onMouseUp: rememberSelection,
@@ -20211,7 +20410,16 @@ function NotesApp({ backend: backend2, onLogout, brand = "\u7B14\u8BB0" }) {
               spellCheck: false
             }
           ),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dsh-notes-preview", onClick: handlePreviewClick, children: draft.content.trim() === "" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dsh-notes-preview-empty", children: "\u9884\u89C8\u4F1A\u663E\u793A\u5728\u8FD9\u91CC" }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dsh-notes-markdown", dangerouslySetInnerHTML: { __html: markdownHtml } }) })
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+            "div",
+            {
+              ref: previewRef,
+              className: "dsh-notes-preview",
+              onClick: handlePreviewClick,
+              onDoubleClick: handlePreviewDoubleClick,
+              children: draft.content.trim() === "" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dsh-notes-preview-empty", children: "\u9884\u89C8\u4F1A\u663E\u793A\u5728\u8FD9\u91CC" }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dsh-notes-markdown", dangerouslySetInnerHTML: { __html: markdownHtml } })
+            }
+          )
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dsh-notes-attachments", children: [
           /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dsh-notes-attachments-head", children: [
@@ -20231,11 +20439,13 @@ function NotesApp({ backend: backend2, onLogout, brand = "\u7B14\u8BB0" }) {
             ] })
           ] }),
           uploadProgress !== null && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dsh-notes-upload-progress", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { style: { width: `${uploadProgress}%` } }) }),
-          note.attachments.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dsh-notes-hint", style: { padding: "9px 14px" }, children: "\u4E0A\u4F20\u56FE\u7247\u6216\u97F3\u9891\uFF1B\u63D2\u5165\u7684 Markdown \u94FE\u63A5\u4F1A\u81EA\u52A8\u5173\u8054\u5230\u9644\u4EF6\u3002" }) : note.attachments.map((attachment) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+          note.attachments.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dsh-notes-hint", style: { padding: "9px 14px" }, children: "\u4E0A\u4F20\u56FE\u7247\u6216\u97F3\u9891\uFF0C\u6216\u76F4\u63A5\u628A\u526A\u8D34\u677F\u91CC\u7684\u56FE\u7247\u7C98\u8D34\u8FDB\u7F16\u8F91\u5668\uFF08Ctrl+V\uFF09\uFF1B\u63D2\u5165\u7684 Markdown \u94FE\u63A5\u4F1A\u81EA\u52A8\u5173\u8054\u5230\u9644\u4EF6\u3002" }) : note.attachments.map((attachment) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
             AttachmentRow,
             {
               attachment,
               url: backend2.attachmentUrl(attachment.id),
+              backend: backend2,
+              onPreview: (url, alt) => openLightbox(url, alt),
               onInsert: () => insertIntoNote(`${attachment.mime.startsWith("image/") ? "!" : ""}[${attachment.filename}](api/attachments/${attachment.id})`),
               onDelete: () => {
                 void handleDeleteAttachment(attachment.id);
@@ -20343,10 +20553,18 @@ function NotesApp({ backend: backend2, onLogout, brand = "\u7B14\u8BB0" }) {
         onCancel: () => setDialog({ kind: "none" }),
         onMove: async (folderId) => {
           try {
-            const updated = await backend2.moveNote(dialog.note.id, folderId, dialog.note.revision);
+            const isOpen = selectedRef.current === dialog.note.id;
+            let revision = dialog.note.revision;
+            if (isOpen) {
+              await saveDraftRef.current();
+              revision = draftRef.current?.baseRevision ?? revision;
+            } else {
+              revision = (await backend2.getNote(dialog.note.id)).revision;
+            }
+            const updated = await backend2.moveNote(dialog.note.id, folderId, revision);
             setDialog({ kind: "none" });
             await reloadTreeQuiet();
-            if (selectedId === dialog.note.id) {
+            if (selectedRef.current === dialog.note.id) {
               setNote(updated);
               setDraft((previous) => previous === null ? previous : { ...previous, baseRevision: updated.revision, dirty: false });
             }
@@ -20447,6 +20665,7 @@ function NotesApp({ backend: backend2, onLogout, brand = "\u7B14\u8BB0" }) {
         }
       }
     ),
+    lightbox !== null && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ImageLightbox, { src: lightbox.src, alt: lightbox.alt, onClose: closeLightbox }),
     toast !== null && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dsh-notes-toast-wrap", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: `dsh-notes-toast is-${toast.kind}`, children: toast.text }) })
   ] });
 }
@@ -20606,11 +20825,70 @@ function TagsEditor({ tags, onChange }) {
     )
   ] });
 }
-function AttachmentRow({ attachment, url, onInsert, onDelete }) {
+function useAttachmentMedia(backend2, id, enabled) {
+  const [url, setUrl] = (0, import_react.useState)(() => enabled ? cachedAttachmentObjectUrl(backend2, id) : null);
+  const [failed, setFailed] = (0, import_react.useState)(false);
+  const [attempt, setAttempt] = (0, import_react.useState)(0);
+  (0, import_react.useEffect)(() => {
+    if (!enabled) return void 0;
+    const ready = cachedAttachmentObjectUrl(backend2, id);
+    if (ready !== null) {
+      setUrl(ready);
+      setFailed(false);
+      return void 0;
+    }
+    let active = true;
+    setFailed(false);
+    loadAttachmentObjectUrl(backend2, id).then((next) => {
+      if (!active) return;
+      setUrl(next);
+      setFailed(false);
+    }).catch(() => {
+      if (!active) return;
+      setUrl(null);
+      setFailed(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, [backend2, id, enabled, attempt]);
+  const retry = (0, import_react.useCallback)(() => {
+    forgetAttachmentObjectUrl(backend2, id);
+    setUrl(null);
+    setFailed(false);
+    setAttempt((value) => value + 1);
+  }, [backend2, id]);
+  return { url, failed, retry };
+}
+function AttachmentRow({ attachment, url, backend: backend2, onPreview, onInsert, onDelete }) {
+  const isImage = attachment.mime.startsWith("image/");
+  const media = useAttachmentMedia(backend2, attachment.id, isImage);
   return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dsh-notes-attachment", children: [
-    attachment.mime.startsWith("image/") ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("img", { className: "dsh-notes-attachment-thumb", src: url, alt: attachment.filename, loading: "lazy" }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dsh-notes-attachment-icon", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconPaperclip, { size: 16 }) }),
+    isImage && media.url !== null ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      "button",
+      {
+        type: "button",
+        className: "dsh-notes-attachment-thumb-btn",
+        title: `\u70B9\u51FB\u653E\u5927\uFF1A${attachment.filename}`,
+        "aria-label": `\u653E\u5927\u67E5\u770B ${attachment.filename}`,
+        onClick: () => onPreview(media.url ?? url, attachment.filename),
+        children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("img", { className: "dsh-notes-attachment-thumb", src: media.url, alt: attachment.filename, draggable: false })
+      }
+    ) : isImage ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      "button",
+      {
+        type: "button",
+        className: `dsh-notes-attachment-thumb-btn is-empty${media.failed ? " is-error" : ""}`,
+        title: media.failed ? `${attachment.filename} \u52A0\u8F7D\u5931\u8D25\uFF0C\u70B9\u51FB\u91CD\u8BD5` : `${attachment.filename} \u52A0\u8F7D\u4E2D\u2026`,
+        "aria-label": media.failed ? `\u91CD\u65B0\u52A0\u8F7D ${attachment.filename}` : `${attachment.filename} \u52A0\u8F7D\u4E2D`,
+        onClick: () => {
+          if (media.failed) media.retry();
+        },
+        children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dsh-notes-attachment-thumb-fallback", children: media.failed ? "!" : "" })
+      }
+    ) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dsh-notes-attachment-icon", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconPaperclip, { size: 16 }) }),
     /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dsh-notes-attachment-main", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dsh-notes-attachment-name", children: attachment.filename }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dsh-notes-attachment-name", title: attachment.filename, children: attachment.filename }),
       /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dsh-notes-attachment-sub", children: [
         formatBytes(attachment.size),
         " \xB7 ",
@@ -20620,6 +20898,59 @@ function AttachmentRow({ attachment, url, onInsert, onDelete }) {
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { className: "dsh-notes-btn", onClick: onInsert, children: "\u63D2\u5165" }),
     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { className: "dsh-notes-btn dsh-notes-btn-danger", onClick: onDelete, children: "\u5220\u9664" })
+  ] });
+}
+function ImageLightbox({ src, alt, onClose }) {
+  const [actualSize, setActualSize] = (0, import_react.useState)(false);
+  (0, import_react.useEffect)(() => {
+    const handler = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      } else if (event.key === "+" || event.key === "=") {
+        setActualSize(true);
+      } else if (event.key === "-") {
+        setActualSize(false);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+  const backdropClose = (event) => {
+    if (event.target === event.currentTarget) onClose();
+  };
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dsh-notes-lightbox", role: "dialog", "aria-modal": "true", "aria-label": "\u56FE\u7247\u67E5\u770B", onMouseDown: backdropClose, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dsh-notes-lightbox-bar", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dsh-notes-lightbox-title", title: alt, children: alt === "" ? "\u56FE\u7247" : alt }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "grow" }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+        "button",
+        {
+          type: "button",
+          className: "dsh-notes-lightbox-btn",
+          title: actualSize ? "\u9002\u5E94\u7A97\u53E3 (-)" : "\u539F\u59CB\u5C3A\u5BF8 (+)",
+          onClick: () => setActualSize((value) => !value),
+          children: actualSize ? "\u9002\u5E94\u7A97\u53E3" : "\u539F\u59CB\u5C3A\u5BF8"
+        }
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "dsh-notes-lightbox-btn", title: "\u5173\u95ED (Esc)", "aria-label": "\u5173\u95ED", onClick: onClose, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(IconClose, { size: 15 }) })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+      "div",
+      {
+        className: `dsh-notes-lightbox-stage${actualSize ? " is-actual" : ""}`,
+        onMouseDown: backdropClose,
+        children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+          "img",
+          {
+            src,
+            alt,
+            draggable: false,
+            onClick: () => setActualSize((value) => !value)
+          }
+        )
+      }
+    )
   ] });
 }
 function Modal({ title, children, footer, onClose, wide = false }) {
@@ -21181,6 +21512,14 @@ var DshBackend = class {
   }
   attachmentUrl(id) {
     return new URL(`attachments/${encodeURIComponent(id)}`, mount()).href;
+  }
+  async fetchAttachment(id) {
+    const url = this.attachmentUrl(id);
+    const response = await fetch(url, { credentials: "same-origin" });
+    if (!response.ok) {
+      throw new NotesApiError(`\u9644\u4EF6\u8BFB\u53D6\u5931\u8D25\uFF08HTTP ${response.status}\uFF09`, { status: response.status });
+    }
+    return response.blob();
   }
   async getState() {
     const data = await request("state");

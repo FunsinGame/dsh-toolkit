@@ -28,13 +28,16 @@ import type {
 } from '../types.ts'
 import { formatBytes, formatDateTime, formatRelative, wordCount } from '../format.ts'
 import { renderMarkdown, attachmentIdFromHref } from './markdown.ts'
+import { cachedAttachmentObjectUrl, forgetAttachmentObjectUrl, loadAttachmentObjectUrl } from './attachmentMedia.ts'
 import { ensureNotesStyles } from './styles.ts'
 import {
+  clipboardImageFiles,
   continueLine,
   findNext,
   indentSelection,
   insertAtCursor,
   insertBlock,
+  pasteImageName,
   prefixLines,
   replaceAll,
   replaceRange,
@@ -86,6 +89,11 @@ type DialogState =
 interface ToastState {
   text: string
   kind: 'info' | 'success' | 'error'
+}
+
+interface LightboxState {
+  src: string
+  alt: string
 }
 
 export interface NotesAppProps {
@@ -164,6 +172,7 @@ export function NotesApp({ backend, onLogout, brand = '笔记' }: NotesAppProps)
   const [replaceText, setReplaceText] = useState('')
   const [uploadProgress, setUploadProgress] = useState<number | null>(null)
   const [attachmentBusy, setAttachmentBusy] = useState(false)
+  const [lightbox, setLightbox] = useState<LightboxState | null>(null)
 
   const selectedRef = useRef<string | null>(null)
   const noteRef = useRef<NoteDetail | null>(null)
@@ -176,6 +185,7 @@ export function NotesApp({ backend, onLogout, brand = '笔记' }: NotesAppProps)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const selectionRef = useRef<{ start: number; end: number } | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const previewRef = useRef<HTMLDivElement | null>(null)
   const toastTimerRef = useRef<number | null>(null)
   const lastSyncRef = useRef<number | null>(null)
   const reloadingRef = useRef(false)
@@ -588,14 +598,15 @@ export function NotesApp({ backend, onLogout, brand = '笔记' }: NotesAppProps)
     })
   }, [updateDraft])
 
-  const insertIntoNote = useCallback((text: string): void => {
+  const insertIntoNote = useCallback((text: string, options: { block?: boolean } = {}): void => {
     const currentDraft = draftRef.current
     if (currentDraft === null) return
     const area = textareaRef.current
     const remembered = selectionRef.current
     const start = remembered?.start ?? currentDraft.content.length
     const end = remembered?.end ?? currentDraft.content.length
-    const result = insertAtCursor({ value: currentDraft.content, start, end }, text)
+    const state = { value: currentDraft.content, start, end }
+    const result = options.block === true ? insertBlock(state, text) : insertAtCursor(state, text)
     updateDraft({ content: result.value })
     selectionRef.current = { start: result.start, end: result.end }
     window.requestAnimationFrame(() => {
@@ -605,7 +616,7 @@ export function NotesApp({ backend, onLogout, brand = '笔记' }: NotesAppProps)
     })
   }, [updateDraft])
 
-  const handleUpload = useCallback(async (files: FileList | File[]): Promise<void> => {
+  const handleUpload = useCallback(async (files: FileList | File[], options: { block?: boolean } = {}): Promise<void> => {
     const id = selectedRef.current
     if (id === null) {
       showToast('请先选择或创建一条笔记', 'error')
@@ -619,7 +630,7 @@ export function NotesApp({ backend, onLogout, brand = '笔记' }: NotesAppProps)
       for (const file of list) {
         const uploaded = await backend.uploadAttachment(id, file, (percent) => setUploadProgress(percent))
         setNote((previous) => previous === null ? previous : { ...previous, attachments: [...previous.attachments, uploaded.attachment] })
-        insertIntoNote(uploaded.markdown)
+        insertIntoNote(uploaded.markdown, { block: options.block === true })
       }
       showToast(`已上传 ${list.length} 个附件`, 'success')
       void saveDraftInternal()
@@ -631,9 +642,36 @@ export function NotesApp({ backend, onLogout, brand = '笔记' }: NotesAppProps)
     }
   }, [backend, insertIntoNote, saveDraftInternal, showToast])
 
+  /**
+   * Paste a clipboard image straight into the note.
+   *
+   * Screenshots arrive as a single `image/png` file in the clipboard; a clipboard
+   * that also carries text is a text paste, so the default behaviour wins there.
+   * The caret is captured before the upload so the Markdown lands where the user
+   * pasted, however long the upload takes.
+   */
+  const handlePaste = useCallback((event: React.ClipboardEvent<HTMLTextAreaElement>): void => {
+    const images = clipboardImageFiles(event.clipboardData)
+    if (images.length === 0) return
+    if ((event.clipboardData?.getData('text/plain') ?? '').trim() !== '') return
+    event.preventDefault()
+    const area = textareaRef.current
+    if (area !== null) selectionRef.current = { start: area.selectionStart, end: area.selectionEnd }
+    const at = new Date()
+    const named = images.map((file, index) => {
+      const type = file.type === '' ? 'image/png' : file.type
+      return new File([file], pasteImageName(type, at, index), { type })
+    })
+    // A screenshot is a block of its own: keep it off the current paragraph line.
+    void handleUpload(named, { block: true })
+  }, [handleUpload])
+
   const handleDeleteAttachment = useCallback(async (attachmentId: string): Promise<void> => {
     try {
       await backend.deleteAttachment(attachmentId)
+      const removed = cachedAttachmentObjectUrl(backend, attachmentId)
+      forgetAttachmentObjectUrl(backend, attachmentId)
+      setLightbox((current) => current !== null && removed !== null && current.src === removed ? null : current)
       setNote((previous) => previous === null ? previous : {
         ...previous,
         attachments: previous.attachments.filter((item) => item.id !== attachmentId),
@@ -643,6 +681,16 @@ export function NotesApp({ backend, onLogout, brand = '笔记' }: NotesAppProps)
       showToast(errorMessage(caught), 'error')
     }
   }, [backend, showToast])
+
+  const openLightbox = useCallback((src: string, alt: string): void => {
+    if (src === '') return
+    setLightbox({ src, alt })
+  }, [])
+
+  const closeLightbox = useCallback((): void => setLightbox(null), [])
+
+  // Object URLs live as long as the page: drop them when the notes page unloads.
+  useEffect(() => () => { forgetAttachmentObjectUrl(backend) }, [backend])
 
   const markdownHtml = useMemo(() => {
     if (draft === null) return ''
@@ -658,6 +706,43 @@ export function NotesApp({ backend, onLogout, brand = '笔记' }: NotesAppProps)
     }
   }, [backend, draft?.content, note?.attachments])
 
+  /**
+   * Swap every rendered attachment placeholder for the bytes read over the API.
+   *
+   * The markdown HTML carries the direct attachment URL, which only works when a
+   * plain subresource request happens to be authenticated; the object URL keeps
+   * previews working on the DSH Desktop scheme too.
+   */
+  useEffect(() => {
+    const root = previewRef.current
+    if (root === null) return
+    for (const element of Array.from(root.querySelectorAll('img[data-attachment-id]'))) {
+      const image = element as HTMLImageElement
+      const id = image.dataset.attachmentId ?? ''
+      if (id === '' || image.dataset.mediaState !== undefined) continue
+      const ready = cachedAttachmentObjectUrl(backend, id)
+      if (ready !== null) {
+        image.src = ready
+        image.dataset.mediaState = 'ready'
+        continue
+      }
+      image.dataset.mediaState = 'loading'
+      void loadAttachmentObjectUrl(backend, id).then((url) => {
+        if (!image.isConnected) return
+        image.src = url
+        image.dataset.mediaState = 'ready'
+      }).catch(() => {
+        if (!image.isConnected) return
+        // Last resort: let the browser try the direct URL, but mark the failure
+        // so the stylesheet shows a broken attachment rather than a silent gap.
+        const fallback = image.dataset.attachmentSrc ?? ''
+        if (fallback !== '') image.src = fallback
+        image.dataset.mediaState = 'error'
+        image.title = '图片加载失败'
+      })
+    }
+  }, [backend, markdownHtml])
+
   const handlePreviewClick = useCallback((event: React.MouseEvent<HTMLDivElement>): void => {
     const target = event.target
     if (!(target instanceof Element)) return
@@ -667,8 +752,27 @@ export function NotesApp({ backend, onLogout, brand = '笔记' }: NotesAppProps)
     if (noteLink !== null) {
       event.preventDefault()
       void openNote(noteLink)
+      return
     }
-  }, [openNote])
+    // An image attachment link opens in the viewer: the raw attachment URL is
+    // not directly addressable from the DSH Desktop page origin.
+    const attachmentId = anchor.getAttribute('data-attachment-id')
+    if (attachmentId === null) return
+    const meta = noteRef.current?.attachments.find((item) => item.id === attachmentId)
+    if (meta === undefined || !meta.mime.startsWith('image/')) return
+    event.preventDefault()
+    void loadAttachmentObjectUrl(backend, attachmentId)
+      .then((url) => openLightbox(url, meta.filename))
+      .catch(() => showToast('图片加载失败', 'error'))
+  }, [backend, openLightbox, openNote, showToast])
+
+  const handlePreviewDoubleClick = useCallback((event: React.MouseEvent<HTMLDivElement>): void => {
+    const target = event.target
+    if (!(target instanceof HTMLImageElement)) return
+    event.preventDefault()
+    const src = target.currentSrc !== '' ? target.currentSrc : target.src
+    openLightbox(src, target.alt)
+  }, [openLightbox])
 
   const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     const primary = event.ctrlKey || event.metaKey
@@ -1105,6 +1209,7 @@ export function NotesApp({ backend, onLogout, brand = '笔记' }: NotesAppProps)
                   value={draft.content}
                   onChange={(event) => updateDraft({ content: event.target.value })}
                   onKeyDown={handleKeyDown}
+                  onPaste={handlePaste}
                   onKeyUp={rememberSelection}
                   onSelect={rememberSelection}
                   onMouseUp={rememberSelection}
@@ -1113,7 +1218,12 @@ export function NotesApp({ backend, onLogout, brand = '笔记' }: NotesAppProps)
                   placeholder="用 Markdown 写点什么…"
                   spellCheck={false}
                 />
-                <div className="dsh-notes-preview" onClick={handlePreviewClick}>
+                <div
+                  ref={previewRef}
+                  className="dsh-notes-preview"
+                  onClick={handlePreviewClick}
+                  onDoubleClick={handlePreviewDoubleClick}
+                >
                   {draft.content.trim() === ''
                     ? <div className="dsh-notes-preview-empty">预览会显示在这里</div>
                     : <div className="dsh-notes-markdown" dangerouslySetInnerHTML={{ __html: markdownHtml }} />}
@@ -1132,13 +1242,15 @@ export function NotesApp({ backend, onLogout, brand = '笔记' }: NotesAppProps)
                 </div>
                 {uploadProgress !== null && <div className="dsh-notes-upload-progress"><div style={{ width: `${uploadProgress}%` }} /></div>}
                 {note.attachments.length === 0 ? (
-                  <div className="dsh-notes-hint" style={{ padding: '9px 14px' }}>上传图片或音频；插入的 Markdown 链接会自动关联到附件。</div>
+                  <div className="dsh-notes-hint" style={{ padding: '9px 14px' }}>上传图片或音频，或直接把剪贴板里的图片粘贴进编辑器（Ctrl+V）；插入的 Markdown 链接会自动关联到附件。</div>
                 ) : (
                   note.attachments.map((attachment) => (
                     <AttachmentRow
                       key={attachment.id}
                       attachment={attachment}
                       url={backend.attachmentUrl(attachment.id)}
+                      backend={backend}
+                      onPreview={(url, alt) => openLightbox(url, alt)}
                       onInsert={() => insertIntoNote(`${attachment.mime.startsWith('image/') ? '!' : ''}[${attachment.filename}](api/attachments/${attachment.id})`)}
                       onDelete={() => { void handleDeleteAttachment(attachment.id) }}
                     />
@@ -1226,10 +1338,21 @@ export function NotesApp({ backend, onLogout, brand = '笔记' }: NotesAppProps)
           onCancel={() => setDialog({ kind: 'none' })}
           onMove={async (folderId) => {
             try {
-              const updated = await backend.moveNote(dialog.note.id, folderId, dialog.note.revision)
+              // The tree snapshot can lag a save that is still in flight; the
+              // move is a revision-checked write, so flush first and send the
+              // revision this page actually holds.
+              const isOpen = selectedRef.current === dialog.note.id
+              let revision = dialog.note.revision
+              if (isOpen) {
+                await saveDraftRef.current()
+                revision = draftRef.current?.baseRevision ?? revision
+              } else {
+                revision = (await backend.getNote(dialog.note.id)).revision
+              }
+              const updated = await backend.moveNote(dialog.note.id, folderId, revision)
               setDialog({ kind: 'none' })
               await reloadTreeQuiet()
-              if (selectedId === dialog.note.id) {
+              if (selectedRef.current === dialog.note.id) {
                 setNote(updated)
                 setDraft((previous) => previous === null ? previous : { ...previous, baseRevision: updated.revision, dirty: false })
               }
@@ -1317,6 +1440,10 @@ export function NotesApp({ backend, onLogout, brand = '笔记' }: NotesAppProps)
             setDialog({ kind: 'conflict', noteId: detail.noteId })
           }}
         />
+      )}
+
+      {lightbox !== null && (
+        <ImageLightbox src={lightbox.src} alt={lightbox.alt} onClose={closeLightbox} />
       )}
 
       {toast !== null && (
@@ -1507,26 +1634,149 @@ function TagsEditor({ tags, onChange }: { tags: string[]; onChange: (tags: strin
   )
 }
 
-function AttachmentRow({ attachment, url, onInsert, onDelete }: {
+/**
+ * Attachment bytes for one row, loaded once per attachment id.
+ *
+ * A failed read leaves a retry affordance instead of a permanently blank
+ * thumbnail; a ready image is what the caller turns into the viewer trigger.
+ */
+function useAttachmentMedia(backend: AppBackend, id: string, enabled: boolean): { url: string | null; failed: boolean; retry: () => void } {
+  const [url, setUrl] = useState<string | null>(() => enabled ? cachedAttachmentObjectUrl(backend, id) : null)
+  const [failed, setFailed] = useState(false)
+  const [attempt, setAttempt] = useState(0)
+
+  useEffect(() => {
+    if (!enabled) return undefined
+    const ready = cachedAttachmentObjectUrl(backend, id)
+    if (ready !== null) {
+      setUrl(ready)
+      setFailed(false)
+      return undefined
+    }
+    let active = true
+    setFailed(false)
+    loadAttachmentObjectUrl(backend, id).then((next) => {
+      if (!active) return
+      setUrl(next)
+      setFailed(false)
+    }).catch(() => {
+      if (!active) return
+      setUrl(null)
+      setFailed(true)
+    })
+    return () => { active = false }
+  }, [backend, id, enabled, attempt])
+
+  const retry = useCallback((): void => {
+    forgetAttachmentObjectUrl(backend, id)
+    setUrl(null)
+    setFailed(false)
+    setAttempt((value) => value + 1)
+  }, [backend, id])
+
+  return { url, failed, retry }
+}
+
+function AttachmentRow({ attachment, url, backend, onPreview, onInsert, onDelete }: {
   attachment: { id: string; filename: string; mime: string; size: number }
   url: string
+  backend: AppBackend
+  onPreview: (url: string, alt: string) => void
   onInsert: () => void
   onDelete: () => void
 }): React.ReactElement {
+  const isImage = attachment.mime.startsWith('image/')
+  const media = useAttachmentMedia(backend, attachment.id, isImage)
   return (
     <div className="dsh-notes-attachment">
-      {attachment.mime.startsWith('image/') ? (
-        <img className="dsh-notes-attachment-thumb" src={url} alt={attachment.filename} loading="lazy" />
+      {isImage && media.url !== null ? (
+        <button
+          type="button"
+          className="dsh-notes-attachment-thumb-btn"
+          title={`点击放大：${attachment.filename}`}
+          aria-label={`放大查看 ${attachment.filename}`}
+          onClick={() => onPreview(media.url ?? url, attachment.filename)}
+        >
+          <img className="dsh-notes-attachment-thumb" src={media.url} alt={attachment.filename} draggable={false} />
+        </button>
+      ) : isImage ? (
+        <button
+          type="button"
+          className={`dsh-notes-attachment-thumb-btn is-empty${media.failed ? ' is-error' : ''}`}
+          title={media.failed ? `${attachment.filename} 加载失败，点击重试` : `${attachment.filename} 加载中…`}
+          aria-label={media.failed ? `重新加载 ${attachment.filename}` : `${attachment.filename} 加载中`}
+          onClick={() => { if (media.failed) media.retry() }}
+        >
+          <span className="dsh-notes-attachment-thumb-fallback">{media.failed ? '!' : ''}</span>
+        </button>
       ) : (
         <span className="dsh-notes-attachment-icon"><IconPaperclip size={16} /></span>
       )}
       <div className="dsh-notes-attachment-main">
-        <div className="dsh-notes-attachment-name">{attachment.filename}</div>
+        <div className="dsh-notes-attachment-name" title={attachment.filename}>{attachment.filename}</div>
         <div className="dsh-notes-attachment-sub">{formatBytes(attachment.size)} · {attachment.mime}</div>
         {attachment.mime.startsWith('audio/') && <audio controls preload="none" src={url} />}
       </div>
       <button className="dsh-notes-btn" onClick={onInsert}>插入</button>
       <button className="dsh-notes-btn dsh-notes-btn-danger" onClick={onDelete}>删除</button>
+    </div>
+  )
+}
+
+/** Full-screen (page-scoped) image viewer: fit first, click for 1:1 pixels. */
+function ImageLightbox({ src, alt, onClose }: {
+  src: string
+  alt: string
+  onClose: () => void
+}): React.ReactElement {
+  const [actualSize, setActualSize] = useState(false)
+  useEffect(() => {
+    const handler = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onClose()
+      } else if (event.key === '+' || event.key === '=') {
+        setActualSize(true)
+      } else if (event.key === '-') {
+        setActualSize(false)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onClose])
+
+  const backdropClose = (event: React.MouseEvent<HTMLDivElement>): void => {
+    if (event.target === event.currentTarget) onClose()
+  }
+
+  return (
+    <div className="dsh-notes-lightbox" role="dialog" aria-modal="true" aria-label="图片查看" onMouseDown={backdropClose}>
+      <div className="dsh-notes-lightbox-bar">
+        <span className="dsh-notes-lightbox-title" title={alt}>{alt === '' ? '图片' : alt}</span>
+        <span className="grow" />
+        <button
+          type="button"
+          className="dsh-notes-lightbox-btn"
+          title={actualSize ? '适应窗口 (-)' : '原始尺寸 (+)'}
+          onClick={() => setActualSize((value) => !value)}
+        >
+          {actualSize ? '适应窗口' : '原始尺寸'}
+        </button>
+        <button type="button" className="dsh-notes-lightbox-btn" title="关闭 (Esc)" aria-label="关闭" onClick={onClose}>
+          <IconClose size={15} />
+        </button>
+      </div>
+      <div
+        className={`dsh-notes-lightbox-stage${actualSize ? ' is-actual' : ''}`}
+        onMouseDown={backdropClose}
+      >
+        <img
+          src={src}
+          alt={alt}
+          draggable={false}
+          onClick={() => setActualSize((value) => !value)}
+        />
+      </div>
     </div>
   )
 }

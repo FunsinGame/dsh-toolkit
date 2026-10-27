@@ -9,6 +9,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
+import { deflateSync } from 'node:zlib'
 
 export const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 export const serverEntry = join(root, 'server', 'bin.js')
@@ -187,8 +188,58 @@ export async function login(base, username, password) {
   return { response, status: response.status, payload, cookie }
 }
 
-export function pngBuffer() {
-  return Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lY9GxAAAAABJRU5ErkJggg==', 'base64')
+/**
+ * A valid RGBA PNG of the requested size (a small gradient by default).
+ *
+ * Tests assert `naturalWidth`, so the helper must be able to encode something
+ * bigger than the 1×1 fixture a pure base64 constant allows.
+ */
+export function pngBuffer(width = 1, height = 1) {
+  if (width === 1 && height === 1) {
+    return Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lY9GxAAAAABJRU5ErkJggg==', 'base64')
+  }
+  const crcTable = new Int32Array(256)
+  for (let index = 0; index < 256; index += 1) {
+    let value = index
+    for (let bit = 0; bit < 8; bit += 1) value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1
+    crcTable[index] = value
+  }
+  const crc32 = (buffer) => {
+    let crc = -1
+    for (const byte of buffer) crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8)
+    return (crc ^ -1) >>> 0
+  }
+  const chunk = (type, data) => {
+    const length = Buffer.alloc(4)
+    length.writeUInt32BE(data.length, 0)
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data])
+    const crc = Buffer.alloc(4)
+    crc.writeUInt32BE(crc32(body), 0)
+    return Buffer.concat([length, body, crc])
+  }
+  const ihdr = Buffer.alloc(13)
+  ihdr.writeUInt32BE(width, 0)
+  ihdr.writeUInt32BE(height, 4)
+  ihdr[8] = 8
+  ihdr[9] = 6
+  const raw = Buffer.alloc((width * 4 + 1) * height)
+  for (let y = 0; y < height; y += 1) {
+    const row = y * (width * 4 + 1)
+    raw[row] = 0
+    for (let x = 0; x < width; x += 1) {
+      const at = row + 1 + x * 4
+      raw[at] = Math.round((x / Math.max(1, width - 1)) * 255)
+      raw[at + 1] = Math.round((y / Math.max(1, height - 1)) * 255)
+      raw[at + 2] = 200
+      raw[at + 3] = 255
+    }
+  }
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', ihdr),
+    chunk('IDAT', deflateSync(raw)),
+    chunk('IEND', Buffer.alloc(0)),
+  ])
 }
 
 export function wavBuffer() {
