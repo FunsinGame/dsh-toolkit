@@ -159,11 +159,13 @@ try {
   })
 
   await step('opening the activity shows the notes page', async () => {
-    await page.locator('[aria-label="笔记"]').first().click({ force: true })
-    await page.waitForTimeout(2500)
-    if (await page.locator('.dsh-notes-tree').count() === 0) {
-      await page.screenshot({ path: join(docs, 'dsh-integration-failure.png'), fullPage: true })
-    }
+    // The shell can still be wiring its activity rail right after boot, when a
+    // click lands without switching; retry the click until the page mounts.
+    await waitFor(async () => {
+      if (await page.locator('.dsh-notes-tree').count() > 0) return true
+      await page.locator('[aria-label="笔记"]').first().click({ force: true }).catch(() => undefined)
+      return false
+    }, { timeoutMs: 30000, intervalMs: 800, label: 'notes activity to open' })
     await page.waitForSelector('.dsh-notes-tree', { timeout: 15000 })
     await waitFor(async () => (await page.locator('.dsh-notes-tree').innerText()).includes(seedTitle), { label: 'seed note in tree' })
     assert(await page.locator('.dsh-notes-title-input').count() > 0, 'editor title')
@@ -229,27 +231,34 @@ try {
     }, { timeoutMs: 15000, intervalMs: 500, label: 'attachment on server' })
   })
 
-  await step('pasting a screenshot uploads it through the host', async () => {
+  await step('pasting a screenshot uploads it once through the host', async () => {
     const payload = pngBuffer(320, 200).toString('base64')
     const textarea = page.locator('textarea.dsh-notes-textarea')
     await textarea.click()
     await textarea.press('End')
+    const before = await page.locator('.dsh-notes-attachments .dsh-notes-attachment').count()
     await page.evaluate(({ base64 }) => {
       const binary = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+      const file = new File([binary], 'image.png', { type: 'image/png' })
       const data = new DataTransfer()
-      data.items.add(new File([binary], 'clipboard.png', { type: 'image/png' }))
+      data.items.add(file)
+      // Windows Chromium reports the same clipboard image as two independent File
+      // objects (item vs files entry, lastModified one millisecond apart).
+      const twin = new File([binary], 'image.png', { type: 'image/png', lastModified: file.lastModified + 1 })
+      Object.defineProperty(data, 'files', { value: [twin], configurable: true })
       const area = document.querySelector('textarea.dsh-notes-textarea')
       if (area === null) throw new Error('textarea missing')
       area.focus()
       area.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
     }, { base64: payload })
     await waitFor(async () => (await page.locator('.dsh-notes-attachments').innerText()).includes('粘贴图片-'), { timeoutMs: 15000, label: 'DSH pasted attachment row' })
-    assert(/!\[粘贴图片-[^\]]*\]\(api\/attachments\/[A-Za-z0-9-]+\)/u.test(await textarea.inputValue()), 'pasted markdown inserted')
+    assertEqual(await page.locator('.dsh-notes-attachments .dsh-notes-attachment').count(), before + 1, 'pasted attachment row added once')
+    assert((await textarea.inputValue()).match(/!\[粘贴图片-/gu)?.length === 1, 'one pasted image inserted')
     await page.screenshot({ path: join(root, 'tmp', 'dsh-paste.png') })
     await waitFor(async () => {
       const note = await request(remote.base, `/api/notes/${seedId}`, { token })
-      return note.payload.note.attachments.some((item) => item.filename.startsWith('粘贴图片-'))
-    }, { timeoutMs: 20000, intervalMs: 500, label: 'pasted attachment on server' })
+      return note.payload.note.attachments.filter((item) => item.filename.startsWith('粘贴图片-')).length === 1
+    }, { timeoutMs: 20000, intervalMs: 500, label: 'exactly one pasted attachment on server' })
   })
 
   await step('preview image loads over the host attachment route', async () => {

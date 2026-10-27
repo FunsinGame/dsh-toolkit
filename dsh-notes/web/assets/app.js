@@ -26422,20 +26422,25 @@ ${quote[1]}> `;
   }
   function clipboardImageFiles(data) {
     if (data === null || data === void 0) return [];
-    const files = [];
-    const seen = /* @__PURE__ */ new Set();
-    const push = (file) => {
-      if (file === null || !file.type.startsWith("image/")) return;
-      const key = `${file.name}|${file.size}|${file.type}|${file.lastModified}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      files.push(file);
-    };
-    for (const item of Array.from(data.items ?? [])) {
-      if (item.kind === "file") push(item.getAsFile());
+    const candidates = [];
+    for (const file of Array.from(data.files ?? [])) candidates.push(file);
+    if (candidates.length === 0) {
+      for (const item of Array.from(data.items ?? [])) {
+        if (item.kind !== "file") continue;
+        const file = item.getAsFile();
+        if (file !== null) candidates.push(file);
+      }
     }
-    for (const file of Array.from(data.files ?? [])) push(file);
-    return files;
+    const images = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (const file of candidates) {
+      if (!file.type.startsWith("image/")) continue;
+      const key = `${file.name}|${file.size}|${file.type}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      images.push(file);
+    }
+    return images;
   }
   var PASTE_IMAGE_EXTENSIONS = {
     "image/png": "png",

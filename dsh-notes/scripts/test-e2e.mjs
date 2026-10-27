@@ -122,7 +122,7 @@ try {
     assert(await page.locator('.dsh-notes-attachments audio').count() > 0, 'audio player')
   })
 
-  await step('pasting a screenshot uploads it and inserts markdown at the caret', async () => {
+  await step('pasting a screenshot uploads it once and inserts markdown at the caret', async () => {
     const payload = pngBuffer(320, 200).toString('base64')
     const textarea = page.locator('textarea.dsh-notes-textarea')
     await textarea.click()
@@ -130,17 +130,23 @@ try {
     const before = await page.locator('.dsh-notes-attachments .dsh-notes-attachment').count()
     await page.evaluate(({ base64 }) => {
       const binary = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+      const file = new File([binary], 'image.png', { type: 'image/png' })
       const data = new DataTransfer()
-      data.items.add(new File([binary], 'clipboard.png', { type: 'image/png' }))
+      data.items.add(file)
+      // Windows Chromium reports the same clipboard image as two independent File
+      // objects (item vs files entry, lastModified one millisecond apart).
+      const twin = new File([binary], 'image.png', { type: 'image/png', lastModified: file.lastModified + 1 })
+      Object.defineProperty(data, 'files', { value: [twin], configurable: true })
       const area = document.querySelector('textarea.dsh-notes-textarea')
       if (area === null) throw new Error('textarea missing')
       area.focus()
       area.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
     }, { base64: payload })
     await waitFor(async () => (await page.locator('.dsh-notes-attachments').innerText()).includes('粘贴图片-'), { label: 'pasted image attachment row' })
-    assertEqual(await page.locator('.dsh-notes-attachments .dsh-notes-attachment').count(), before + 1, 'pasted attachment row added')
+    assertEqual(await page.locator('.dsh-notes-attachments .dsh-notes-attachment').count(), before + 1, 'pasted attachment row added once')
     const content = await textarea.inputValue()
     assert(/!\[粘贴图片-[^\]]*\]\(api\/attachments\/[A-Za-z0-9-]+\)/u.test(content), content.slice(-160))
+    assertEqual((content.match(/!\[粘贴图片-/gu) ?? []).length, 1, 'one pasted image inserted')
     await page.screenshot({ path: join(root, 'tmp', 'e2e-paste.png') })
     await waitFor(async () => (await page.locator('.dsh-notes-statusbar').innerText()).includes('已保存'), { label: 'pasted image saved' })
   })

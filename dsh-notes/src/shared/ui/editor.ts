@@ -102,25 +102,37 @@ export function replaceAll(value: string, needle: string, replacement: string): 
   return value.split(needle).join(replacement)
 }
 
-/** Images a paste event carries, in clipboard order (screenshots are a single PNG). */
+/**
+ * Images a paste event carries, in clipboard order (a screenshot is one PNG).
+ *
+ * `items` and `files` describe the same clipboard payload, but Chromium builds
+ * independent `File` objects for each accessor — observed on Windows, where the
+ * item's file and the files entry differ in `lastModified` by a millisecond.
+ * Reading both lists therefore reports one pasted screenshot twice, so only one
+ * source is used: `files` when it is populated, `items` otherwise.
+ */
 export function clipboardImageFiles(data: DataTransfer | null | undefined): File[] {
   if (data === null || data === undefined) return []
-  const files: File[] = []
+  const candidates: File[] = []
+  for (const file of Array.from(data.files ?? [])) candidates.push(file)
+  if (candidates.length === 0) {
+    for (const item of Array.from(data.items ?? [])) {
+      if (item.kind !== 'file') continue
+      const file = item.getAsFile()
+      if (file !== null) candidates.push(file)
+    }
+  }
+  const images: File[] = []
   const seen = new Set<string>()
-  const push = (file: File | null): void => {
-    if (file === null || !file.type.startsWith('image/')) return
-    // `items` and `files` describe the same clipboard entries; key on content so
-    // an implementation that hands back distinct File objects cannot upload twice.
-    const key = `${file.name}|${file.size}|${file.type}|${file.lastModified}`
-    if (seen.has(key)) return
+  for (const file of candidates) {
+    if (!file.type.startsWith('image/')) continue
+    // Identity alone is not reliable (see above); collapse on the payload shape.
+    const key = `${file.name}|${file.size}|${file.type}`
+    if (seen.has(key)) continue
     seen.add(key)
-    files.push(file)
+    images.push(file)
   }
-  for (const item of Array.from(data.items ?? [])) {
-    if (item.kind === 'file') push(item.getAsFile())
-  }
-  for (const file of Array.from(data.files ?? [])) push(file)
-  return files
+  return images
 }
 
 const PASTE_IMAGE_EXTENSIONS: Record<string, string> = {
