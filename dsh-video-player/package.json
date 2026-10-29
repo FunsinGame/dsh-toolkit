@@ -1,7 +1,7 @@
 {
   "name": "dsh-video-player",
-  "version": "0.1.0",
-  "description": "DSH 视频逐帧播放器：在左侧活动栏打开，选择本地 MP4 视频，左右方向键逐帧（按住连续），支持倒放、进度跳转与静音。",
+  "version": "0.2.0",
+  "description": "DSH 视频逐帧播放器：在左侧活动栏打开，支持单画面或左右双画面同步逐帧、每个画面独立起始位置、倒放、进度跳转与静音。",
   "type": "module",
   "main": "lib/index.js",
   "icon": "media/icon.svg",

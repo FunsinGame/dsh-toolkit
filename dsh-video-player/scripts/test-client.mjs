@@ -127,6 +127,20 @@ for (const label of ['下一帧', '上一帧', '播放', '静音', '倒放']) {
   }
 }
 
+const layoutSwitch = container.querySelector('.dvp-switch input')
+if (!(layoutSwitch instanceof window.HTMLInputElement)) throw new Error('layout switch is missing')
+layoutSwitch.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+await new Promise((resolve) => setTimeout(resolve, 200))
+const panes = container.querySelectorAll('.dvp-pane')
+if (panes.length !== 2) throw new Error(`dual layout rendered ${panes.length} panes`)
+const panePickers = Array.from(panes).filter((pane) => pane.textContent?.includes('选择视频'))
+if (panePickers.length !== 2) throw new Error('both empty panes should offer 选择视频')
+console.log('dual render: 2 panes with 选择视频 placeholders')
+
+layoutSwitch.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+await new Promise((resolve) => setTimeout(resolve, 200))
+if (container.querySelectorAll('.dvp-pane').length !== 0) throw new Error('single layout still shows panes')
+
 root.unmount()
 for (const dispose of disposers.reverse()) {
   try {

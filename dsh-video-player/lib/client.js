@@ -373,32 +373,8 @@ var HOLD_DELAY_MS = 300;
 var HOLD_INTERVAL_MS = 72;
 var DEFAULT_FPS = 30;
 var RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
+var TIME_EPSILON = 1e-6;
 var PLAYBACK_RATES = RATES;
-var EMPTY_TIMES = new Float64Array(0);
-var INITIAL = {
-  status: "empty",
-  fileName: "",
-  fileSize: 0,
-  fileType: "",
-  error: null,
-  notice: null,
-  duration: 0,
-  currentTime: 0,
-  frameIndex: 0,
-  frameCount: 0,
-  fps: 0,
-  width: 0,
-  height: 0,
-  codec: "",
-  playing: false,
-  reverse: false,
-  muted: false,
-  volume: 1,
-  rate: 1,
-  scrubbing: false,
-  buffered: 0,
-  frameSource: "none"
-};
 function clamp(value, minimum, maximum) {
   return Math.min(maximum, Math.max(minimum, value));
 }
@@ -458,610 +434,315 @@ async function loadFrameTable(file, duration, fallbackFps) {
   if (parsed !== null && parsed.totalFrames > 0) return parsed;
   return buildEstimatedFrameTable(duration, fallbackFps);
 }
-var PlayerEngine = class {
-  constructor() {
+var Pane = class {
+  constructor(id, callbacks, preferences) {
+    __publicField(this, "id");
     __publicField(this, "video");
-    __publicField(this, "snapshotValue", INITIAL);
-    __publicField(this, "listeners", /* @__PURE__ */ new Set());
+    __publicField(this, "status", "empty");
+    __publicField(this, "fileName", "");
+    __publicField(this, "fileSize", 0);
+    __publicField(this, "error", null);
+    __publicField(this, "duration", 0);
+    __publicField(this, "width", 0);
+    __publicField(this, "height", 0);
+    __publicField(this, "codec", "");
+    __publicField(this, "frameSource", "none");
+    __publicField(this, "start", 0);
     __publicField(this, "frames", null);
+    __publicField(this, "callbacks");
     __publicField(this, "objectUrl", null);
     __publicField(this, "loadToken", 0);
     __publicField(this, "seekGeneration", 0);
-    __publicField(this, "targetFrame", 0);
-    __publicField(this, "queuedSteps", 0);
-    __publicField(this, "stepping", false);
-    __publicField(this, "stepPromise", Promise.resolve());
-    __publicField(this, "holdDirection", 0);
-    __publicField(this, "holdStride", 1);
-    __publicField(this, "holdTimer", null);
-    __publicField(this, "reverseToken", 0);
-    __publicField(this, "scrubbing", false);
-    __publicField(this, "scrubWasPlaying", false);
-    __publicField(this, "scrubWasReverse", false);
-    __publicField(this, "noticeTimer", null);
-    __publicField(this, "frameCallbackId", null);
     __publicField(this, "disposed", false);
-    __publicField(this, "lastTimeEmit", 0);
-    __publicField(this, "preferences");
-    // -- React store interface ------------------------------------------------
-    __publicField(this, "subscribe", (listener) => {
-      this.listeners.add(listener);
-      return () => {
-        this.listeners.delete(listener);
-      };
-    });
-    __publicField(this, "getSnapshot", () => this.snapshotValue);
     __publicField(this, "onLoadedMetadata", () => {
-      if (this.snapshotValue.status !== "loading" && this.snapshotValue.status !== "ready") return;
-      this.patch({
-        duration: Number.isFinite(this.video.duration) ? this.video.duration : this.snapshotValue.duration,
-        width: this.video.videoWidth || this.snapshotValue.width,
-        height: this.video.videoHeight || this.snapshotValue.height,
-        buffered: this.bufferedEnd()
-      });
+      if (this.status !== "loading" && this.status !== "ready") return;
+      this.duration = Number.isFinite(this.video.duration) && this.video.duration > 0 ? this.video.duration : this.duration;
+      this.width = this.video.videoWidth || this.width;
+      this.height = this.video.videoHeight || this.height;
+      this.callbacks.onChange();
     });
     __publicField(this, "onDurationChange", () => {
-      if (!Number.isFinite(this.video.duration)) return;
-      if (Math.abs(this.video.duration - this.snapshotValue.duration) < 1e-3) return;
-      this.patch({ duration: this.video.duration });
+      if (!Number.isFinite(this.video.duration) || this.video.duration <= 0) return;
+      if (Math.abs(this.video.duration - this.duration) < 1e-3) return;
+      this.duration = this.video.duration;
+      this.start = clamp(this.start, 0, Math.max(0, this.duration - 1e-3));
+      this.callbacks.onChange();
     });
     __publicField(this, "onTimeUpdate", () => {
-      if (this.snapshotValue.status !== "ready") return;
-      if (this.stepping || this.scrubbing || this.snapshotValue.reverse) return;
-      const index = frameIndexAt(this.frames?.times ?? EMPTY_TIMES, this.video.currentTime);
-      this.targetFrame = index;
-      this.patch({
-        currentTime: this.video.currentTime,
-        frameIndex: index,
-        buffered: this.bufferedEnd()
-      });
-    });
-    __publicField(this, "onProgress", () => {
-      this.patch({ buffered: this.bufferedEnd() });
+      if (this.status !== "ready") return;
+      this.callbacks.onChange();
     });
     __publicField(this, "onPlay", () => {
-      this.patch({ playing: true, reverse: false, error: null });
+      this.callbacks.onChange();
     });
     __publicField(this, "onPause", () => {
-      if (this.snapshotValue.playing) this.patch({ playing: false });
+      this.callbacks.onChange();
     });
     __publicField(this, "onEnded", () => {
-      this.patch({ playing: false, reverse: false });
-      if (this.frames !== null) {
-        this.targetFrame = this.frames.totalFrames - 1;
-        this.patch({ frameIndex: this.targetFrame });
-      }
+      this.callbacks.onEnded();
+      this.callbacks.onChange();
     });
     __publicField(this, "onVolumeChange", () => {
-      this.patch({ volume: this.video.volume, muted: this.video.muted });
+      this.callbacks.onChange();
     });
-    __publicField(this, "onVideoError", () => {
-      if (this.snapshotValue.status === "empty") return;
-      this.patch({ status: "error", playing: false, error: videoErrorMessage(this.video.error) });
+    __publicField(this, "onError", () => {
+      if (this.video.getAttribute("src") === null) return;
+      if (this.status === "empty") return;
+      this.status = "error";
+      this.error = videoErrorMessage(this.video.error);
+      this.callbacks.onError();
+      this.callbacks.onChange();
     });
-    this.preferences = readPreferences();
+    this.id = id;
+    this.callbacks = callbacks;
     const video = document.createElement("video");
     video.className = "dvp-video";
     video.playsInline = true;
     video.preload = "auto";
     video.controls = false;
     video.disablePictureInPicture = true;
-    video.muted = this.preferences.muted;
-    video.volume = this.preferences.volume;
+    video.muted = preferences.muted;
+    video.volume = preferences.volume;
+    video.playbackRate = preferences.rate;
     this.video = video;
-    this.snapshotValue = {
-      ...INITIAL,
-      muted: this.preferences.muted,
-      volume: this.preferences.volume,
-      rate: this.preferences.rate
-    };
-    this.bindVideoEvents();
-    this.bindFrameCallback();
+    this.bindEvents();
   }
-  patch(next) {
-    this.snapshotValue = { ...this.snapshotValue, ...next };
-    for (const listener of this.listeners) listener();
+  get loaded() {
+    return this.status === "ready";
   }
-  /** A getter keeps TypeScript from narrowing the status across an await. */
-  get failed() {
-    return this.snapshotValue.status === "error";
+  get currentTime() {
+    return this.video.currentTime;
   }
-  // -- lifecycle ------------------------------------------------------------
-  /** Put the video element into the page's stage. */
+  get fps() {
+    return this.frames?.fps ?? 0;
+  }
   attach(container) {
     if (this.video.parentElement !== container) container.append(this.video);
   }
-  /** Remove the video element; keep the file and position for the next mount. */
   detach() {
-    this.endAllHolds();
-    this.reverseToken += 1;
     this.seekGeneration += 1;
-    this.queuedSteps = 0;
     if (!this.video.paused) this.video.pause();
-    this.snapshotValue = { ...this.snapshotValue, playing: false, reverse: false, scrubbing: false };
-    this.scrubbing = false;
     this.video.remove();
   }
   dispose() {
     this.disposed = true;
-    this.listeners.clear();
     this.loadToken += 1;
     this.seekGeneration += 1;
-    this.reverseToken += 1;
-    this.endAllHolds();
-    if (this.noticeTimer !== null) window.clearTimeout(this.noticeTimer);
-    this.noticeTimer = null;
-    if (this.frameCallbackId !== null && typeof this.video.cancelVideoFrameCallback === "function") {
-      this.video.cancelVideoFrameCallback(this.frameCallbackId);
-    }
-    this.frameCallbackId = null;
     this.video.removeEventListener("loadedmetadata", this.onLoadedMetadata);
     this.video.removeEventListener("durationchange", this.onDurationChange);
     this.video.removeEventListener("timeupdate", this.onTimeUpdate);
-    this.video.removeEventListener("progress", this.onProgress);
     this.video.removeEventListener("play", this.onPlay);
     this.video.removeEventListener("pause", this.onPause);
     this.video.removeEventListener("ended", this.onEnded);
     this.video.removeEventListener("volumechange", this.onVolumeChange);
-    this.video.removeEventListener("error", this.onVideoError);
+    this.video.removeEventListener("error", this.onError);
     this.revokeObjectUrl();
     this.video.pause();
     this.video.removeAttribute("src");
     this.video.load();
     this.video.remove();
   }
-  // -- file handling --------------------------------------------------------
-  async openFile(file) {
-    if (this.disposed) return;
+  async openFile(file, fallbackFps = DEFAULT_FPS) {
+    if (this.disposed) return false;
     if (!looksLikeVideo(file)) {
-      this.notify("\u8BF7\u9009\u62E9\u89C6\u9891\u6587\u4EF6\uFF08\u63A8\u8350 MP4 / H.264\uFF09");
-      return;
+      this.status = "error";
+      this.error = "\u8BF7\u9009\u62E9\u89C6\u9891\u6587\u4EF6\uFF08\u63A8\u8350 MP4 / H.264\uFF09";
+      this.callbacks.onChange();
+      return false;
     }
     if (file.size === 0) {
-      this.notify("\u8FD9\u4E2A\u6587\u4EF6\u662F\u7A7A\u7684");
-      return;
+      this.status = "error";
+      this.error = "\u8FD9\u4E2A\u6587\u4EF6\u662F\u7A7A\u7684";
+      this.callbacks.onChange();
+      return false;
     }
     const token = ++this.loadToken;
-    this.endAllHolds();
-    this.stopReverse();
-    this.pauseForward();
-    this.scrubbing = false;
     this.seekGeneration += 1;
-    this.frames = null;
-    this.queuedSteps = 0;
-    this.targetFrame = 0;
     this.revokeObjectUrl();
+    this.frames = null;
+    this.start = 0;
+    this.status = "loading";
+    this.fileName = file.name;
+    this.fileSize = file.size;
+    this.error = null;
+    this.duration = 0;
+    this.width = 0;
+    this.height = 0;
+    this.codec = "";
+    this.frameSource = "none";
     this.objectUrl = URL.createObjectURL(file);
-    this.patch({
-      status: "loading",
-      fileName: file.name,
-      fileSize: file.size,
-      fileType: file.type,
-      error: null,
-      notice: null,
-      duration: 0,
-      currentTime: 0,
-      frameIndex: 0,
-      frameCount: 0,
-      fps: 0,
-      width: 0,
-      height: 0,
-      codec: "",
-      playing: false,
-      reverse: false,
-      scrubbing: false,
-      buffered: 0,
-      frameSource: "none"
-    });
+    this.video.pause();
     this.video.removeAttribute("src");
     this.video.load();
+    this.callbacks.onChange();
     const metadata = this.waitForMetadata();
     this.video.src = this.objectUrl;
     this.video.load();
     try {
       await metadata;
     } catch (error) {
-      if (token !== this.loadToken) return;
-      this.patch({
-        status: "error",
-        error: error instanceof Error ? error.message : "\u65E0\u6CD5\u8BFB\u53D6\u8BE5\u89C6\u9891"
-      });
-      return;
+      if (token !== this.loadToken) return false;
+      this.status = "error";
+      this.error = error instanceof Error ? error.message : "\u65E0\u6CD5\u8BFB\u53D6\u8BE5\u89C6\u9891";
+      this.callbacks.onChange();
+      return false;
     }
-    if (token !== this.loadToken || this.failed) return;
+    if (token !== this.loadToken || this.disposed) return false;
     const duration = Number.isFinite(this.video.duration) && this.video.duration > 0 ? this.video.duration : 0;
-    const table = await loadFrameTable(file, duration, DEFAULT_FPS);
-    if (token !== this.loadToken || this.failed) return;
+    const table = await loadFrameTable(file, duration, fallbackFps);
+    if (token !== this.loadToken || this.disposed) return false;
     this.frames = table;
-    this.targetFrame = 0;
-    this.patch({
-      status: "ready",
-      duration,
-      frameCount: table.totalFrames,
-      fps: table.fps,
-      width: this.video.videoWidth || table.width,
-      height: this.video.videoHeight || table.height,
-      codec: codecLabel(table.codec),
-      frameSource: table.kind,
-      frameIndex: 0,
-      currentTime: 0,
-      buffered: this.bufferedEnd()
-    });
-    await this.seekToFrame(0);
-    if (token !== this.loadToken) return;
-    if (table.kind === "estimated") {
-      this.notify("\u672A\u80FD\u8BFB\u53D6\u7CBE\u786E\u5E27\u8868\uFF0C\u5F53\u524D\u6309 30fps \u4F30\u7B97");
-    }
-    this.video.focus?.();
+    this.duration = duration;
+    this.status = "ready";
+    this.width = this.video.videoWidth || table.width;
+    this.height = this.video.videoHeight || table.height;
+    this.codec = codecLabel(table.codec);
+    this.frameSource = table.kind;
+    this.start = 0;
+    this.callbacks.onChange();
+    return true;
   }
-  closeFile() {
+  close() {
     this.loadToken += 1;
-    this.endAllHolds();
-    this.stopReverse();
-    this.pauseForward();
-    this.scrubbing = false;
     this.seekGeneration += 1;
-    this.frames = null;
-    this.queuedSteps = 0;
     this.revokeObjectUrl();
+    this.video.pause();
     this.video.removeAttribute("src");
     this.video.load();
-    this.targetFrame = 0;
-    this.patch({ ...INITIAL, muted: this.preferences.muted, volume: this.preferences.volume, rate: this.preferences.rate });
+    this.frames = null;
+    this.status = "empty";
+    this.fileName = "";
+    this.fileSize = 0;
+    this.error = null;
+    this.duration = 0;
+    this.width = 0;
+    this.height = 0;
+    this.codec = "";
+    this.frameSource = "none";
+    this.start = 0;
+    this.callbacks.onChange();
   }
-  // -- transport ------------------------------------------------------------
-  async togglePlay() {
-    if (this.snapshotValue.status !== "ready") return;
-    if (this.snapshotValue.playing) {
-      this.pauseForward();
-      return;
-    }
-    await this.play();
-  }
-  async play() {
-    if (this.snapshotValue.status !== "ready") return;
-    this.endAllHolds();
-    this.stopReverse();
-    if (this.video.ended || this.video.currentTime >= this.snapshotValue.duration - 1e-3) {
-      await this.seekToFrame(0);
-    }
-    this.video.playbackRate = this.snapshotValue.rate;
-    try {
-      await this.video.play();
-    } catch (error) {
-      this.patch({
-        playing: false,
-        error: error instanceof Error ? `\u65E0\u6CD5\u5F00\u59CB\u64AD\u653E\uFF1A${error.message}` : "\u65E0\u6CD5\u5F00\u59CB\u64AD\u653E"
-      });
-    }
-  }
-  pauseForward() {
-    if (!this.video.paused) this.video.pause();
-    if (this.snapshotValue.playing) this.patch({ playing: false });
-    if (this.frames !== null && !this.stepping && !this.scrubbing && !this.snapshotValue.reverse) {
-      const index = frameIndexAt(this.frames.times, this.video.currentTime);
-      this.targetFrame = index;
-      if (index !== this.snapshotValue.frameIndex) this.patch({ frameIndex: index });
-    }
-  }
-  /** Start or stop continuous reverse playback. */
-  toggleReverse() {
-    if (this.snapshotValue.status !== "ready") return;
-    if (this.snapshotValue.reverse) {
-      this.stopReverse();
-      this.notify("\u5DF2\u505C\u6B62\u5012\u653E");
-      return;
-    }
-    this.endAllHolds();
-    this.pauseForward();
-    this.patch({ reverse: true, playing: false, error: null });
-    void this.runReverse();
-  }
-  stopReverse() {
-    if (!this.snapshotValue.reverse) return;
-    this.reverseToken += 1;
-    this.patch({ reverse: false });
-  }
-  async runReverse() {
-    const token = ++this.reverseToken;
-    while (!this.disposed && this.snapshotValue.reverse && token === this.reverseToken) {
-      const next = this.targetFrame - 1;
-      if (next < 0) {
-        this.patch({ reverse: false });
-        this.notify("\u5DF2\u5230\u89C6\u9891\u5F00\u5934");
-        return;
-      }
-      const started = performance.now();
-      await this.seekToFrame(next);
-      if (!this.snapshotValue.reverse || token !== this.reverseToken) return;
-      const frameDuration = this.frames?.durations[next] ?? 1 / Math.max(1, this.snapshotValue.fps);
-      const interval = Math.max(8, frameDuration * 1e3 / this.snapshotValue.rate);
-      const elapsed = performance.now() - started;
-      if (elapsed < interval) await delay(interval - elapsed);
-    }
-  }
-  // -- frame stepping -------------------------------------------------------
-  /** Step by `delta` frames, coalescing rapid repeated calls. */
-  step(delta, fromHold = false) {
-    if (this.snapshotValue.status !== "ready" || this.frames === null) return Promise.resolve();
-    this.stopReverse();
-    this.pauseForward();
-    if (!fromHold) this.endAllHolds();
-    const next = clamp(this.targetFrame + delta, 0, this.frames.totalFrames - 1);
-    if (next === this.targetFrame) return Promise.resolve();
-    this.queuedSteps += next - this.targetFrame;
-    if (this.stepping) return this.stepPromise;
-    this.stepping = true;
-    this.stepPromise = (async () => {
-      try {
-        while (this.queuedSteps !== 0) {
-          const direction = this.queuedSteps > 0 ? 1 : -1;
-          this.queuedSteps -= direction;
-          const target = this.targetFrame + direction;
-          await this.seekToFrame(target);
-        }
-      } finally {
-        this.stepping = false;
-        this.queuedSteps = 0;
-      }
-    })();
-    return this.stepPromise;
-  }
-  /** Begin a held arrow key: one immediate step, then a steady repeat. */
-  beginHold(direction, stride = 1) {
-    if (this.snapshotValue.status !== "ready") return;
-    this.holdDirection = direction;
-    this.holdStride = stride;
-    this.clearHoldTimer();
-    void this.step(direction * stride, true);
-    this.holdTimer = window.setTimeout(() => this.holdTick(direction), HOLD_DELAY_MS);
-  }
-  endHold(direction) {
-    if (this.holdDirection !== direction) return;
-    this.holdDirection = 0;
-    this.clearHoldTimer();
-  }
-  endAllHolds() {
-    this.holdDirection = 0;
-    this.clearHoldTimer();
-  }
-  holdTick(direction) {
-    if (this.holdDirection !== direction) return;
-    const started = performance.now();
-    void this.step(direction * this.holdStride, true).then(() => {
-      if (this.holdDirection !== direction) return;
-      const elapsed = performance.now() - started;
-      const wait = Math.max(0, HOLD_INTERVAL_MS - elapsed);
-      this.holdTimer = window.setTimeout(() => this.holdTick(direction), wait);
-    });
-  }
-  clearHoldTimer() {
-    if (this.holdTimer !== null) window.clearTimeout(this.holdTimer);
-    this.holdTimer = null;
-  }
-  firstFrame() {
-    this.jumpToFrame(0);
-  }
-  lastFrame() {
-    this.jumpToFrame((this.frames?.totalFrames ?? 1) - 1);
-  }
-  /** Jump straight to a frame instead of walking there one frame at a time. */
-  jumpToFrame(index) {
-    if (this.snapshotValue.status !== "ready" || this.frames === null) return;
-    this.endAllHolds();
-    this.stopReverse();
-    this.pauseForward();
-    this.queuedSteps = 0;
-    void this.seekToFrame(index);
-  }
-  // -- seeking / scrubbing --------------------------------------------------
-  scrubStart() {
-    if (this.snapshotValue.status !== "ready") return;
-    this.scrubWasPlaying = this.snapshotValue.playing;
-    this.scrubWasReverse = this.snapshotValue.reverse;
-    this.endAllHolds();
-    if (this.scrubWasReverse) this.reverseToken += 1;
-    this.snapshotValue = {
-      ...this.snapshotValue,
-      playing: false,
-      reverse: false
+  snapshot() {
+    const currentTime = this.status === "ready" ? this.video.currentTime : 0;
+    const frameIndex = this.frames === null ? 0 : frameIndexAt(this.frames.times, currentTime);
+    return {
+      id: this.id,
+      status: this.status,
+      fileName: this.fileName,
+      fileSize: this.fileSize,
+      error: this.error,
+      duration: this.duration,
+      currentTime,
+      frameIndex,
+      frameCount: this.frames?.totalFrames ?? 0,
+      fps: this.frames?.fps ?? 0,
+      width: this.width,
+      height: this.height,
+      codec: this.codec,
+      frameSource: this.frameSource,
+      start: this.start,
+      loaded: this.status === "ready"
     };
-    if (!this.video.paused) this.video.pause();
-    this.scrubbing = true;
   }
-  scrubTo(seconds) {
-    if (this.snapshotValue.status !== "ready") return;
-    const time = clamp(seconds, 0, Math.max(0, this.snapshotValue.duration - 5e-4));
-    this.seekGeneration += 1;
-    this.video.currentTime = time;
-    const index = frameIndexAt(this.frames?.times ?? EMPTY_TIMES, time);
-    this.targetFrame = index;
-    this.patch({
-      currentTime: time,
-      frameIndex: index,
-      buffered: this.bufferedEnd()
-    });
+  frameIndexAt(time) {
+    if (this.frames === null) return 0;
+    return frameIndexAt(
+      this.frames.times,
+      clamp(time + TIME_EPSILON, 0, Math.max(0, this.duration))
+    );
   }
-  async scrubEnd(seconds) {
-    if (this.snapshotValue.status !== "ready") return;
-    this.scrubTo(seconds);
-    this.scrubbing = false;
-    this.patch({ scrubbing: false });
-    const index = frameIndexAt(this.frames?.times ?? EMPTY_TIMES, seconds);
-    await this.seekToFrame(index);
-    if (this.scrubWasReverse) {
-      this.scrubWasReverse = false;
-      this.toggleReverse();
-    } else if (this.scrubWasPlaying) {
-      this.scrubWasPlaying = false;
-      await this.play();
-    } else {
-      this.scrubWasPlaying = false;
-    }
+  frameStart(index) {
+    if (this.frames === null) return 0;
+    return this.frames.times[clamp(Math.round(index), 0, this.frames.totalFrames - 1)] ?? 0;
   }
-  /** Seek to a frame by index; resolves once the frame is presented. */
-  seekToFrame(index) {
-    const frames = this.frames;
-    if (frames === null || this.snapshotValue.status !== "ready") return Promise.resolve();
-    const clamped = clamp(Math.round(index), 0, frames.totalFrames - 1);
-    this.targetFrame = clamped;
-    const target = this.frameMidpoint(clamped);
+  frameDuration(index) {
+    if (this.frames === null) return 1 / Math.max(1, this.fps);
+    return this.frames.durations[clamp(Math.round(index), 0, this.frames.totalFrames - 1)] ?? 1 / Math.max(1, this.fps);
+  }
+  frameMidpoint(index) {
+    if (this.frames === null) return this.video.currentTime;
+    const safe = clamp(Math.round(index), 0, this.frames.totalFrames - 1);
+    const start = this.frames.times[safe] ?? 0;
+    const declared = this.frames.durations[safe] ?? 1 / Math.max(1, this.fps);
+    const next = safe + 1 < this.frames.times.length ? this.frames.times[safe + 1] ?? start + declared : start + declared;
+    const span = Math.max(5e-4, next - start);
+    const midpoint = start + span / 2;
+    const limit = Math.max(0, this.duration - 5e-4);
+    return clamp(midpoint, 0, limit > 0 ? limit : midpoint);
+  }
+  /** Snap a requested in-point to the start of the frame that covers it. */
+  snapStart(seconds) {
+    if (this.frames === null) return clamp(seconds, 0, Math.max(0, this.duration - 1e-3));
+    const index = this.frameIndexAt(seconds);
+    return clamp(this.frameStart(index), 0, Math.max(0, this.duration - 1e-3));
+  }
+  setStart(seconds) {
+    this.start = clamp(seconds, 0, Math.max(0, this.duration - 1e-3));
+  }
+  async seekToFrame(index) {
+    if (this.frames === null || this.status !== "ready") return;
+    const safe = clamp(Math.round(index), 0, this.frames.totalFrames - 1);
+    const target = this.frameMidpoint(safe);
     const generation = ++this.seekGeneration;
     const finish = () => {
-      if (generation !== this.seekGeneration) return;
-      this.targetFrame = clamped;
-      const current = this.video.currentTime;
-      const shown = frameIndexAt(frames.times, current);
-      const indexNow = shown === clamped ? shown : clamped;
-      this.patch({
-        frameIndex: indexNow,
-        currentTime: current,
-        buffered: this.bufferedEnd()
-      });
+      if (generation !== this.seekGeneration || this.disposed) return;
+      this.callbacks.onChange();
     };
     if (Math.abs(this.video.currentTime - target) <= 5e-4) {
       return this.afterPaint().then(finish);
     }
     this.video.currentTime = target;
-    return this.waitForSeek(generation).then(() => {
-      if (generation !== this.seekGeneration) return;
-      return this.afterPaint().then(finish);
-    });
+    await this.waitForSeek(generation);
+    if (generation !== this.seekGeneration || this.disposed) return;
+    await this.afterPaint();
+    finish();
   }
-  frameMidpoint(index) {
-    const frames = this.frames;
-    if (frames === null) return 0;
-    const start = frames.times[index] ?? 0;
-    const declaredDuration = frames.durations[index] ?? 1 / Math.max(1, this.snapshotValue.fps);
-    const next = index + 1 < frames.times.length ? frames.times[index + 1] : start + declaredDuration;
-    const duration = Math.max(5e-4, next - start);
-    const midpoint = start + duration / 2;
-    const limit = Math.max(0, this.snapshotValue.duration - 5e-4);
-    return clamp(midpoint, 0, limit > 0 ? limit : midpoint);
+  async seekToTime(seconds) {
+    if (this.status !== "ready") return;
+    if (this.frames === null) {
+      const target = clamp(seconds, 0, Math.max(0, this.duration - 5e-4));
+      const generation = ++this.seekGeneration;
+      this.video.currentTime = target;
+      await this.waitForSeek(generation);
+      if (generation === this.seekGeneration && !this.disposed) this.callbacks.onChange();
+      return;
+    }
+    await this.seekToFrame(this.frameIndexAt(seconds));
   }
-  waitForSeek(generation) {
-    return new Promise((resolve) => {
-      let settled = false;
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        this.video.removeEventListener("seeked", onSeeked);
-        this.video.removeEventListener("error", finish);
-        window.clearTimeout(timer);
-        resolve();
-      };
-      const onSeeked = () => {
-        finish();
-      };
-      const timer = window.setTimeout(finish, 1200);
-      this.video.addEventListener("seeked", onSeeked);
-      this.video.addEventListener("error", finish);
-    });
+  setEstimatedFps(fps) {
+    if (this.frameSource !== "estimated" || !(this.duration > 0)) return false;
+    this.frames = buildEstimatedFrameTable(this.duration, fps);
+    this.frameSource = "estimated";
+    this.start = clamp(this.start, 0, Math.max(0, this.duration - 1e-3));
+    this.callbacks.onChange();
+    return true;
   }
-  afterPaint() {
-    return new Promise((resolve) => {
-      let settled = false;
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(timer);
-        resolve();
-      };
-      const timer = window.setTimeout(finish, 120);
-      if (typeof this.video.requestVideoFrameCallback === "function") {
-        const handle = this.video.requestVideoFrameCallback(() => finish());
-        window.setTimeout(() => {
-          if (settled && typeof this.video.cancelVideoFrameCallback === "function") {
-            this.video.cancelVideoFrameCallback(handle);
-          }
-        }, 140);
-      } else {
-        window.requestAnimationFrame(() => window.requestAnimationFrame(finish));
-      }
-    });
+  async play() {
+    if (this.status !== "ready") return;
+    await this.video.play();
   }
-  // -- preferences / audio --------------------------------------------------
-  toggleMute() {
-    this.setMuted(!this.snapshotValue.muted);
+  pause() {
+    if (!this.video.paused) this.video.pause();
+  }
+  setRate(rate) {
+    this.video.playbackRate = rate;
   }
   setMuted(muted) {
     this.video.muted = muted;
-    this.preferences.muted = muted;
-    savePreferences(this.preferences);
-    this.patch({ muted });
   }
   setVolume(volume) {
-    const next = clamp(volume, 0, 1);
-    this.video.volume = next;
-    if (next > 0 && this.video.muted) this.video.muted = false;
-    this.preferences.volume = next;
-    this.preferences.muted = this.video.muted;
-    savePreferences(this.preferences);
-    this.patch({ volume: next, muted: this.video.muted });
+    this.video.volume = clamp(volume, 0, 1);
   }
-  setRate(rate) {
-    const next = RATES.includes(rate) ? rate : 1;
-    this.video.playbackRate = next;
-    this.preferences.rate = next;
-    savePreferences(this.preferences);
-    this.patch({ rate: next });
-  }
-  setEstimatedFps(fps) {
-    if (this.snapshotValue.frameSource !== "estimated") return;
-    const duration = this.snapshotValue.duration;
-    if (!(duration > 0)) return;
-    const table = buildEstimatedFrameTable(duration, fps);
-    this.frames = table;
-    const index = frameIndexAt(table.times, this.video.currentTime);
-    this.targetFrame = index;
-    this.patch({
-      frameCount: table.totalFrames,
-      fps: table.fps,
-      frameIndex: index
-    });
-  }
-  // -- notification ---------------------------------------------------------
-  notify(text) {
-    if (this.noticeTimer !== null) window.clearTimeout(this.noticeTimer);
-    this.patch({ notice: text });
-    this.noticeTimer = window.setTimeout(() => {
-      this.noticeTimer = null;
-      this.patch({ notice: null });
-    }, 2400);
-  }
-  // -- video events ---------------------------------------------------------
-  bindVideoEvents() {
+  bindEvents() {
     this.video.addEventListener("loadedmetadata", this.onLoadedMetadata);
     this.video.addEventListener("durationchange", this.onDurationChange);
     this.video.addEventListener("timeupdate", this.onTimeUpdate);
-    this.video.addEventListener("progress", this.onProgress);
     this.video.addEventListener("play", this.onPlay);
     this.video.addEventListener("pause", this.onPause);
     this.video.addEventListener("ended", this.onEnded);
     this.video.addEventListener("volumechange", this.onVolumeChange);
-    this.video.addEventListener("error", this.onVideoError);
+    this.video.addEventListener("error", this.onError);
   }
-  bindFrameCallback() {
-    if (typeof this.video.requestVideoFrameCallback !== "function") return;
-    const onFrame = (_now, metadata) => {
-      if (this.disposed) return;
-      this.frameCallbackId = this.video.requestVideoFrameCallback(onFrame);
-      if (this.snapshotValue.status !== "ready") return;
-      if (this.stepping || this.scrubbing || this.snapshotValue.reverse) return;
-      const index = frameIndexAt(this.frames?.times ?? EMPTY_TIMES, metadata.mediaTime);
-      const now = performance.now();
-      const changed = index !== this.snapshotValue.frameIndex;
-      if (!changed && now - this.lastTimeEmit < 120) return;
-      this.lastTimeEmit = now;
-      this.patch({
-        frameIndex: index,
-        currentTime: metadata.mediaTime,
-        buffered: this.bufferedEnd()
-      });
-    };
-    this.frameCallbackId = this.video.requestVideoFrameCallback(onFrame);
-  }
-  // -- helpers --------------------------------------------------------------
   waitForMetadata() {
     if (this.video.readyState >= 1) return Promise.resolve();
     return new Promise((resolve, reject) => {
@@ -1093,24 +774,638 @@ var PlayerEngine = class {
       this.video.addEventListener("error", onError);
     });
   }
-  bufferedEnd() {
-    try {
-      const ranges = this.video.buffered;
-      const current = this.video.currentTime;
-      let best = 0;
-      for (let i = 0; i < ranges.length; i += 1) {
-        if (ranges.start(i) <= current + 0.1 && ranges.end(i) >= current) return ranges.end(i);
-        best = Math.max(best, ranges.end(i));
+  waitForSeek(generation) {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        this.video.removeEventListener("seeked", onSeeked);
+        this.video.removeEventListener("error", finish);
+        window.clearTimeout(timer);
+        resolve();
+      };
+      const onSeeked = () => {
+        if (generation !== this.seekGeneration) {
+          finish();
+          return;
+        }
+        finish();
+      };
+      const timer = window.setTimeout(finish, 1200);
+      this.video.addEventListener("seeked", onSeeked);
+      this.video.addEventListener("error", finish);
+    });
+  }
+  afterPaint() {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        resolve();
+      };
+      const timer = window.setTimeout(finish, 120);
+      if (typeof this.video.requestVideoFrameCallback === "function") {
+        const handle = this.video.requestVideoFrameCallback(() => finish());
+        window.setTimeout(() => {
+          if (settled && typeof this.video.cancelVideoFrameCallback === "function") {
+            this.video.cancelVideoFrameCallback(handle);
+          }
+        }, 140);
+      } else {
+        window.requestAnimationFrame(() => window.requestAnimationFrame(finish));
       }
-      return best;
-    } catch {
-      return 0;
-    }
+    });
   }
   revokeObjectUrl() {
     if (this.objectUrl === null) return;
     URL.revokeObjectURL(this.objectUrl);
     this.objectUrl = null;
+  }
+};
+var PlayerEngine = class {
+  constructor() {
+    __publicField(this, "left");
+    __publicField(this, "right");
+    __publicField(this, "snapshotValue");
+    __publicField(this, "listeners", /* @__PURE__ */ new Set());
+    __publicField(this, "layout", "single");
+    __publicField(this, "timelineValue", 0);
+    __publicField(this, "playing", false);
+    __publicField(this, "reverse", false);
+    __publicField(this, "reverseToken", 0);
+    __publicField(this, "queuedSteps", 0);
+    __publicField(this, "stepping", false);
+    __publicField(this, "stepPromise", Promise.resolve());
+    __publicField(this, "holdDirection", 0);
+    __publicField(this, "holdStride", 1);
+    __publicField(this, "holdPane", null);
+    __publicField(this, "holdTimer", null);
+    __publicField(this, "scrubWasPlaying", false);
+    __publicField(this, "scrubWasReverse", false);
+    __publicField(this, "noticeTimer", null);
+    __publicField(this, "syncRaf", 0);
+    __publicField(this, "disposed", false);
+    __publicField(this, "preferences");
+    // -- React store interface ------------------------------------------------
+    __publicField(this, "subscribe", (listener) => {
+      this.listeners.add(listener);
+      return () => {
+        this.listeners.delete(listener);
+      };
+    });
+    __publicField(this, "getSnapshot", () => this.snapshotValue);
+    this.preferences = readPreferences();
+    const callbacks = {
+      onChange: () => this.handlePaneChange(),
+      onEnded: () => this.handlePaneEnded(),
+      onError: () => this.handlePaneError()
+    };
+    this.left = new Pane("left", callbacks, this.preferences);
+    this.right = new Pane("right", callbacks, this.preferences);
+    this.snapshotValue = {
+      layout: "single",
+      left: this.left.snapshot(),
+      right: this.right.snapshot(),
+      master: null,
+      timelinePosition: 0,
+      timelineDuration: 0,
+      playing: false,
+      reverse: false,
+      muted: this.preferences.muted,
+      volume: this.preferences.volume,
+      rate: this.preferences.rate,
+      notice: null
+    };
+  }
+  // -- page lifecycle -------------------------------------------------------
+  /** Pause everything and detach both video elements without notifying React. */
+  detach() {
+    this.endAllHolds();
+    this.haltSilently();
+    this.snapshotValue = {
+      ...this.snapshotValue,
+      playing: false,
+      reverse: false
+    };
+    this.left.detach();
+    this.right.detach();
+  }
+  dispose() {
+    this.disposed = true;
+    this.listeners.clear();
+    this.haltSilently();
+    this.endAllHolds();
+    if (this.noticeTimer !== null) window.clearTimeout(this.noticeTimer);
+    this.noticeTimer = null;
+    this.left.dispose();
+    this.right.dispose();
+  }
+  // -- layout / files -------------------------------------------------------
+  setLayout(layout) {
+    if (this.layout === layout || this.disposed) return;
+    this.haltSilently();
+    this.endAllHolds();
+    this.layout = layout;
+    this.timelineValue = 0;
+    this.refresh();
+    void this.seekTimeline(0);
+  }
+  async openPane(paneId, file) {
+    if (this.disposed) return;
+    if (!looksLikeVideo(file)) {
+      this.notify("\u8BF7\u9009\u62E9\u89C6\u9891\u6587\u4EF6\uFF08\u63A8\u8350 MP4 / H.264\uFF09");
+      return;
+    }
+    if (file.size === 0) {
+      this.notify("\u8FD9\u4E2A\u6587\u4EF6\u662F\u7A7A\u7684");
+      return;
+    }
+    if (this.layout === "single" && paneId === "right") {
+      this.layout = "dual";
+      this.refresh();
+    }
+    this.haltSilently();
+    this.endAllHolds();
+    this.timelineValue = 0;
+    const pane = this.pane(paneId);
+    const ok = await pane.openFile(file, DEFAULT_FPS);
+    if (this.disposed) return;
+    if (ok && pane.frameSource === "estimated") {
+      this.notify(`${paneId === "left" ? "\u5DE6" : "\u53F3"}\u753B\u9762\u672A\u80FD\u8BFB\u53D6\u7CBE\u786E\u5E27\u8868\uFF0C\u5F53\u524D\u6309 30fps \u4F30\u7B97`);
+    }
+    this.timelineValue = 0;
+    await this.seekTimeline(0);
+    if (this.disposed) return;
+    this.refresh();
+    if (this.activeLoadedPanes().length > 0 && this.computeTimelineDuration() <= 0) {
+      this.notify("\u540C\u6B65\u533A\u95F4\u4E3A 0\uFF0C\u8BF7\u8C03\u6574\u8D77\u59CB\u4F4D\u7F6E");
+    }
+  }
+  closePane(paneId) {
+    if (this.disposed) return;
+    this.haltSilently();
+    this.endAllHolds();
+    this.timelineValue = 0;
+    this.pane(paneId).close();
+    this.timelineValue = clamp(this.timelineValue, 0, this.computeTimelineDuration());
+    this.refresh();
+    void this.seekTimeline(this.timelineValue);
+  }
+  async setPaneStart(paneId, seconds) {
+    const pane = this.pane(paneId);
+    if (this.disposed || !pane.loaded) return;
+    this.haltSilently();
+    this.endAllHolds();
+    pane.setStart(pane.snapStart(seconds));
+    this.timelineValue = 0;
+    await this.seekTimeline(0);
+    if (this.disposed) return;
+    this.refresh();
+    if (this.activeLoadedPanes().length > 0 && this.computeTimelineDuration() <= 0) {
+      this.notify("\u540C\u6B65\u533A\u95F4\u4E3A 0\uFF0C\u8BF7\u8C03\u6574\u8D77\u59CB\u4F4D\u7F6E");
+    }
+  }
+  /** Seek one pane individually (per-pane progress bar or selected-pane step). */
+  previewPane(paneId, seconds) {
+    const pane = this.pane(paneId);
+    if (this.disposed || !pane.loaded) return;
+    if (this.playing || this.reverse) this.haltSilently();
+    void pane.seekToTime(seconds);
+  }
+  /** Set a pane's start to the frame it is currently showing. */
+  async setPaneStartAtCurrent(paneId) {
+    const pane = this.pane(paneId);
+    if (this.disposed || !pane.loaded) return;
+    await this.setPaneStart(paneId, pane.currentTime);
+  }
+  /** Step a single pane without moving the shared timeline or the other pane. */
+  async stepPane(paneId, delta) {
+    const pane = this.pane(paneId);
+    if (this.disposed || !pane.loaded || pane.frames === null) return;
+    this.haltSilently();
+    const current = pane.frameIndexAt(pane.currentTime);
+    const target = clamp(current + delta, 0, pane.frames.totalFrames - 1);
+    if (target === current) return;
+    await pane.seekToTime(pane.frameStart(target));
+  }
+  setEstimatedFps(paneId, fps) {
+    const pane = this.pane(paneId);
+    if (this.disposed || !pane.setEstimatedFps(fps)) return;
+    this.timelineValue = clamp(this.timelineValue, 0, this.computeTimelineDuration());
+    this.refresh();
+    void this.seekTimeline(this.timelineValue);
+  }
+  // -- transport ------------------------------------------------------------
+  async togglePlay() {
+    if (this.playing) {
+      this.pause();
+      return;
+    }
+    await this.play();
+  }
+  async play() {
+    const panes = this.activeLoadedPanes();
+    if (this.disposed || panes.length === 0) return;
+    this.endAllHolds();
+    this.haltSilently();
+    const duration = this.computeTimelineDuration();
+    if (!(duration > 0)) {
+      this.notify("\u540C\u6B65\u533A\u95F4\u4E3A 0\uFF0C\u65E0\u6CD5\u64AD\u653E");
+      return;
+    }
+    if (this.timelineValue >= duration - 1e-3) this.timelineValue = 0;
+    await this.seekTimeline(this.timelineValue);
+    if (this.disposed) return;
+    for (const pane of panes) pane.setRate(this.snapshotValue.rate);
+    this.playing = true;
+    this.reverse = false;
+    this.refresh();
+    try {
+      await Promise.all(panes.map((pane) => pane.play()));
+    } catch (error) {
+      this.haltSilently();
+      this.refresh();
+      this.notify(error instanceof Error ? `\u65E0\u6CD5\u5F00\u59CB\u64AD\u653E\uFF1A${error.message}` : "\u65E0\u6CD5\u5F00\u59CB\u64AD\u653E");
+      return;
+    }
+    if (!this.playing || this.disposed) return;
+    this.startSyncLoop();
+  }
+  pause() {
+    if (this.disposed) return;
+    this.haltSilently();
+    const master = this.masterPane();
+    this.timelineValue = master === null ? 0 : this.framePosition(master);
+    this.refresh();
+  }
+  toggleReverse() {
+    if (this.disposed) return;
+    if (this.reverse) {
+      this.stopReverse();
+      this.notify("\u5DF2\u505C\u6B62\u5012\u653E");
+      return;
+    }
+    const panes = this.activeLoadedPanes();
+    if (panes.length === 0) return;
+    this.haltSilently();
+    this.endAllHolds();
+    this.timelineValue = clamp(this.timelineValue, 0, this.computeTimelineDuration());
+    this.reverse = true;
+    this.reverseToken += 1;
+    this.refresh();
+    void this.runReverse();
+  }
+  /** The master pane's current frame start, expressed on the shared timeline. */
+  framePosition(pane) {
+    if (pane.frames === null) return 0;
+    const index = pane.frameIndexAt(pane.currentTime);
+    return clamp(pane.frameStart(index) - pane.start, 0, this.computeTimelineDuration());
+  }
+  // -- frame stepping -------------------------------------------------------
+  /** Step the shared timeline by frames of the master pane; both panes follow. */
+  step(delta, fromHold = false) {
+    const panes = this.activeLoadedPanes();
+    const master = panes[0];
+    if (this.disposed || master === void 0 || master.frames === null) return Promise.resolve();
+    this.haltSilently();
+    if (!fromHold) this.endAllHolds();
+    const duration = this.computeTimelineDuration();
+    const base = clamp(this.timelineValue, 0, duration);
+    const current = master.frameIndexAt(master.start + base);
+    const target = clamp(current + delta, 0, master.frames.totalFrames - 1);
+    if (target === current) return Promise.resolve();
+    this.queuedSteps += target - current;
+    if (this.stepping) return this.stepPromise;
+    this.stepping = true;
+    this.stepPromise = (async () => {
+      let position = base;
+      try {
+        while (this.queuedSteps !== 0) {
+          const direction = this.queuedSteps > 0 ? 1 : -1;
+          this.queuedSteps -= direction;
+          const active = this.activeLoadedPanes();
+          const clock = active[0];
+          if (clock === void 0 || clock.frames === null) break;
+          const index = clock.frameIndexAt(clock.start + position);
+          const next = clamp(index + direction, 0, clock.frames.totalFrames - 1);
+          if (next === index) continue;
+          const nextPosition = clamp(
+            clock.frameStart(next) - clock.start,
+            0,
+            this.computeTimelineDuration()
+          );
+          await this.seekTimeline(nextPosition);
+          if (this.disposed) return;
+          this.timelineValue = nextPosition;
+          position = nextPosition;
+          this.refresh();
+        }
+      } finally {
+        this.stepping = false;
+        this.queuedSteps = 0;
+      }
+    })();
+    return this.stepPromise;
+  }
+  beginHold(direction, stride = 1, paneId = null) {
+    if (this.disposed || this.activeLoadedPanes().length === 0) return;
+    const target = paneId !== null && this.pane(paneId).loaded ? paneId : null;
+    this.holdPane = target;
+    this.holdDirection = direction;
+    this.holdStride = stride;
+    this.clearHoldTimer();
+    if (target !== null) void this.stepPane(target, direction * stride);
+    else void this.step(direction * stride, true);
+    this.holdTimer = window.setTimeout(() => this.holdTick(direction), HOLD_DELAY_MS);
+  }
+  endHold(direction) {
+    if (this.holdDirection !== direction) return;
+    this.holdDirection = 0;
+    this.holdPane = null;
+    this.clearHoldTimer();
+  }
+  endAllHolds() {
+    this.holdDirection = 0;
+    this.holdPane = null;
+    this.clearHoldTimer();
+  }
+  firstFrame() {
+    this.jumpToFrame(0);
+  }
+  lastFrame() {
+    const master = this.masterPane();
+    this.jumpToFrame((master?.frames?.totalFrames ?? 1) - 1);
+  }
+  jumpToFrame(index) {
+    const master = this.masterPane();
+    if (this.disposed || master === null || master.frames === null) return;
+    this.haltSilently();
+    this.endAllHolds();
+    const target = clamp(Math.round(index), 0, master.frames.totalFrames - 1);
+    const position = clamp(
+      master.frameStart(target) - master.start,
+      0,
+      this.computeTimelineDuration()
+    );
+    this.timelineValue = position;
+    this.refresh();
+    void this.seekTimeline(position);
+  }
+  // -- scrubbing ------------------------------------------------------------
+  scrubStart() {
+    if (this.disposed) return;
+    this.endAllHolds();
+    this.scrubWasPlaying = this.playing;
+    this.scrubWasReverse = this.reverse;
+    this.haltSilently();
+  }
+  scrubTo(seconds) {
+    if (this.disposed) return;
+    const duration = this.computeTimelineDuration();
+    this.timelineValue = clamp(seconds, 0, duration);
+    for (const pane of this.activeLoadedPanes()) {
+      void pane.seekToTime(pane.start + this.timelineValue);
+    }
+    this.refresh();
+  }
+  async scrubEnd(seconds) {
+    if (this.disposed) return;
+    const master = this.masterPane();
+    const duration = this.computeTimelineDuration();
+    let position = clamp(seconds, 0, duration);
+    if (master !== null && master.frames !== null) {
+      const index = master.frameIndexAt(master.start + position);
+      position = clamp(master.frameStart(index) - master.start, 0, duration);
+    }
+    this.timelineValue = position;
+    await this.seekTimeline(position);
+    if (this.disposed) return;
+    this.refresh();
+    const resumeReverse = this.scrubWasReverse;
+    const resumePlaying = this.scrubWasPlaying;
+    this.scrubWasReverse = false;
+    this.scrubWasPlaying = false;
+    if (resumeReverse) {
+      this.toggleReverse();
+    } else if (resumePlaying) {
+      await this.play();
+    }
+  }
+  // -- audio / rate ---------------------------------------------------------
+  toggleMute() {
+    this.setMuted(!this.snapshotValue.muted);
+  }
+  setMuted(muted) {
+    this.left.setMuted(muted);
+    this.right.setMuted(muted);
+    this.preferences.muted = muted;
+    savePreferences(this.preferences);
+    this.patch({ muted });
+  }
+  setVolume(volume) {
+    const next = clamp(volume, 0, 1);
+    const muted = next > 0 ? false : this.snapshotValue.muted;
+    this.left.setVolume(next);
+    this.right.setVolume(next);
+    this.left.setMuted(muted);
+    this.right.setMuted(muted);
+    this.preferences.volume = next;
+    this.preferences.muted = muted;
+    savePreferences(this.preferences);
+    this.patch({ volume: next, muted });
+  }
+  setRate(rate) {
+    const next = RATES.includes(rate) ? rate : 1;
+    this.left.setRate(next);
+    this.right.setRate(next);
+    this.preferences.rate = next;
+    savePreferences(this.preferences);
+    this.patch({ rate: next });
+  }
+  // -- engine internals -----------------------------------------------------
+  pane(id) {
+    return id === "left" ? this.left : this.right;
+  }
+  activeLoadedPanes() {
+    if (this.layout === "single") return this.left.loaded ? [this.left] : [];
+    return [this.left, this.right].filter((pane) => pane.loaded);
+  }
+  masterPane() {
+    return this.activeLoadedPanes()[0] ?? null;
+  }
+  computeTimelineDuration() {
+    const panes = this.activeLoadedPanes();
+    if (panes.length === 0) return 0;
+    return Math.max(0, Math.min(...panes.map((pane) => pane.duration - pane.start)));
+  }
+  async seekTimeline(position) {
+    const panes = this.activeLoadedPanes();
+    const clamped = clamp(position, 0, this.computeTimelineDuration());
+    await Promise.all(panes.map((pane) => pane.seekToTime(pane.start + clamped)));
+  }
+  refresh() {
+    if (this.disposed) return;
+    const panes = this.activeLoadedPanes();
+    const duration = this.computeTimelineDuration();
+    let position = this.timelineValue;
+    if (this.playing && panes.length > 0) {
+      const master = panes[0];
+      position = master.currentTime - master.start;
+    }
+    position = clamp(position, 0, duration);
+    this.timelineValue = position;
+    this.snapshotValue = {
+      ...this.snapshotValue,
+      layout: this.layout,
+      left: this.left.snapshot(),
+      right: this.right.snapshot(),
+      master: panes[0]?.id ?? null,
+      timelinePosition: position,
+      timelineDuration: duration,
+      playing: this.playing,
+      reverse: this.reverse
+    };
+    for (const listener of this.listeners) listener();
+  }
+  patch(next) {
+    this.snapshotValue = { ...this.snapshotValue, ...next };
+    for (const listener of this.listeners) listener();
+  }
+  notify(text) {
+    if (this.noticeTimer !== null) window.clearTimeout(this.noticeTimer);
+    this.patch({ notice: text });
+    this.noticeTimer = window.setTimeout(() => {
+      this.noticeTimer = null;
+      this.patch({ notice: null });
+    }, 2400);
+  }
+  haltSilently() {
+    this.playing = false;
+    this.reverse = false;
+    this.reverseToken += 1;
+    this.cancelSyncLoop();
+    this.left.pause();
+    this.right.pause();
+  }
+  stopReverse() {
+    if (!this.reverse) return;
+    this.reverse = false;
+    this.reverseToken += 1;
+    this.refresh();
+  }
+  async runReverse() {
+    const token = ++this.reverseToken;
+    while (!this.disposed && this.reverse && token === this.reverseToken) {
+      const panes = this.activeLoadedPanes();
+      const master = panes[0];
+      if (master === void 0 || master.frames === null) break;
+      const duration = this.computeTimelineDuration();
+      const current = clamp(this.timelineValue, 0, duration);
+      if (current <= 5e-4) {
+        this.reverse = false;
+        this.timelineValue = 0;
+        this.refresh();
+        this.notify("\u5DF2\u5230\u89C6\u9891\u5F00\u5934");
+        return;
+      }
+      const index = master.frameIndexAt(master.start + current);
+      if (index <= 0) {
+        this.reverse = false;
+        this.timelineValue = 0;
+        await this.seekTimeline(0);
+        this.refresh();
+        this.notify("\u5DF2\u5230\u89C6\u9891\u5F00\u5934");
+        return;
+      }
+      const previous = index - 1;
+      const target = clamp(master.frameStart(previous) - master.start, 0, duration);
+      if (target >= current - 1e-4) {
+        this.stopReverse();
+        return;
+      }
+      const started = performance.now();
+      await this.seekTimeline(target);
+      if (!this.reverse || token !== this.reverseToken || this.disposed) return;
+      this.timelineValue = target;
+      this.refresh();
+      const interval = Math.max(8, master.frameDuration(previous) * 1e3 / this.snapshotValue.rate);
+      const elapsed = performance.now() - started;
+      if (elapsed < interval) await delay(interval - elapsed);
+    }
+  }
+  startSyncLoop() {
+    this.cancelSyncLoop();
+    const tick = () => {
+      if (!this.playing || this.disposed) return;
+      const panes = this.activeLoadedPanes();
+      const master = panes[0];
+      if (master === void 0) {
+        this.haltSilently();
+        this.refresh();
+        return;
+      }
+      const duration = this.computeTimelineDuration();
+      const position = clamp(master.currentTime - master.start, 0, duration);
+      this.timelineValue = position;
+      for (let index = 1; index < panes.length; index += 1) {
+        const pane = panes[index];
+        const expected = pane.start + position;
+        if (Math.abs(pane.currentTime - expected) > 0.15) pane.video.currentTime = expected;
+      }
+      this.refresh();
+      if (position >= duration - 8e-3 || master.video.ended) {
+        this.finishPlayback();
+        return;
+      }
+      this.syncRaf = window.requestAnimationFrame(tick);
+    };
+    this.syncRaf = window.requestAnimationFrame(tick);
+  }
+  cancelSyncLoop() {
+    if (this.syncRaf !== 0) window.cancelAnimationFrame(this.syncRaf);
+    this.syncRaf = 0;
+  }
+  finishPlayback() {
+    if (!this.playing && !this.reverse) return;
+    this.haltSilently();
+    this.timelineValue = this.computeTimelineDuration();
+    this.refresh();
+    this.notify("\u5DF2\u5230\u540C\u6B65\u8303\u56F4\u672B\u5C3E");
+  }
+  handlePaneChange() {
+    this.refresh();
+  }
+  handlePaneEnded() {
+    if (this.playing) {
+      this.finishPlayback();
+      return;
+    }
+    this.refresh();
+  }
+  handlePaneError() {
+    if (this.playing || this.reverse) {
+      this.haltSilently();
+      this.refresh();
+    }
+  }
+  holdTick(direction) {
+    if (this.holdDirection !== direction) return;
+    const started = performance.now();
+    const paneId = this.holdPane;
+    const action = paneId !== null ? this.stepPane(paneId, direction * this.holdStride) : this.step(direction * this.holdStride, true);
+    void action.then(() => {
+      if (this.holdDirection !== direction) return;
+      const elapsed = performance.now() - started;
+      const wait = Math.max(0, HOLD_INTERVAL_MS - elapsed);
+      this.holdTimer = window.setTimeout(() => this.holdTick(direction), wait);
+    });
+  }
+  clearHoldTimer() {
+    if (this.holdTimer !== null) window.clearTimeout(this.holdTimer);
+    this.holdTimer = null;
   }
 };
 
@@ -1219,12 +1514,16 @@ function CloseIcon({ size = 16 }) {
 // src/client/ui/App.tsx
 var import_jsx_runtime2 = require("react/jsx-runtime");
 var COMMON_FPS = [23.976, 24, 25, 29.97, 30, 50, 59.94, 60];
+var FILE_ACCEPT = "video/mp4,video/quicktime,video/webm,video/*,.mp4,.m4v,.mov";
 function pad(value, width = 2) {
   return String(value).padStart(width, "0");
 }
+function clamp2(value, minimum, maximum) {
+  return Math.min(maximum, Math.max(minimum, value));
+}
 function formatClock(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return "00:00.000";
-  const total = Math.floor(seconds * 1e3) / 1e3;
+  const total = Math.round(seconds * 1e3) / 1e3;
   const hours = Math.floor(total / 3600);
   const minutes = Math.floor(total / 60) % 60;
   const wholeSeconds = Math.floor(total) % 60;
@@ -1245,37 +1544,220 @@ function isEditable(target) {
   const tag = element.tagName;
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || element.isContentEditable;
 }
+function sideLabel(side) {
+  return side === "left" ? "\u5DE6\u753B\u9762" : "\u53F3\u753B\u9762";
+}
+function frameText(pane) {
+  if (pane === null || pane.frameCount <= 0) return "\u2014";
+  const number = Math.min(pane.frameIndex + 1, pane.frameCount);
+  return `${pad(number, String(pane.frameCount).length)} / ${pane.frameCount}`;
+}
+function PaneCard(props) {
+  const { engine: engine2, pane, side } = props;
+  const label = sideLabel(side);
+  const estimated = pane.frameSource === "estimated";
+  const fpsOptions = (0, import_react.useMemo)(() => {
+    const values = [...COMMON_FPS];
+    if (!values.some((value) => Math.abs(value - pane.fps) < 1e-3)) values.push(pane.fps);
+    return values.filter((value) => Number.isFinite(value) && value > 0).sort((a, b) => a - b);
+  }, [pane.fps]);
+  const duration = Math.max(pane.duration, 1e-3);
+  const fill = pane.duration > 0 ? clamp2(pane.currentTime / pane.duration * 100, 0, 100) : 0;
+  const startPercent = pane.duration > 0 ? clamp2(pane.start / pane.duration * 100, 0, 100) : 0;
+  const paneRangeStyle = {
+    "--dvp-pane-fill": `${fill}%`,
+    "--dvp-pane-start": `${startPercent}%`
+  };
+  const className = ["dvp-pane", props.selected ? "selected" : "", props.dragging ? "dragging" : ""].filter(Boolean).join(" ");
+  return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+    "div",
+    {
+      className,
+      "data-pane": side,
+      "data-ready": pane.loaded ? "true" : "false",
+      onDragOver: (event) => props.onDragOver(side, event),
+      onDragLeave: (event) => props.onDragLeave(side, event),
+      onDrop: (event) => props.onDrop(side, event),
+      onDoubleClick: (event) => {
+        const target = event.target;
+        if (target?.closest("button, input, select, .dvp-pane-footer") != null) return;
+        props.onTogglePlay();
+      },
+      children: [
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+          "input",
+          {
+            ref: props.fileRef,
+            type: "file",
+            accept: FILE_ACCEPT,
+            style: { display: "none" },
+            onChange: (event) => props.onFileChange(side, event)
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-pane-view", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { ref: props.hostRef, className: "dvp-video-host", "aria-hidden": "true" }),
+          pane.status === "empty" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-pane-empty", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-pane-orb", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(VideoGlyph, { size: 28 }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("strong", { children: label }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: "\u9009\u62E9\u672C\u5730\u89C6\u9891\uFF0C\u6216\u628A\u6587\u4EF6\u62D6\u5230\u8FD9\u91CC" }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("button", { type: "button", className: "dvp-btn primary small", onClick: () => props.onPick(side), children: [
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(UploadIcon, { size: 15 }),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: "\u9009\u62E9\u89C6\u9891" })
+            ] })
+          ] }) : null,
+          pane.status === "loading" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-pane-overlay", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-spinner small" }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("strong", { children: "\u6B63\u5728\u8BFB\u53D6\u89C6\u9891\u2026" }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: pane.fileName })
+          ] }) : null,
+          pane.status === "error" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-pane-overlay", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-pane-error-icon", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(AlertIcon, { size: 22 }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("strong", { children: "\u65E0\u6CD5\u6253\u5F00\u8FD9\u4E2A\u89C6\u9891" }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { title: pane.error ?? void 0, children: pane.error ?? "\u8BF7\u6362\u4E00\u4E2A H.264/AAC \u7F16\u7801\u7684 MP4 \u6587\u4EF6\u518D\u8BD5\u3002" }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "dvp-btn small", onClick: () => props.onPick(side), children: "\u91CD\u65B0\u9009\u62E9" })
+          ] }) : null,
+          pane.status !== "empty" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-pane-top", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-stage-tag", title: pane.fileName, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("strong", { children: pane.fileName }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-pane-top-actions", children: [
+              props.selected ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-pane-selected", children: "\u5DF2\u9009\u4E2D" }) : null,
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                "button",
+                {
+                  type: "button",
+                  className: "dvp-pane-close",
+                  onClick: () => props.onClose(side),
+                  title: `\u5173\u95ED${label}\u89C6\u9891`,
+                  "aria-label": `\u5173\u95ED${label}\u89C6\u9891`,
+                  children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(CloseIcon, { size: 15 })
+                }
+              )
+            ] })
+          ] }) : null,
+          pane.loaded ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-pane-bottom", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dvp-pane-badges", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "dvp-frame-badge", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(FrameIcon, { size: 13 }),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { children: [
+                "\u5E27 ",
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("strong", { children: frameText(pane) })
+              ] })
+            ] }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "dvp-pane-info", children: [
+              pane.width > 0 ? `${pane.width}\xD7${pane.height} \xB7 ` : "",
+              formatFps(pane.fps),
+              " fps \xB7 ",
+              formatSize(pane.fileSize)
+            ] })
+          ] }) : null
+        ] }),
+        pane.loaded ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-pane-footer", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-pane-scrub", style: paneRangeStyle, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-pane-time", children: formatClock(pane.currentTime) }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-pane-range-wrap", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-pane-range-track", "aria-hidden": "true", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dvp-pane-range-fill" }),
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dvp-pane-range-start" })
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                "input",
+                {
+                  className: "dvp-pane-range",
+                  type: "range",
+                  min: 0,
+                  max: duration,
+                  step: "any",
+                  value: Math.min(pane.currentTime, duration),
+                  "aria-label": `${label}\u8FDB\u5EA6`,
+                  onInput: (event) => props.onPaneSeek(side, Number(event.currentTarget.value)),
+                  onChange: (event) => props.onPaneSeek(side, Number(event.currentTarget.value)),
+                  onPointerUp: () => props.onSelect(side)
+                }
+              )
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-pane-time total", children: formatClock(pane.duration) })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-pane-actions", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "dvp-pane-start-label", children: [
+              "\u8D77\u70B9 ",
+              formatClock(pane.start)
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+              "button",
+              {
+                type: "button",
+                className: "dvp-pane-setstart",
+                onClick: () => props.onSetStart(side),
+                title: "\u628A\u8BE5\u753B\u9762\u5F53\u524D\u5E27\u8BBE\u4E3A\u540C\u6B65\u8D77\u70B9",
+                children: "\u8BBE\u7F6E\u4E3A\u8D77\u70B9"
+              }
+            ),
+            estimated ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+              "select",
+              {
+                className: "dvp-select tiny",
+                value: String(pane.fps),
+                "aria-label": `${label}\u4F30\u7B97\u5E27\u7387`,
+                onChange: (event) => {
+                  engine2.setEstimatedFps(side, Number(event.currentTarget.value));
+                  event.currentTarget.blur();
+                },
+                children: fpsOptions.map((fps) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("option", { value: String(fps), children: [
+                  formatFps(fps),
+                  " fps"
+                ] }, fps))
+              }
+            ) : null
+          ] })
+        ] }) : null,
+        props.dragging ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dvp-drop-hint", children: "\u677E\u5F00\u4EE5\u6253\u5F00\u89C6\u9891" }) : null
+      ]
+    }
+  );
+}
 function App({ engine: engine2 }) {
   const snapshot = (0, import_react.useSyncExternalStore)(engine2.subscribe, engine2.getSnapshot, engine2.getSnapshot);
   const rootRef = (0, import_react.useRef)(null);
-  const stageRef = (0, import_react.useRef)(null);
-  const videoHostRef = (0, import_react.useRef)(null);
-  const fileRef = (0, import_react.useRef)(null);
+  const leftHostRef = (0, import_react.useRef)(null);
+  const rightHostRef = (0, import_react.useRef)(null);
+  const leftFileRef = (0, import_react.useRef)(null);
+  const rightFileRef = (0, import_react.useRef)(null);
   const rangeRef = (0, import_react.useRef)(null);
   const scrubbingRef = (0, import_react.useRef)(false);
   const skipChangeRef = (0, import_react.useRef)(false);
-  const [dragging, setDragging] = (0, import_react.useState)(false);
-  const ready = snapshot.status === "ready";
-  const hasFile = snapshot.fileName.length > 0;
-  const duration = Math.max(snapshot.duration, 1e-3);
-  const progress = snapshot.duration > 0 ? Math.min(100, Math.max(0, snapshot.currentTime / snapshot.duration * 100)) : 0;
-  const buffered = snapshot.duration > 0 ? Math.min(100, Math.max(0, snapshot.buffered / snapshot.duration * 100)) : 0;
-  const rangeStyle = {
-    "--dvp-fill": `${progress}%`,
-    "--dvp-buffer": `${buffered}%`
-  };
-  const volumeStyle = {
-    "--dvp-volume": `${Math.round(snapshot.volume * 100)}%`
-  };
-  const fpsOptions = (0, import_react.useMemo)(() => {
-    const values = [...COMMON_FPS];
-    if (!values.some((value) => Math.abs(value - snapshot.fps) < 1e-3)) values.push(snapshot.fps);
-    return values.filter((value) => Number.isFinite(value) && value > 0).sort((a, b) => a - b);
-  }, [snapshot.fps]);
+  const [dragging, setDragging] = (0, import_react.useState)(null);
+  const [selectedPane, setSelectedPane] = (0, import_react.useState)(null);
+  const dual = snapshot.layout === "dual";
+  const left = snapshot.left;
+  const right = snapshot.right;
+  const master = snapshot.master === "left" ? left : snapshot.master === "right" ? right : null;
+  const masterSide = snapshot.master === "right" ? "\u53F3" : "\u5DE6";
+  const timelineDuration = snapshot.timelineDuration;
+  const timelinePosition = snapshot.timelinePosition;
+  const rangeReady = timelineDuration > 0 && (dual ? left.loaded || right.loaded : left.loaded);
+  const transportDisabled = !rangeReady;
+  const activeSelection = dual && selectedPane !== null && snapshot[selectedPane].loaded ? selectedPane : null;
+  const current = clamp2(timelinePosition, 0, Math.max(timelineDuration, 0));
+  const progress = timelineDuration > 0 ? Math.min(100, Math.max(0, current / timelineDuration * 100)) : 0;
+  const rangeStyle = { "--dvp-fill": `${progress}%` };
+  const volumeStyle = { "--dvp-volume": `${Math.round(snapshot.volume * 100)}%` };
+  const frameLabel = frameText(master);
   (0, import_react.useLayoutEffect)(() => {
-    const host = videoHostRef.current;
+    const host = leftHostRef.current;
     if (host === null) return;
-    engine2.attach(host);
+    engine2.left.attach(host);
+    return () => {
+      engine2.left.detach();
+    };
+  }, [engine2, dual]);
+  (0, import_react.useLayoutEffect)(() => {
+    if (!dual) return;
+    const host = rightHostRef.current;
+    if (host === null) return;
+    engine2.right.attach(host);
+    return () => {
+      engine2.right.detach();
+    };
+  }, [engine2, dual]);
+  (0, import_react.useEffect)(() => {
     return () => {
       engine2.detach();
     };
@@ -1284,45 +1766,112 @@ function App({ engine: engine2 }) {
     rootRef.current?.focus({ preventScroll: true });
   }, []);
   (0, import_react.useEffect)(() => {
-    if (snapshot.status === "ready") rootRef.current?.focus({ preventScroll: true });
-  }, [snapshot.status]);
-  const pickFile = (0, import_react.useCallback)(() => {
-    fileRef.current?.click();
+    if (snapshot.left.status === "ready" || snapshot.right.status === "ready") {
+      rootRef.current?.focus({ preventScroll: true });
+    }
+  }, [snapshot.left.status, snapshot.right.status]);
+  const openPane = (0, import_react.useCallback)((side) => {
+    if (side === "left") leftFileRef.current?.click();
+    else rightFileRef.current?.click();
   }, []);
-  const closeFile = (0, import_react.useCallback)(() => {
-    engine2.closeFile();
-    rootRef.current?.focus({ preventScroll: true });
-  }, [engine2]);
-  const onFileChange = (0, import_react.useCallback)((event) => {
+  const pickTop = (0, import_react.useCallback)(() => {
+    if (!dual) {
+      leftFileRef.current?.click();
+      return;
+    }
+    if (!left.loaded) {
+      leftFileRef.current?.click();
+      return;
+    }
+    if (!right.loaded) rightFileRef.current?.click();
+  }, [dual, left.loaded, right.loaded]);
+  const onFileChange = (0, import_react.useCallback)((side, event) => {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
-    if (file !== void 0) void engine2.openFile(file);
+    if (file === void 0) return;
+    setSelectedPane(null);
+    engine2.endAllHolds();
+    void engine2.openPane(side, file);
   }, [engine2]);
-  const onDragOver = (0, import_react.useCallback)((event) => {
+  const closePane = (0, import_react.useCallback)((side) => {
+    if (selectedPane === side) setSelectedPane(null);
+    engine2.endAllHolds();
+    engine2.closePane(side);
+  }, [engine2, selectedPane]);
+  const toggleLayout = (0, import_react.useCallback)((checked) => {
+    setDragging(null);
+    setSelectedPane(null);
+    engine2.endAllHolds();
+    engine2.setLayout(checked ? "dual" : "single");
+  }, [engine2]);
+  const selectPane = (0, import_react.useCallback)((side) => {
+    if (!dual) return;
+    const live = engine2.getSnapshot()[side];
+    if (!live.loaded) {
+      setSelectedPane(null);
+      return;
+    }
+    engine2.endAllHolds();
+    setSelectedPane(side);
+    rootRef.current?.focus({ preventScroll: true });
+  }, [dual, engine2]);
+  const clearSelection = (0, import_react.useCallback)(() => {
+    engine2.endAllHolds();
+    setSelectedPane(null);
+  }, [engine2]);
+  const onRootPointerDownCapture = (0, import_react.useCallback)((event) => {
+    if (!dual) {
+      clearSelection();
+      return;
+    }
+    const target = event.target;
+    if (target?.closest('input[type="range"]') != null) return;
+    const paneElement = target?.closest("[data-pane]") ?? null;
+    if (paneElement === null) {
+      clearSelection();
+      return;
+    }
+    const side = paneElement.dataset.pane;
+    if (side === void 0) return;
+    const live = engine2.getSnapshot()[side];
+    if (!live.loaded) {
+      clearSelection();
+      return;
+    }
+    engine2.endAllHolds();
+    setSelectedPane(side);
+  }, [clearSelection, dual, engine2]);
+  const onPaneDragOver = (0, import_react.useCallback)((side, event) => {
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
-    setDragging(true);
+    setDragging(side);
   }, []);
-  const onDragLeave = (0, import_react.useCallback)((event) => {
+  const onPaneDragLeave = (0, import_react.useCallback)((side, event) => {
     const next = event.relatedTarget;
-    if (next === null || !event.currentTarget.contains(next)) setDragging(false);
+    if (next === null || !event.currentTarget.contains(next)) setDragging(null);
   }, []);
-  const onDrop = (0, import_react.useCallback)((event) => {
+  const onPaneDrop = (0, import_react.useCallback)((side, event) => {
     event.preventDefault();
-    setDragging(false);
+    setDragging(null);
     const file = event.dataTransfer.files?.[0];
-    if (file !== void 0) void engine2.openFile(file);
+    if (file === void 0) return;
+    setSelectedPane(null);
+    engine2.endAllHolds();
+    void engine2.openPane(side, file);
   }, [engine2]);
   (0, import_react.useEffect)(() => {
     const onKeyDown = (event) => {
-      if (engine2.getSnapshot().status !== "ready") return;
+      const live = engine2.getSnapshot();
+      const active = live.layout === "single" ? live.left.loaded : live.left.loaded || live.right.loaded;
+      if (!active) return;
+      const selected = live.layout === "dual" && selectedPane !== null && live[selectedPane].loaded ? selectedPane : null;
       if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
       if (event.isComposing) return;
       if (document.querySelector('[role="dialog"]') !== null) return;
-      const active = document.activeElement;
+      const focused = document.activeElement;
       const root = rootRef.current;
-      if (active !== null && active !== document.body && active !== document.documentElement) {
-        if (root === null || !root.contains(active)) return;
+      if (focused !== null && focused !== document.body && focused !== document.documentElement) {
+        if (root === null || !root.contains(focused)) return;
       }
       if (isEditable(event.target)) return;
       const target = event.target;
@@ -1330,11 +1879,11 @@ function App({ engine: engine2 }) {
       switch (event.code) {
         case "ArrowLeft":
           event.preventDefault();
-          if (!event.repeat) engine2.beginHold(-1, event.shiftKey ? 10 : 1);
+          if (!event.repeat) engine2.beginHold(-1, event.shiftKey ? 10 : 1, selected);
           break;
         case "ArrowRight":
           event.preventDefault();
-          if (!event.repeat) engine2.beginHold(1, event.shiftKey ? 10 : 1);
+          if (!event.repeat) engine2.beginHold(1, event.shiftKey ? 10 : 1, selected);
           break;
         case "Space":
           event.preventDefault();
@@ -1358,11 +1907,11 @@ function App({ engine: engine2 }) {
           break;
         case "ArrowUp":
           event.preventDefault();
-          if (!event.repeat) engine2.setVolume(Math.min(1, engine2.getSnapshot().volume + 0.05));
+          if (!event.repeat) engine2.setVolume(Math.min(1, live.volume + 0.05));
           break;
         case "ArrowDown":
           event.preventDefault();
-          if (!event.repeat) engine2.setVolume(Math.max(0, engine2.getSnapshot().volume - 0.05));
+          if (!event.repeat) engine2.setVolume(Math.max(0, live.volume - 0.05));
           break;
         default:
           break;
@@ -1384,7 +1933,7 @@ function App({ engine: engine2 }) {
       window.removeEventListener("blur", onBlur);
       engine2.endAllHolds();
     };
-  }, [engine2]);
+  }, [engine2, selectedPane]);
   const onRangePointerDown = (0, import_react.useCallback)(() => {
     scrubbingRef.current = true;
     engine2.scrubStart();
@@ -1400,7 +1949,8 @@ function App({ engine: engine2 }) {
       skipChangeRef.current = false;
     }, 0);
     rootRef.current?.focus({ preventScroll: true });
-  }, [engine2]);
+    clearSelection();
+  }, [clearSelection, engine2]);
   const onRangeChange = (0, import_react.useCallback)((event) => {
     if (skipChangeRef.current || scrubbingRef.current) return;
     engine2.scrubStart();
@@ -1429,78 +1979,189 @@ function App({ engine: engine2 }) {
   const togglePlay = (0, import_react.useCallback)(() => {
     void engine2.togglePlay();
   }, [engine2]);
-  const frameTotal = Math.max(snapshot.frameCount, 0);
-  const frameNumber = frameTotal > 0 ? Math.min(snapshot.frameIndex + 1, frameTotal) : 0;
-  const frameWidth = String(frameTotal).length;
-  const frameLabel = frameTotal > 0 ? `${pad(frameNumber, frameWidth)} / ${frameTotal}` : "\u2014";
+  const seekPane = (0, import_react.useCallback)((side, seconds) => {
+    engine2.previewPane(side, seconds);
+  }, [engine2]);
+  const setPaneStart = (0, import_react.useCallback)((side) => {
+    void engine2.setPaneStartAtCurrent(side);
+  }, [engine2]);
+  const selectTopDisabled = dual && left.loaded && right.loaded;
+  const selectTopTitle = selectTopDisabled ? "\u4E24\u4E2A\u753B\u9762\u90FD\u5DF2\u6253\u5F00\u89C6\u9891\uFF1B\u70B9\u753B\u9762\u53F3\u4E0A\u89D2\u7684 \xD7 \u66F4\u6362" : dual && left.loaded ? "\u4E3A\u53F3\u753B\u9762\u9009\u62E9\u89C6\u9891" : "\u9009\u62E9\u672C\u5730\u89C6\u9891";
   return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
     "div",
     {
       className: "dvp-root",
       ref: rootRef,
       tabIndex: -1,
+      onPointerDownCapture: onRootPointerDownCapture,
       onPointerUp: onRootPointerUp,
       children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-          "input",
-          {
-            ref: fileRef,
-            type: "file",
-            accept: "video/mp4,video/quicktime,video/webm,video/*,.mp4,.m4v,.mov",
-            style: { display: "none" },
-            onChange: onFileChange
-          }
-        ),
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("header", { className: "dvp-header", children: [
           /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-brand", children: [
             /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-logo", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(VideoGlyph, { size: 20 }) }),
             /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-brand-text", children: [
               /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("h1", { children: "\u89C6\u9891\u9010\u5E27\u64AD\u653E\u5668" }),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { children: "\u9010\u5E27\u68C0\u89C6 \xB7 \u5DE6\u53F3\u65B9\u5411\u952E\u5355\u6B65\uFF0C\u6309\u4F4F\u8FDE\u7EED \xB7 \u652F\u6301\u5012\u653E\u4E0E\u9759\u97F3" })
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { children: "\u9010\u5E27\u68C0\u89C6 \xB7 \u65B9\u5411\u952E\u5355\u6B65/\u6309\u4F4F\u8FDE\u7EED \xB7 \u70B9\u753B\u9762\u9009\u4E2D\u540E\u5355\u72EC\u9010\u5E27 \xB7 \u652F\u6301\u540C\u6B65\u5BF9\u6BD4\u3001\u5012\u653E\u4E0E\u9759\u97F3" })
             ] })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dvp-header-meta", children: ready ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-chip strong", children: snapshot.codec.length > 0 ? snapshot.codec : "\u89C6\u9891" }),
+          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dvp-header-meta", children: dual ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-chip strong", children: "\u5DE6\u53F3\u5BF9\u6BD4" }),
+            left.loaded ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "dvp-chip", children: [
+              "\u5DE6 ",
+              formatFps(left.fps),
+              " fps"
+            ] }) : null,
+            right.loaded ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "dvp-chip", children: [
+              "\u53F3 ",
+              formatFps(right.fps),
+              " fps"
+            ] }) : null,
+            !left.loaded ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-chip warn", children: "\u7B49\u5F85\u5DE6\u753B\u9762" }) : null,
+            !right.loaded ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-chip warn", children: "\u7B49\u5F85\u53F3\u753B\u9762" }) : null
+          ] }) : left.loaded ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-chip strong", children: left.codec.length > 0 ? left.codec : "\u89C6\u9891" }),
             /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "dvp-chip", children: [
-              formatFps(snapshot.fps),
+              formatFps(left.fps),
               " fps"
             ] }),
-            snapshot.width > 0 && snapshot.height > 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "dvp-chip", children: [
-              snapshot.width,
+            left.width > 0 && left.height > 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "dvp-chip", children: [
+              left.width,
               "\xD7",
-              snapshot.height
+              left.height
             ] }) : null,
-            snapshot.frameSource === "estimated" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-chip warn", children: "\u5E27\u7387\u4F30\u7B97" }) : null
+            left.frameSource === "estimated" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-chip warn", children: "\u5E27\u7387\u4F30\u7B97" }) : null,
+            left.start > 1e-4 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+              "button",
+              {
+                type: "button",
+                className: "dvp-chip",
+                title: "\u70B9\u51FB\u628A\u8D77\u70B9\u6E05\u96F6",
+                onClick: () => {
+                  void engine2.setPaneStart("left", 0);
+                },
+                children: [
+                  "\u8D77\u70B9 ",
+                  formatClock(left.start)
+                ]
+              }
+            ) : null
           ] }) : null }),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-header-actions", children: [
-            hasFile ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("button", { type: "button", className: "dvp-btn ghost small", onClick: closeFile, title: "\u5173\u95ED\u5F53\u524D\u89C6\u9891", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(CloseIcon, { size: 14 }),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: "\u5173\u95ED" })
-            ] }) : null,
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("button", { type: "button", className: "dvp-btn primary", onClick: pickFile, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(UploadIcon, { size: 16 }),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: "\u9009\u62E9\u89C6\u9891" })
+            !dual && left.status !== "empty" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+              "button",
+              {
+                type: "button",
+                className: "dvp-btn ghost small",
+                onClick: () => closePane("left"),
+                title: "\u5173\u95ED\u5F53\u524D\u89C6\u9891",
+                children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(CloseIcon, { size: 14 }),
+                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: "\u5173\u95ED" })
+                ]
+              }
+            ) : null,
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+              "button",
+              {
+                type: "button",
+                className: "dvp-btn primary",
+                onClick: pickTop,
+                disabled: selectTopDisabled,
+                title: selectTopTitle,
+                children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(UploadIcon, { size: 16 }),
+                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: "\u9009\u62E9\u89C6\u9891" })
+                ]
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("label", { className: "dvp-switch", title: "\u5F00\u542F\u5DE6\u53F3\u5E03\u5C40\uFF0C\u4E24\u4E2A\u753B\u9762\u540C\u6B65\u64AD\u653E", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-switch-label", children: "\u5DE6\u53F3\u5E03\u5C40" }),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                "input",
+                {
+                  type: "checkbox",
+                  checked: dual,
+                  "aria-label": "\u5DE6\u53F3\u5E03\u5C40",
+                  onChange: (event) => toggleLayout(event.currentTarget.checked)
+                }
+              ),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-switch-track", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-switch-thumb" }) })
             ] })
           ] })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("main", { className: "dvp-body", children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
+          dual ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-stage dvp-stage-dual", "data-ready": left.loaded || right.loaded ? "true" : "false", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+              PaneCard,
+              {
+                engine: engine2,
+                pane: left,
+                side: "left",
+                hostRef: leftHostRef,
+                fileRef: leftFileRef,
+                dragging: dragging === "left",
+                selected: activeSelection === "left",
+                onSelect: selectPane,
+                onFileChange,
+                onPick: openPane,
+                onClose: closePane,
+                onPaneSeek: seekPane,
+                onSetStart: setPaneStart,
+                onTogglePlay: togglePlay,
+                onDragOver: onPaneDragOver,
+                onDragLeave: onPaneDragLeave,
+                onDrop: onPaneDrop
+              }
+            ),
+            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+              PaneCard,
+              {
+                engine: engine2,
+                pane: right,
+                side: "right",
+                hostRef: rightHostRef,
+                fileRef: rightFileRef,
+                dragging: dragging === "right",
+                selected: activeSelection === "right",
+                onSelect: selectPane,
+                onFileChange,
+                onPick: openPane,
+                onClose: closePane,
+                onPaneSeek: seekPane,
+                onSetStart: setPaneStart,
+                onTogglePlay: togglePlay,
+                onDragOver: onPaneDragOver,
+                onDragLeave: onPaneDragLeave,
+                onDrop: onPaneDrop
+              }
+            ),
+            snapshot.notice !== null ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dvp-toast", children: snapshot.notice }) : null
+          ] }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
             "div",
             {
-              ref: stageRef,
-              className: dragging ? "dvp-stage dragging" : "dvp-stage",
-              "data-ready": ready ? "true" : "false",
-              onDragOver,
-              onDragLeave,
-              onDrop,
-              onDoubleClick: ready ? togglePlay : void 0,
+              className: dragging === "left" ? "dvp-stage dragging" : "dvp-stage",
+              "data-ready": left.loaded ? "true" : "false",
+              onDragOver: (event) => onPaneDragOver("left", event),
+              onDragLeave: (event) => onPaneDragLeave("left", event),
+              onDrop: (event) => onPaneDrop("left", event),
+              onDoubleClick: left.loaded ? togglePlay : void 0,
               children: [
-                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { ref: videoHostRef, className: "dvp-video-host", "aria-hidden": "true" }),
-                snapshot.status === "empty" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dvp-overlay", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-empty", children: [
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { ref: leftHostRef, className: "dvp-video-host", "aria-hidden": "true" }),
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+                  "input",
+                  {
+                    ref: leftFileRef,
+                    type: "file",
+                    accept: FILE_ACCEPT,
+                    style: { display: "none" },
+                    onChange: (event) => onFileChange("left", event)
+                  }
+                ),
+                left.status === "empty" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dvp-overlay", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-empty", children: [
                   /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-empty-orb", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(VideoGlyph, { size: 34 }) }),
                   /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("h2", { children: "\u6253\u5F00\u4E00\u4E2A\u89C6\u9891\uFF0C\u5F00\u59CB\u9010\u5E27\u68C0\u89C6" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { children: "\u9009\u62E9\u672C\u5730 MP4 \u6587\u4EF6\uFF0C\u6216\u76F4\u63A5\u628A\u89C6\u9891\u62D6\u5230\u8FD9\u91CC\u3002\u64AD\u653E\u3001\u6682\u505C\u3001\u9010\u5E27\u548C\u5012\u653E\u90FD\u5728\u672C\u673A\u5B8C\u6210\uFF0C \u89C6\u9891\u4E0D\u4F1A\u4E0A\u4F20\u5230\u4EFB\u4F55\u670D\u52A1\u5668\u3002" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("button", { type: "button", className: "dvp-btn primary", onClick: pickFile, children: [
+                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { children: "\u9009\u62E9\u672C\u5730 MP4 \u6587\u4EF6\uFF0C\u6216\u76F4\u63A5\u628A\u89C6\u9891\u62D6\u5230\u8FD9\u91CC\u3002\u64AD\u653E\u3001\u6682\u505C\u3001\u9010\u5E27\u548C\u5012\u653E\u90FD\u5728\u672C\u673A\u5B8C\u6210\uFF0C \u89C6\u9891\u4E0D\u4F1A\u4E0A\u4F20\u5230\u4EFB\u4F55\u670D\u52A1\u5668\uFF1B\u6253\u5F00\u53F3\u4E0A\u89D2\u7684\u300C\u5DE6\u53F3\u5E03\u5C40\u300D\u53EF\u4EE5\u540C\u6B65\u5BF9\u6BD4\u4E24\u4E2A\u89C6\u9891\u3002" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("button", { type: "button", className: "dvp-btn primary", onClick: () => openPane("left"), children: [
                     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(UploadIcon, { size: 17 }),
                     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: "\u9009\u62E9\u672C\u5730\u89C6\u9891" })
                   ] }),
@@ -1508,26 +2169,27 @@ function App({ engine: engine2 }) {
                     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: "\u2190 / \u2192 \u5355\u5E27 \xB7 \u6309\u4F4F\u8FDE\u7EED" }),
                     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: "\u5012\u653E" }),
                     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: "\u70B9\u51FB\u8FDB\u5EA6\u6761\u8DF3\u8F6C" }),
-                    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: "\u9759\u97F3" })
+                    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: "\u9759\u97F3" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: "\u5DE6\u53F3\u540C\u6B65\u5BF9\u6BD4" })
                   ] })
                 ] }) }) : null,
-                snapshot.status === "loading" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dvp-overlay", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-loading", children: [
+                left.status === "loading" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dvp-overlay", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-loading", children: [
                   /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-spinner" }),
                   /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("strong", { children: "\u6B63\u5728\u8BFB\u53D6\u89C6\u9891\u5E76\u89E3\u6790\u5E27\u8868\u2026" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: snapshot.fileName })
+                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: left.fileName })
                 ] }) }) : null,
-                snapshot.status === "error" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dvp-overlay", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-error", children: [
+                left.status === "error" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dvp-overlay", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-error", children: [
                   /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-error-icon", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(AlertIcon, { size: 26 }) }),
                   /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("strong", { children: "\u65E0\u6CD5\u6253\u5F00\u8FD9\u4E2A\u89C6\u9891" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { children: snapshot.error ?? "\u672A\u77E5\u9519\u8BEF\u3002\u8BF7\u6362\u4E00\u4E2A H.264/AAC \u7F16\u7801\u7684 MP4 \u6587\u4EF6\u518D\u8BD5\u3002" }),
+                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { children: left.error ?? "\u672A\u77E5\u9519\u8BEF\u3002\u8BF7\u6362\u4E00\u4E2A H.264/AAC \u7F16\u7801\u7684 MP4 \u6587\u4EF6\u518D\u8BD5\u3002" }),
                   /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-error-actions", children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "dvp-btn", onClick: pickFile, children: "\u91CD\u65B0\u9009\u62E9" }),
-                    hasFile ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "dvp-btn", onClick: closeFile, children: "\u5173\u95ED" }) : null
+                    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "dvp-btn", onClick: () => openPane("left"), children: "\u91CD\u65B0\u9009\u62E9" }),
+                    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: "dvp-btn", onClick: () => closePane("left"), children: "\u5173\u95ED" })
                   ] })
                 ] }) }) : null,
-                ready ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
+                left.loaded ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
                   /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-stage-tools", children: [
-                    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-stage-tag", title: snapshot.fileName, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("strong", { children: snapshot.fileName }) }),
+                    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-stage-tag", title: left.fileName, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("strong", { children: left.fileName }) }),
                     snapshot.reverse ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "dvp-stage-tag reverse", children: [
                       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-live-dot" }),
                       "\u5012\u653E\u4E2D"
@@ -1541,31 +2203,26 @@ function App({ engine: engine2 }) {
                     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(FrameIcon, { size: 14 }),
                     /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { children: [
                       "\u5E27 ",
-                      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("strong", { children: pad(frameNumber, frameWidth) }),
-                      " / ",
-                      frameTotal
+                      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("strong", { children: frameText(left) })
                     ] })
                   ] }),
                   /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-stage-info", children: [
-                    snapshot.width > 0 ? `${snapshot.width}\xD7${snapshot.height} \xB7 ` : "",
-                    formatFps(snapshot.fps),
+                    left.width > 0 ? `${left.width}\xD7${left.height} \xB7 ` : "",
+                    formatFps(left.fps),
                     " fps \xB7 ",
-                    formatSize(snapshot.fileSize)
+                    formatSize(left.fileSize)
                   ] })
                 ] }) : null,
                 snapshot.notice !== null ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dvp-toast", children: snapshot.notice }) : null,
-                dragging ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dvp-drop-hint", children: "\u677E\u5F00\u4EE5\u6253\u5F00\u89C6\u9891" }) : null
+                dragging === "left" ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dvp-drop-hint", children: "\u677E\u5F00\u4EE5\u6253\u5F00\u89C6\u9891" }) : null
               ]
             }
           ),
           /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-controls", children: [
             /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-timeline-row", children: [
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-time", title: "\u5F53\u524D\u65F6\u95F4", children: formatClock(snapshot.currentTime) }),
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-time", title: "\u540C\u6B65\u65F6\u95F4", children: formatClock(current) }),
               /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-range-wrap", style: rangeStyle, children: [
-                /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-range-track", "aria-hidden": "true", children: [
-                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dvp-range-buffer" }),
-                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dvp-range-fill" })
-                ] }),
+                /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dvp-range-track", "aria-hidden": "true", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dvp-range-fill" }) }),
                 /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
                   "input",
                   {
@@ -1573,11 +2230,11 @@ function App({ engine: engine2 }) {
                     className: "dvp-range",
                     type: "range",
                     min: 0,
-                    max: duration,
+                    max: Math.max(timelineDuration, 1e-3),
                     step: "any",
-                    value: Math.min(snapshot.currentTime, duration),
-                    disabled: !ready,
-                    "aria-label": "\u64AD\u653E\u8FDB\u5EA6",
+                    value: Math.min(current, Math.max(timelineDuration, 1e-3)),
+                    disabled: transportDisabled,
+                    "aria-label": "\u540C\u6B65\u64AD\u653E\u8FDB\u5EA6",
                     onPointerDown: onRangePointerDown,
                     onPointerUp: onRangePointerUp,
                     onPointerCancel: onRangePointerUp,
@@ -1586,7 +2243,7 @@ function App({ engine: engine2 }) {
                   }
                 )
               ] }),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-time total", title: "\u89C6\u9891\u65F6\u957F", children: formatClock(snapshot.duration) })
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-time total", title: "\u540C\u6B65\u65F6\u957F", children: formatClock(timelineDuration) })
             ] }),
             /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-transport", children: [
               /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-group", children: [
@@ -1595,7 +2252,7 @@ function App({ engine: engine2 }) {
                   {
                     type: "button",
                     className: "dvp-iconbtn",
-                    disabled: !ready,
+                    disabled: transportDisabled,
                     onClick: () => engine2.firstFrame(),
                     title: "\u7B2C\u4E00\u5E27 (Home)",
                     "aria-label": "\u8DF3\u5230\u7B2C\u4E00\u5E27",
@@ -1607,7 +2264,7 @@ function App({ engine: engine2 }) {
                   {
                     type: "button",
                     className: "dvp-iconbtn",
-                    disabled: !ready,
+                    disabled: transportDisabled,
                     onClick: () => void engine2.step(-1),
                     title: "\u4E0A\u4E00\u5E27 (\u2190\uFF0C\u6309\u4F4F\u8FDE\u7EED)",
                     "aria-label": "\u4E0A\u4E00\u5E27",
@@ -1619,7 +2276,7 @@ function App({ engine: engine2 }) {
                   {
                     type: "button",
                     className: "dvp-play",
-                    disabled: !ready,
+                    disabled: transportDisabled,
                     onClick: togglePlay,
                     title: snapshot.playing ? "\u6682\u505C (Space)" : "\u64AD\u653E (Space)",
                     "aria-label": snapshot.playing ? "\u6682\u505C" : "\u64AD\u653E",
@@ -1631,7 +2288,7 @@ function App({ engine: engine2 }) {
                   {
                     type: "button",
                     className: "dvp-iconbtn",
-                    disabled: !ready,
+                    disabled: transportDisabled,
                     onClick: () => void engine2.step(1),
                     title: "\u4E0B\u4E00\u5E27 (\u2192\uFF0C\u6309\u4F4F\u8FDE\u7EED)",
                     "aria-label": "\u4E0B\u4E00\u5E27",
@@ -1643,7 +2300,7 @@ function App({ engine: engine2 }) {
                   {
                     type: "button",
                     className: "dvp-iconbtn",
-                    disabled: !ready,
+                    disabled: transportDisabled,
                     onClick: () => engine2.lastFrame(),
                     title: "\u6700\u540E\u4E00\u5E27 (End)",
                     "aria-label": "\u8DF3\u5230\u6700\u540E\u4E00\u5E27",
@@ -1656,7 +2313,7 @@ function App({ engine: engine2 }) {
                 {
                   type: "button",
                   className: snapshot.reverse ? "dvp-reverse active" : "dvp-reverse",
-                  disabled: !ready || snapshot.frameCount < 2,
+                  disabled: transportDisabled || (master?.frameCount ?? 0) < 2,
                   onClick: () => engine2.toggleReverse(),
                   title: "\u5012\u653E (R)\uFF1A\u9010\u5E27\u5411\u540E\u89E3\u7801\uFF0C\u957F GOP \u89C6\u9891\u53EF\u80FD\u8F83\u6162",
                   "aria-pressed": snapshot.reverse,
@@ -1668,24 +2325,29 @@ function App({ engine: engine2 }) {
                 }
               ) }),
               /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dvp-sep" }),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-frame-pill", title: "\u5F53\u524D\u5E27 / \u603B\u5E27\u6570", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dvp-frame-pill", title: dual ? "\u540C\u6B65\u65F6\u95F4\u5BF9\u5E94\u7684\u4E3B\u753B\u9762\u5E27" : "\u5F53\u524D\u5E27 / \u603B\u5E27\u6570", children: [
                 /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(FrameIcon, { size: 14 }),
                 /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { children: [
-                  "\u5E27 ",
-                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("strong", { children: frameLabel })
+                  dual ? "\u540C\u6B65\u5E27" : "\u5E27",
+                  " ",
+                  /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("strong", { children: frameLabel }),
+                  dual && master !== null ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("span", { className: "dvp-total", children: [
+                    " \xB7 ",
+                    masterSide
+                  ] }) : null
                 ] })
               ] }),
-              snapshot.frameSource === "estimated" && ready ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("label", { className: "dvp-select-label", title: "\u65E0\u6CD5\u8BFB\u53D6\u7CBE\u786E\u5E27\u8868\u65F6\uFF0C\u53EF\u624B\u52A8\u4FEE\u6B63\u5E27\u7387", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+              !dual && left.frameSource === "estimated" && left.loaded ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("label", { className: "dvp-select-label", title: "\u65E0\u6CD5\u8BFB\u53D6\u7CBE\u786E\u5E27\u8868\u65F6\uFF0C\u53EF\u624B\u52A8\u4FEE\u6B63\u5E27\u7387", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
                 "select",
                 {
                   className: "dvp-select",
-                  value: String(snapshot.fps),
+                  value: String(left.fps),
                   onChange: (event) => {
-                    engine2.setEstimatedFps(Number(event.currentTarget.value));
+                    engine2.setEstimatedFps("left", Number(event.currentTarget.value));
                     rootRef.current?.focus({ preventScroll: true });
                   },
                   "aria-label": "\u4F30\u7B97\u5E27\u7387",
-                  children: fpsOptions.map((fps) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("option", { value: String(fps), children: [
+                  children: COMMON_FPS.map((fps) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("option", { value: String(fps), children: [
                     formatFps(fps),
                     " fps"
                   ] }, fps))
@@ -1715,7 +2377,7 @@ function App({ engine: engine2 }) {
                     type: "button",
                     className: snapshot.muted ? "dvp-iconbtn active" : "dvp-iconbtn",
                     onClick: () => engine2.toggleMute(),
-                    title: snapshot.muted ? "\u53D6\u6D88\u9759\u97F3 (M)" : "\u9759\u97F3 (M)",
+                    title: snapshot.muted ? "\u53D6\u6D88\u9759\u97F3 (M)" : "\u9759\u97F3\u4E24\u4E2A\u753B\u9762 (M)",
                     "aria-label": snapshot.muted ? "\u53D6\u6D88\u9759\u97F3" : "\u9759\u97F3",
                     "aria-pressed": snapshot.muted,
                     children: snapshot.muted ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(MutedIcon, {}) : /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(VolumeIcon, {})
@@ -1732,6 +2394,7 @@ function App({ engine: engine2 }) {
                     value: snapshot.muted ? 0 : snapshot.volume,
                     style: volumeStyle,
                     onChange: (event) => engine2.setVolume(Number(event.currentTarget.value)),
+                    onPointerUp: clearSelection,
                     "aria-label": "\u97F3\u91CF",
                     title: `\u97F3\u91CF ${Math.round(snapshot.volume * 100)}%`
                   }
@@ -1743,7 +2406,8 @@ function App({ engine: engine2 }) {
                 /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("kbd", { children: "\u2190" }),
                 " ",
                 /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("kbd", { children: "\u2192" }),
-                " \u9010\u5E27"
+                " ",
+                activeSelection !== null ? `${sideLabel(activeSelection)}\u5355\u72EC\u9010\u5E27` : dual ? "\u4E24\u753B\u9762\u540C\u6B65\u9010\u5E27" : "\u9010\u5E27"
               ] }),
               /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-hint-dot" }),
               /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: "\u6309\u4F4F\u8FDE\u7EED" }),
@@ -1779,7 +2443,7 @@ function App({ engine: engine2 }) {
                 " \u9996/\u5C3E\u5E27"
               ] }),
               /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { className: "dvp-hint-spacer" }),
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: "\u70B9\u51FB\u8FDB\u5EA6\u6761\u8DF3\u8F6C" })
+              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("span", { children: activeSelection !== null ? "\u70B9\u753B\u9762\u5916\u6062\u590D\u540C\u6B65\u9010\u5E27" : dual ? "\u70B9\u753B\u9762\u9009\u4E2D\u540E\u65B9\u5411\u952E\u5355\u72EC\u9010\u5E27\uFF1B\u6BCF\u683C\u4E0B\u65B9\u53EF\u8BBE\u8D77\u70B9" : "\u70B9\u51FB\u8FDB\u5EA6\u6761\u8DF3\u8F6C" })
             ] })
           ] })
         ] })
@@ -1840,8 +2504,8 @@ body[data-ds-dark-theme] .dvp-root {
     radial-gradient(620px 320px at 100% -8%, color-mix(in srgb, var(--dvp-pink) 8%, transparent), transparent 64%);
 }
 .dvp-root *, .dvp-root *::before, .dvp-root *::after { box-sizing: border-box; }
-.dvp-root button, .dvp-root input, .dvp-root select { font: inherit; color: inherit; }
-.dvp-root button { cursor: pointer; }
+.dvp-root button { cursor: pointer; font-family: inherit; }
+.dvp-root input, .dvp-root select { font: inherit; color: inherit; }
 .dvp-root button:disabled { cursor: default; opacity: .42; }
 .dvp-root ::selection { background: color-mix(in srgb, var(--dvp-accent) 26%, transparent); }
 
@@ -2404,6 +3068,425 @@ body[data-ds-dark-theme] .dvp-controls { box-shadow: 0 8px 24px rgba(0, 0, 0, .2
 .dvp-hint-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--dvp-border); }
 .dvp-hint-spacer { flex: 1 1 auto; }
 
+/* \u2500\u2500 dual layout \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+.dvp-stage-dual {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  padding: 8px;
+  min-height: 240px;
+}
+.dvp-stage-dual .dvp-toast { bottom: 18px; }
+.dvp-pane {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, .07);
+  border-radius: 11px;
+  background: #050609;
+  isolation: isolate;
+}
+.dvp-pane.selected {
+  border-color: color-mix(in srgb, var(--dvp-accent) 62%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--dvp-accent) 34%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--dvp-accent) 22%, transparent);
+}
+.dvp-pane.dragging {
+  border-color: var(--dvp-accent);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--dvp-accent) 50%, transparent);
+}
+.dvp-pane-view {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.dvp-pane .dvp-video-host { position: absolute; inset: 0; z-index: 1; }
+.dvp-pane .dvp-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.dvp-pane[data-ready="false"] .dvp-video { opacity: 0; pointer-events: none; }
+
+.dvp-pane-empty {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 18px;
+  color: rgba(255, 255, 255, .9);
+  text-align: center;
+  background:
+    radial-gradient(70% 80% at 50% 38%, color-mix(in srgb, var(--dvp-accent) 13%, transparent), transparent 72%),
+    #080a0f;
+}
+.dvp-pane-empty strong { font-size: 14px; font-weight: 620; letter-spacing: .01em; }
+.dvp-pane-empty > span:not(.dvp-pane-orb) { font-size: 11px; color: rgba(255, 255, 255, .48); }
+.dvp-pane-orb {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 17px;
+  color: #fff;
+  background: linear-gradient(135deg, rgba(79, 140, 255, .3), rgba(124, 108, 255, .2));
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .32), inset 0 1px 0 rgba(255, 255, 255, .1);
+}
+
+.dvp-pane-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 18px;
+  color: rgba(255, 255, 255, .9);
+  text-align: center;
+  background: rgba(8, 10, 15, .9);
+  backdrop-filter: blur(3px);
+}
+.dvp-pane-overlay strong { font-size: 12px; font-weight: 600; }
+.dvp-pane-overlay .dvp-btn { margin-top: 2px; height: 27px; font-size: 11px; }
+.dvp-pane-overlay > span:not(.dvp-spinner):not(.dvp-pane-error-icon) {
+  max-width: 100%;
+  font-size: 11px;
+  color: rgba(255, 255, 255, .5);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dvp-spinner.small { width: 24px; height: 24px; border-width: 2px; }
+.dvp-pane-error-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(229, 72, 77, .24);
+  border-radius: 13px;
+  color: #ffb4b4;
+  background: rgba(229, 72, 77, .14);
+}
+
+.dvp-pane-top {
+  position: absolute;
+  z-index: 4;
+  left: 8px;
+  right: 8px;
+  top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  pointer-events: none;
+}
+.dvp-pane-top .dvp-stage-tag {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: calc(100% - 40px);
+  height: 24px;
+  padding: 0 8px;
+  font-size: 10.5px;
+  pointer-events: auto;
+}
+.dvp-pane.selected .dvp-pane-top .dvp-stage-tag {
+  max-width: calc(100% - 96px);
+}
+.dvp-pane-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  pointer-events: auto;
+}
+.dvp-pane-selected {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: 7px;
+  background: var(--dvp-accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .02em;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--dvp-accent) 38%, transparent);
+}
+.dvp-pane-close {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: 8px;
+  background: rgba(10, 12, 16, .7);
+  color: rgba(255, 255, 255, .82);
+  pointer-events: auto;
+  backdrop-filter: blur(10px);
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+.dvp-pane-close:hover {
+  border-color: color-mix(in srgb, var(--dvp-danger) 55%, transparent);
+  background: color-mix(in srgb, var(--dvp-danger) 24%, rgba(10, 12, 16, .8));
+  color: #fff;
+}
+.dvp-pane-close:active { transform: scale(.94); }
+
+.dvp-pane-bottom {
+  position: absolute;
+  z-index: 3;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  pointer-events: none;
+}
+.dvp-pane-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  pointer-events: auto;
+}
+.dvp-pane .dvp-frame-badge {
+  position: static;
+  left: auto;
+  bottom: auto;
+  height: 26px;
+  padding: 0 8px;
+  font-size: 10.5px;
+  gap: 5px;
+}
+.dvp-pane-footer {
+  position: relative;
+  z-index: 3;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 7px 9px 8px;
+  border-top: 1px solid rgba(255, 255, 255, .09);
+  background: linear-gradient(180deg, rgba(9, 11, 16, .98), rgba(7, 8, 12, .99));
+}
+.dvp-pane.selected .dvp-pane-footer {
+  border-top-color: color-mix(in srgb, var(--dvp-accent) 38%, transparent);
+}
+.dvp-pane-scrub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.dvp-pane-time {
+  flex: 0 0 auto;
+  min-width: 52px;
+  color: rgba(255, 255, 255, .7);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.dvp-pane-time.total { text-align: right; color: rgba(255, 255, 255, .42); }
+.dvp-pane-range-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 20px;
+}
+.dvp-pane-range-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 8px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .13);
+}
+.dvp-pane-range-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--dvp-pane-fill, 0%);
+  border-radius: 999px;
+  background: var(--dvp-accent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--dvp-accent) 45%, transparent);
+}
+.dvp-pane-range-start {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  left: var(--dvp-pane-start, 0%);
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 2px;
+  background: #fff;
+  opacity: .85;
+  box-shadow: 0 0 5px rgba(0, 0, 0, .6);
+}
+.dvp-pane-range {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 20px;
+  margin: 0;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+.dvp-pane-range::-webkit-slider-runnable-track {
+  height: 4px;
+  background: transparent;
+}
+.dvp-pane-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--dvp-accent);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, .4);
+}
+.dvp-pane-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.dvp-pane-start-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: rgba(255, 255, 255, .5);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dvp-pane-setstart {
+  flex: 0 0 auto;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid color-mix(in srgb, var(--dvp-accent) 46%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--dvp-accent) 18%, rgba(10, 12, 16, .8));
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background .15s ease, border-color .15s ease;
+}
+.dvp-pane-setstart:hover {
+  border-color: color-mix(in srgb, var(--dvp-accent) 70%, transparent);
+  background: color-mix(in srgb, var(--dvp-accent) 30%, rgba(10, 12, 16, .8));
+}
+.dvp-pane-setstart:active { transform: scale(.97); }
+.dvp-pane-actions .dvp-select.tiny {
+  margin-left: auto;
+  height: 24px;
+  padding: 0 18px 0 6px;
+  font-size: 10px;
+  background-position: calc(100% - 10px) 10px, calc(100% - 6px) 10px;
+}
+.dvp-select.tiny {
+  height: 26px;
+  padding: 0 21px 0 7px;
+  font-size: 10.5px;
+  background-position: calc(100% - 11px) 11px, calc(100% - 7px) 11px;
+  background-color: rgba(10, 12, 16, .66);
+  color: rgba(255, 255, 255, .72);
+  border-color: rgba(255, 255, 255, .13);
+  backdrop-filter: blur(10px);
+}
+.dvp-select.tiny option { color: var(--dvp-text); background: var(--dvp-surface); }
+.dvp-pane-info {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: rgba(255, 255, 255, .48);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .5);
+}
+.dvp-pane .dvp-drop-hint { font-size: 12px; }
+
+/* \u2500\u2500 layout switch \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+.dvp-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 5px 0 8px;
+  border-radius: 10px;
+  color: var(--dvp-text-2);
+  font-size: 11.5px;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition: background .15s ease, color .15s ease;
+}
+.dvp-switch:hover { background: var(--dvp-hover); color: var(--dvp-text); }
+.dvp-switch-label { line-height: 1; }
+.dvp-switch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.dvp-switch-track {
+  position: relative;
+  width: 32px;
+  height: 18px;
+  flex: 0 0 32px;
+  border: 1px solid var(--dvp-border);
+  border-radius: 999px;
+  background: var(--dvp-surface-2);
+  transition: background .16s ease, border-color .16s ease;
+}
+.dvp-switch-thumb {
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--dvp-surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .28);
+  transform: translateY(-50%);
+  transition: transform .16s ease, background .16s ease;
+}
+.dvp-switch input:checked + .dvp-switch-track {
+  border-color: transparent;
+  background: linear-gradient(135deg, #4f8cff, #7c6cff);
+}
+.dvp-switch input:checked + .dvp-switch-track .dvp-switch-thumb {
+  background: #fff;
+  transform: translate(14px, -50%);
+}
+.dvp-switch input:focus-visible + .dvp-switch-track {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dvp-accent) 26%, transparent);
+}
+button.dvp-chip { cursor: pointer; font: inherit; }
+button.dvp-chip:hover { background: var(--dvp-hover); }
+
 /* \u2500\u2500 responsive \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
 @media (max-width: 780px) {
   .dvp-header { padding: 12px 14px 9px; gap: 10px; }
@@ -2416,12 +3499,20 @@ body[data-ds-dark-theme] .dvp-controls { box-shadow: 0 8px 24px rgba(0, 0, 0, .2
   .dvp-frame-pill { order: 10; }
   .dvp-spacer { display: none; }
   .dvp-volume-range { width: 54px; }
+  .dvp-stage-dual { gap: 5px; padding: 5px; min-height: 200px; }
+  .dvp-pane-info { display: none; }
+  .dvp-pane-empty > span:not(.dvp-pane-orb) { display: none; }
+  .dvp-pane-footer { padding: 6px 7px 7px; gap: 5px; }
+  .dvp-pane-time { min-width: 44px; font-size: 9px; }
+  .dvp-pane-start-label { font-size: 9px; }
+  .dvp-pane-setstart { height: 22px; padding: 0 7px; font-size: 9.5px; }
 }
 @media (max-width: 540px) {
   .dvp-header-actions .dvp-btn span { display: none; }
   .dvp-header-actions .dvp-btn { width: 34px; padding: 0; }
   .dvp-brand-text h1 { font-size: 14px; }
   .dvp-stage { min-height: 170px; }
+  .dvp-stage-dual { gap: 4px; padding: 4px; min-height: 170px; }
   .dvp-empty h2 { font-size: 16px; }
   .dvp-empty p { font-size: 11.5px; }
   .dvp-empty-features { display: none; }
@@ -2429,6 +3520,27 @@ body[data-ds-dark-theme] .dvp-controls { box-shadow: 0 8px 24px rgba(0, 0, 0, .2
   .dvp-frame-badge { font-size: 10px; }
   .dvp-sep { display: none; }
   .dvp-transport { gap: 6px; }
+  .dvp-switch { padding: 0 2px; }
+  .dvp-switch-label { display: none; }
+  .dvp-pane { border-radius: 8px; }
+  .dvp-pane-empty { gap: 7px; padding: 10px; }
+  .dvp-pane-empty strong { font-size: 12px; }
+  .dvp-pane-orb { width: 44px; height: 44px; border-radius: 14px; }
+  .dvp-pane-top { left: 5px; right: 5px; top: 5px; }
+  .dvp-pane-bottom { left: 5px; right: 5px; bottom: 5px; gap: 4px; }
+  .dvp-pane .dvp-frame-badge { height: 23px; padding: 0 6px; font-size: 9.5px; }
+  .dvp-pane-top .dvp-stage-tag { height: 22px; font-size: 9.5px; padding: 0 6px; }
+  .dvp-pane-close { width: 23px; height: 23px; flex-basis: 23px; }
+  .dvp-pane-selected { height: 22px; padding: 0 6px; font-size: 9px; }
+  .dvp-pane-footer { padding: 5px 6px 6px; gap: 4px; }
+  .dvp-pane-time { min-width: 38px; font-size: 8.5px; }
+  .dvp-pane-start-label { display: none; }
+  .dvp-pane-setstart { height: 21px; padding: 0 6px; font-size: 9px; }
+  .dvp-pane-range-wrap { height: 18px; }
+  .dvp-pane-range-track { top: 7px; }
+  .dvp-pane-range { height: 18px; }
+  .dvp-pane-range::-webkit-slider-thumb { width: 11px; height: 11px; margin-top: -3.5px; }
+  .dvp-pane-actions .dvp-select.tiny { height: 21px; font-size: 9px; padding: 0 16px 0 5px; background-position: calc(100% - 9px) 8px, calc(100% - 5px) 8px; }
 }
 @media (max-height: 520px) {
   .dvp-header { padding-top: 9px; padding-bottom: 6px; }
@@ -2436,6 +3548,7 @@ body[data-ds-dark-theme] .dvp-controls { box-shadow: 0 8px 24px rgba(0, 0, 0, .2
   .dvp-controls { padding-top: 8px; padding-bottom: 7px; }
   .dvp-hint { display: none; }
   .dvp-stage { min-height: 140px; }
+  .dvp-stage-dual { min-height: 140px; }
 }
 `;
 

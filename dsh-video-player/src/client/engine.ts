@@ -1,17 +1,18 @@
 /**
  * The player engine.
  *
- * The DOM `<video>` element is owned here instead of by React: it is the one
- * object whose playback state must survive a re-render, and the frame-stepping
- * loops are easier to reason about outside the render cycle. React subscribes to
- * the immutable snapshot with `useSyncExternalStore`.
+ * Two panes live here, each owning its own `<video>` and frame table. The engine
+ * keeps a single shared timeline: a position `t` maps every loaded pane to
+ * `start + t`, so two videos with different in-points play and step together.
+ * A pane's start is snapped to one of its own frame boundaries; frame stepping
+ * advances the shared timeline by one frame of the master pane (the first loaded
+ * pane, left preferred), and every other pane follows that time. With equal
+ * frame rates this is exactly one frame per pane per step; with mixed rates the
+ * master's cadence wins and each pane shows the frame covering that time.
  *
- * Frame-exact stepping is built on top of ordinary `currentTime` seeks. The MP4
- * sample table gives the exact start/duration of every frame, so a step seeks to
- * the middle of the target frame — a point Chrome/Electron resolves to that
- * frame rather than to a nearby keyframe. Reverse playback is the same primitive
- * driven by a backwards loop; it is correct but bounded by the decoder's seek
- * speed.
+ * Frame-exact seeking itself is unchanged from the single-player version: the
+ * MP4 sample table gives every frame's start and duration, and a step seeks to
+ * the middle of the target frame rather than to an arbitrary `currentTime`.
  */
 
 import {
@@ -22,16 +23,17 @@ import {
   type FrameTable,
 } from './mp4'
 
+export type PaneId = 'left' | 'right'
+export type Layout = 'single' | 'dual'
 export type PlayerStatus = 'empty' | 'loading' | 'ready' | 'error'
 export type FrameSource = 'mp4' | 'estimated' | 'none'
 
-export interface PlayerSnapshot {
+export interface PaneSnapshot {
+  readonly id: PaneId
   readonly status: PlayerStatus
   readonly fileName: string
   readonly fileSize: number
-  readonly fileType: string
   readonly error: string | null
-  readonly notice: string | null
   readonly duration: number
   readonly currentTime: number
   readonly frameIndex: number
@@ -40,14 +42,24 @@ export interface PlayerSnapshot {
   readonly width: number
   readonly height: number
   readonly codec: string
+  readonly frameSource: FrameSource
+  readonly start: number
+  readonly loaded: boolean
+}
+
+export interface PlayerSnapshot {
+  readonly layout: Layout
+  readonly left: PaneSnapshot
+  readonly right: PaneSnapshot
+  readonly master: PaneId | null
+  readonly timelinePosition: number
+  readonly timelineDuration: number
   readonly playing: boolean
   readonly reverse: boolean
   readonly muted: boolean
   readonly volume: number
   readonly rate: number
-  readonly scrubbing: boolean
-  readonly buffered: number
-  readonly frameSource: FrameSource
+  readonly notice: string | null
 }
 
 interface Preferences {
@@ -56,41 +68,22 @@ interface Preferences {
   rate: number
 }
 
+interface PaneCallbacks {
+  onChange: () => void
+  onEnded: () => void
+  onError: () => void
+}
+
 const PREFS_KEY = 'dsh-video-player:prefs'
 const HOLD_DELAY_MS = 300
 const HOLD_INTERVAL_MS = 72
 const DEFAULT_FPS = 30
 const RATES = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2]
+/** A microsecond of slack for frame-boundary comparisons with float sums. */
+const TIME_EPSILON = 0.000_001
 
 /** Playback rates offered by the transport menu. */
 export const PLAYBACK_RATES: readonly number[] = RATES
-
-const EMPTY_TIMES = new Float64Array(0)
-
-const INITIAL: PlayerSnapshot = {
-  status: 'empty',
-  fileName: '',
-  fileSize: 0,
-  fileType: '',
-  error: null,
-  notice: null,
-  duration: 0,
-  currentTime: 0,
-  frameIndex: 0,
-  frameCount: 0,
-  fps: 0,
-  width: 0,
-  height: 0,
-  codec: '',
-  playing: false,
-  reverse: false,
-  muted: false,
-  volume: 1,
-  rate: 1,
-  scrubbing: false,
-  buffered: 0,
-  frameSource: 'none',
-}
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value))
@@ -164,115 +157,82 @@ async function loadFrameTable(file: File, duration: number, fallbackFps: number)
   return buildEstimatedFrameTable(duration, fallbackFps)
 }
 
-export class PlayerEngine {
+/**
+ * One video pane. It owns a `<video>`, the MP4 frame table and a start offset;
+ * transport loops live in `PlayerEngine` because they need both panes.
+ */
+export class Pane {
+  readonly id: PaneId
   readonly video: HTMLVideoElement
 
-  private snapshotValue: PlayerSnapshot = INITIAL
-  private readonly listeners = new Set<() => void>()
-  private frames: FrameTable | null = null
+  status: PlayerStatus = 'empty'
+  fileName = ''
+  fileSize = 0
+  error: string | null = null
+  duration = 0
+  width = 0
+  height = 0
+  codec = ''
+  frameSource: FrameSource = 'none'
+  start = 0
+  frames: FrameTable | null = null
+
+  private readonly callbacks: PaneCallbacks
   private objectUrl: string | null = null
   private loadToken = 0
   private seekGeneration = 0
-  private targetFrame = 0
-  private queuedSteps = 0
-  private stepping = false
-  private stepPromise: Promise<void> = Promise.resolve()
-  private holdDirection: -1 | 0 | 1 = 0
-  private holdStride = 1
-  private holdTimer: number | null = null
-  private reverseToken = 0
-  private scrubbing = false
-  private scrubWasPlaying = false
-  private scrubWasReverse = false
-  private noticeTimer: number | null = null
-  private frameCallbackId: number | null = null
   private disposed = false
-  private lastTimeEmit = 0
-  private readonly preferences: Preferences
 
-  constructor() {
-    this.preferences = readPreferences()
+  constructor(id: PaneId, callbacks: PaneCallbacks, preferences: Preferences) {
+    this.id = id
+    this.callbacks = callbacks
     const video = document.createElement('video')
     video.className = 'dvp-video'
     video.playsInline = true
     video.preload = 'auto'
     video.controls = false
     video.disablePictureInPicture = true
-    video.muted = this.preferences.muted
-    video.volume = this.preferences.volume
+    video.muted = preferences.muted
+    video.volume = preferences.volume
+    video.playbackRate = preferences.rate
     this.video = video
-    this.snapshotValue = {
-      ...INITIAL,
-      muted: this.preferences.muted,
-      volume: this.preferences.volume,
-      rate: this.preferences.rate,
-    }
-    this.bindVideoEvents()
-    this.bindFrameCallback()
+    this.bindEvents()
   }
 
-  // -- React store interface ------------------------------------------------
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener)
-    return () => {
-      this.listeners.delete(listener)
-    }
+  get loaded(): boolean {
+    return this.status === 'ready'
   }
 
-  getSnapshot = (): PlayerSnapshot => this.snapshotValue
-
-  private patch(next: Partial<PlayerSnapshot>): void {
-    this.snapshotValue = { ...this.snapshotValue, ...next }
-    for (const listener of this.listeners) listener()
+  get currentTime(): number {
+    return this.video.currentTime
   }
 
-  /** A getter keeps TypeScript from narrowing the status across an await. */
-  private get failed(): boolean {
-    return this.snapshotValue.status === 'error'
+  get fps(): number {
+    return this.frames?.fps ?? 0
   }
 
-  // -- lifecycle ------------------------------------------------------------
-
-  /** Put the video element into the page's stage. */
   attach(container: HTMLElement): void {
     if (this.video.parentElement !== container) container.append(this.video)
   }
 
-  /** Remove the video element; keep the file and position for the next mount. */
   detach(): void {
-    this.endAllHolds()
-    this.reverseToken += 1
     this.seekGeneration += 1
-    this.queuedSteps = 0
     if (!this.video.paused) this.video.pause()
-    this.snapshotValue = { ...this.snapshotValue, playing: false, reverse: false, scrubbing: false }
-    this.scrubbing = false
     this.video.remove()
   }
 
   dispose(): void {
     this.disposed = true
-    this.listeners.clear()
     this.loadToken += 1
     this.seekGeneration += 1
-    this.reverseToken += 1
-    this.endAllHolds()
-    if (this.noticeTimer !== null) window.clearTimeout(this.noticeTimer)
-    this.noticeTimer = null
-    if (this.frameCallbackId !== null && typeof this.video.cancelVideoFrameCallback === 'function') {
-      this.video.cancelVideoFrameCallback(this.frameCallbackId)
-    }
-    this.frameCallbackId = null
     this.video.removeEventListener('loadedmetadata', this.onLoadedMetadata)
     this.video.removeEventListener('durationchange', this.onDurationChange)
     this.video.removeEventListener('timeupdate', this.onTimeUpdate)
-    this.video.removeEventListener('progress', this.onProgress)
     this.video.removeEventListener('play', this.onPlay)
     this.video.removeEventListener('pause', this.onPause)
     this.video.removeEventListener('ended', this.onEnded)
     this.video.removeEventListener('volumechange', this.onVolumeChange)
-    this.video.removeEventListener('error', this.onVideoError)
+    this.video.removeEventListener('error', this.onError)
     this.revokeObjectUrl()
     this.video.pause()
     this.video.removeAttribute('src')
@@ -280,55 +240,40 @@ export class PlayerEngine {
     this.video.remove()
   }
 
-  // -- file handling --------------------------------------------------------
-
-  async openFile(file: File): Promise<void> {
-    if (this.disposed) return
+  async openFile(file: File, fallbackFps = DEFAULT_FPS): Promise<boolean> {
+    if (this.disposed) return false
     if (!looksLikeVideo(file)) {
-      this.notify('请选择视频文件（推荐 MP4 / H.264）')
-      return
+      this.status = 'error'
+      this.error = '请选择视频文件（推荐 MP4 / H.264）'
+      this.callbacks.onChange()
+      return false
     }
     if (file.size === 0) {
-      this.notify('这个文件是空的')
-      return
+      this.status = 'error'
+      this.error = '这个文件是空的'
+      this.callbacks.onChange()
+      return false
     }
     const token = ++this.loadToken
-    this.endAllHolds()
-    this.stopReverse()
-    this.pauseForward()
-    this.scrubbing = false
     this.seekGeneration += 1
-    this.frames = null
-    this.queuedSteps = 0
-    this.targetFrame = 0
     this.revokeObjectUrl()
+    this.frames = null
+    this.start = 0
+    this.status = 'loading'
+    this.fileName = file.name
+    this.fileSize = file.size
+    this.error = null
+    this.duration = 0
+    this.width = 0
+    this.height = 0
+    this.codec = ''
+    this.frameSource = 'none'
     this.objectUrl = URL.createObjectURL(file)
-    this.patch({
-      status: 'loading',
-      fileName: file.name,
-      fileSize: file.size,
-      fileType: file.type,
-      error: null,
-      notice: null,
-      duration: 0,
-      currentTime: 0,
-      frameIndex: 0,
-      frameCount: 0,
-      fps: 0,
-      width: 0,
-      height: 0,
-      codec: '',
-      playing: false,
-      reverse: false,
-      scrubbing: false,
-      buffered: 0,
-      frameSource: 'none',
-    })
-
-    // Reset the previous source first: otherwise a readyState left over from
-    // the old file would make waitForMetadata resolve without the new metadata.
+    this.video.pause()
     this.video.removeAttribute('src')
     this.video.load()
+    this.callbacks.onChange()
+
     const metadata = this.waitForMetadata()
     this.video.src = this.objectUrl
     this.video.load()
@@ -336,522 +281,244 @@ export class PlayerEngine {
     try {
       await metadata
     } catch (error) {
-      if (token !== this.loadToken) return
-      this.patch({
-        status: 'error',
-        error: error instanceof Error ? error.message : '无法读取该视频',
-      })
-      return
+      if (token !== this.loadToken) return false
+      this.status = 'error'
+      this.error = error instanceof Error ? error.message : '无法读取该视频'
+      this.callbacks.onChange()
+      return false
     }
-    if (token !== this.loadToken || this.failed) return
+    if (token !== this.loadToken || this.disposed) return false
 
     const duration = Number.isFinite(this.video.duration) && this.video.duration > 0
       ? this.video.duration
       : 0
-    const table = await loadFrameTable(file, duration, DEFAULT_FPS)
-    if (token !== this.loadToken || this.failed) return
+    const table = await loadFrameTable(file, duration, fallbackFps)
+    if (token !== this.loadToken || this.disposed) return false
 
     this.frames = table
-    this.targetFrame = 0
-    this.patch({
-      status: 'ready',
-      duration,
-      frameCount: table.totalFrames,
-      fps: table.fps,
-      width: this.video.videoWidth || table.width,
-      height: this.video.videoHeight || table.height,
-      codec: codecLabel(table.codec),
-      frameSource: table.kind,
-      frameIndex: 0,
-      currentTime: 0,
-      buffered: this.bufferedEnd(),
-    })
-
-    // Paint the first frame immediately. A seek to the middle of frame 0 asks
-    // the decoder for a displayed frame instead of the black pre-roll.
-    await this.seekToFrame(0)
-    if (token !== this.loadToken) return
-    if (table.kind === 'estimated') {
-      this.notify('未能读取精确帧表，当前按 30fps 估算')
-    }
-    this.video.focus?.()
+    this.duration = duration
+    this.status = 'ready'
+    this.width = this.video.videoWidth || table.width
+    this.height = this.video.videoHeight || table.height
+    this.codec = codecLabel(table.codec)
+    this.frameSource = table.kind
+    this.start = 0
+    this.callbacks.onChange()
+    return true
   }
 
-  closeFile(): void {
+  close(): void {
     this.loadToken += 1
-    this.endAllHolds()
-    this.stopReverse()
-    this.pauseForward()
-    this.scrubbing = false
     this.seekGeneration += 1
-    this.frames = null
-    this.queuedSteps = 0
     this.revokeObjectUrl()
+    this.video.pause()
     this.video.removeAttribute('src')
     this.video.load()
-    this.targetFrame = 0
-    this.patch({ ...INITIAL, muted: this.preferences.muted, volume: this.preferences.volume, rate: this.preferences.rate })
+    this.frames = null
+    this.status = 'empty'
+    this.fileName = ''
+    this.fileSize = 0
+    this.error = null
+    this.duration = 0
+    this.width = 0
+    this.height = 0
+    this.codec = ''
+    this.frameSource = 'none'
+    this.start = 0
+    this.callbacks.onChange()
   }
 
-  // -- transport ------------------------------------------------------------
-
-  async togglePlay(): Promise<void> {
-    if (this.snapshotValue.status !== 'ready') return
-    if (this.snapshotValue.playing) {
-      this.pauseForward()
-      return
-    }
-    await this.play()
-  }
-
-  async play(): Promise<void> {
-    if (this.snapshotValue.status !== 'ready') return
-    this.endAllHolds()
-    this.stopReverse()
-    if (this.video.ended || this.video.currentTime >= this.snapshotValue.duration - 0.001) {
-      await this.seekToFrame(0)
-    }
-    this.video.playbackRate = this.snapshotValue.rate
-    try {
-      await this.video.play()
-    } catch (error) {
-      this.patch({
-        playing: false,
-        error: error instanceof Error ? `无法开始播放：${error.message}` : '无法开始播放',
-      })
-    }
-  }
-
-  pauseForward(): void {
-    if (!this.video.paused) this.video.pause()
-    if (this.snapshotValue.playing) this.patch({ playing: false })
-    if (this.frames !== null && !this.stepping && !this.scrubbing && !this.snapshotValue.reverse) {
-      const index = frameIndexAt(this.frames.times, this.video.currentTime)
-      this.targetFrame = index
-      if (index !== this.snapshotValue.frameIndex) this.patch({ frameIndex: index })
+  snapshot(): PaneSnapshot {
+    const currentTime = this.status === 'ready' ? this.video.currentTime : 0
+    const frameIndex = this.frames === null
+      ? 0
+      : frameIndexAt(this.frames.times, currentTime)
+    return {
+      id: this.id,
+      status: this.status,
+      fileName: this.fileName,
+      fileSize: this.fileSize,
+      error: this.error,
+      duration: this.duration,
+      currentTime,
+      frameIndex,
+      frameCount: this.frames?.totalFrames ?? 0,
+      fps: this.frames?.fps ?? 0,
+      width: this.width,
+      height: this.height,
+      codec: this.codec,
+      frameSource: this.frameSource,
+      start: this.start,
+      loaded: this.status === 'ready',
     }
   }
 
-  /** Start or stop continuous reverse playback. */
-  toggleReverse(): void {
-    if (this.snapshotValue.status !== 'ready') return
-    if (this.snapshotValue.reverse) {
-      this.stopReverse()
-      this.notify('已停止倒放')
-      return
-    }
-    this.endAllHolds()
-    this.pauseForward()
-    this.patch({ reverse: true, playing: false, error: null })
-    void this.runReverse()
+  frameIndexAt(time: number): number {
+    if (this.frames === null) return 0
+    return frameIndexAt(
+      this.frames.times,
+      clamp(time + TIME_EPSILON, 0, Math.max(0, this.duration)),
+    )
   }
 
-  private stopReverse(): void {
-    if (!this.snapshotValue.reverse) return
-    this.reverseToken += 1
-    this.patch({ reverse: false })
+  frameStart(index: number): number {
+    if (this.frames === null) return 0
+    return this.frames.times[clamp(Math.round(index), 0, this.frames.totalFrames - 1)] ?? 0
   }
 
-  private async runReverse(): Promise<void> {
-    const token = ++this.reverseToken
-    while (!this.disposed && this.snapshotValue.reverse && token === this.reverseToken) {
-      const next = this.targetFrame - 1
-      if (next < 0) {
-        this.patch({ reverse: false })
-        this.notify('已到视频开头')
-        return
-      }
-      const started = performance.now()
-      await this.seekToFrame(next)
-      if (!this.snapshotValue.reverse || token !== this.reverseToken) return
-      const frameDuration = this.frames?.durations[next] ?? 1 / Math.max(1, this.snapshotValue.fps)
-      const interval = Math.max(8, (frameDuration * 1000) / this.snapshotValue.rate)
-      const elapsed = performance.now() - started
-      if (elapsed < interval) await delay(interval - elapsed)
-    }
+  frameDuration(index: number): number {
+    if (this.frames === null) return 1 / Math.max(1, this.fps)
+    return this.frames.durations[clamp(Math.round(index), 0, this.frames.totalFrames - 1)] ?? 1 / Math.max(1, this.fps)
   }
 
-  // -- frame stepping -------------------------------------------------------
-
-  /** Step by `delta` frames, coalescing rapid repeated calls. */
-  step(delta: number, fromHold = false): Promise<void> {
-    if (this.snapshotValue.status !== 'ready' || this.frames === null) return Promise.resolve()
-    this.stopReverse()
-    this.pauseForward()
-    if (!fromHold) this.endAllHolds()
-    const next = clamp(this.targetFrame + delta, 0, this.frames.totalFrames - 1)
-    if (next === this.targetFrame) return Promise.resolve()
-    this.queuedSteps += next - this.targetFrame
-    if (this.stepping) return this.stepPromise
-
-    this.stepping = true
-    this.stepPromise = (async () => {
-      try {
-        while (this.queuedSteps !== 0) {
-          const direction = this.queuedSteps > 0 ? 1 : -1
-          this.queuedSteps -= direction
-          const target = this.targetFrame + direction
-          await this.seekToFrame(target)
-        }
-      } finally {
-        this.stepping = false
-        this.queuedSteps = 0
-      }
-    })()
-    return this.stepPromise
+  frameMidpoint(index: number): number {
+    if (this.frames === null) return this.video.currentTime
+    const safe = clamp(Math.round(index), 0, this.frames.totalFrames - 1)
+    const start = this.frames.times[safe] ?? 0
+    const declared = this.frames.durations[safe] ?? 1 / Math.max(1, this.fps)
+    const next = safe + 1 < this.frames.times.length
+      ? this.frames.times[safe + 1] ?? start + declared
+      : start + declared
+    const span = Math.max(0.000_5, next - start)
+    const midpoint = start + span / 2
+    const limit = Math.max(0, this.duration - 0.000_5)
+    return clamp(midpoint, 0, limit > 0 ? limit : midpoint)
   }
 
-  /** Begin a held arrow key: one immediate step, then a steady repeat. */
-  beginHold(direction: -1 | 1, stride = 1): void {
-    if (this.snapshotValue.status !== 'ready') return
-    this.holdDirection = direction
-    this.holdStride = stride
-    this.clearHoldTimer()
-    void this.step(direction * stride, true)
-    this.holdTimer = window.setTimeout(() => this.holdTick(direction), HOLD_DELAY_MS)
+  /** Snap a requested in-point to the start of the frame that covers it. */
+  snapStart(seconds: number): number {
+    if (this.frames === null) return clamp(seconds, 0, Math.max(0, this.duration - 0.001))
+    const index = this.frameIndexAt(seconds)
+    return clamp(this.frameStart(index), 0, Math.max(0, this.duration - 0.001))
   }
 
-  endHold(direction: -1 | 1): void {
-    if (this.holdDirection !== direction) return
-    this.holdDirection = 0
-    this.clearHoldTimer()
+  setStart(seconds: number): void {
+    this.start = clamp(seconds, 0, Math.max(0, this.duration - 0.001))
   }
 
-  endAllHolds(): void {
-    this.holdDirection = 0
-    this.clearHoldTimer()
-  }
-
-  private holdTick(direction: -1 | 1): void {
-    if (this.holdDirection !== direction) return
-    const started = performance.now()
-    void this.step(direction * this.holdStride, true).then(() => {
-      if (this.holdDirection !== direction) return
-      const elapsed = performance.now() - started
-      const wait = Math.max(0, HOLD_INTERVAL_MS - elapsed)
-      this.holdTimer = window.setTimeout(() => this.holdTick(direction), wait)
-    })
-  }
-
-  private clearHoldTimer(): void {
-    if (this.holdTimer !== null) window.clearTimeout(this.holdTimer)
-    this.holdTimer = null
-  }
-
-  firstFrame(): void {
-    this.jumpToFrame(0)
-  }
-
-  lastFrame(): void {
-    this.jumpToFrame((this.frames?.totalFrames ?? 1) - 1)
-  }
-
-  /** Jump straight to a frame instead of walking there one frame at a time. */
-  jumpToFrame(index: number): void {
-    if (this.snapshotValue.status !== 'ready' || this.frames === null) return
-    this.endAllHolds()
-    this.stopReverse()
-    this.pauseForward()
-    this.queuedSteps = 0
-    void this.seekToFrame(index)
-  }
-
-  // -- seeking / scrubbing --------------------------------------------------
-
-  scrubStart(): void {
-    if (this.snapshotValue.status !== 'ready') return
-    this.scrubWasPlaying = this.snapshotValue.playing
-    this.scrubWasReverse = this.snapshotValue.reverse
-    this.endAllHolds()
-    // Do not notify React here. A controlled range must keep its value while
-    // the browser is applying the click's default action; re-rendering on
-    // pointerdown would snap the thumb back before the input event arrives.
-    if (this.scrubWasReverse) this.reverseToken += 1
-    this.snapshotValue = {
-      ...this.snapshotValue,
-      playing: false,
-      reverse: false,
-    }
-    if (!this.video.paused) this.video.pause()
-    this.scrubbing = true
-  }
-
-  scrubTo(seconds: number): void {
-    if (this.snapshotValue.status !== 'ready') return
-    const time = clamp(seconds, 0, Math.max(0, this.snapshotValue.duration - 0.000_5))
-    this.seekGeneration += 1
-    this.video.currentTime = time
-    const index = frameIndexAt(this.frames?.times ?? EMPTY_TIMES, time)
-    this.targetFrame = index
-    this.patch({
-      currentTime: time,
-      frameIndex: index,
-      buffered: this.bufferedEnd(),
-    })
-  }
-
-  async scrubEnd(seconds: number): Promise<void> {
-    if (this.snapshotValue.status !== 'ready') return
-    this.scrubTo(seconds)
-    this.scrubbing = false
-    this.patch({ scrubbing: false })
-    const index = frameIndexAt(this.frames?.times ?? EMPTY_TIMES, seconds)
-    await this.seekToFrame(index)
-    if (this.scrubWasReverse) {
-      this.scrubWasReverse = false
-      this.toggleReverse()
-    } else if (this.scrubWasPlaying) {
-      this.scrubWasPlaying = false
-      await this.play()
-    } else {
-      this.scrubWasPlaying = false
-    }
-  }
-
-  /** Seek to a frame by index; resolves once the frame is presented. */
-  seekToFrame(index: number): Promise<void> {
-    const frames = this.frames
-    if (frames === null || this.snapshotValue.status !== 'ready') return Promise.resolve()
-    const clamped = clamp(Math.round(index), 0, frames.totalFrames - 1)
-    this.targetFrame = clamped
-    const target = this.frameMidpoint(clamped)
+  async seekToFrame(index: number): Promise<void> {
+    if (this.frames === null || this.status !== 'ready') return
+    const safe = clamp(Math.round(index), 0, this.frames.totalFrames - 1)
+    const target = this.frameMidpoint(safe)
     const generation = ++this.seekGeneration
 
     const finish = (): void => {
-      if (generation !== this.seekGeneration) return
-      this.targetFrame = clamped
-      const current = this.video.currentTime
-      const shown = frameIndexAt(frames.times, current)
-      // The target is authoritative while a step is in flight; the displayed
-      // frame index is used when the decoder landed on the right frame.
-      const indexNow = shown === clamped ? shown : clamped
-      this.patch({
-        frameIndex: indexNow,
-        currentTime: current,
-        buffered: this.bufferedEnd(),
-      })
+      if (generation !== this.seekGeneration || this.disposed) return
+      this.callbacks.onChange()
     }
 
     if (Math.abs(this.video.currentTime - target) <= 0.000_5) {
       return this.afterPaint().then(finish)
     }
     this.video.currentTime = target
-    return this.waitForSeek(generation).then(() => {
-      if (generation !== this.seekGeneration) return
-      return this.afterPaint().then(finish)
-    })
+    await this.waitForSeek(generation)
+    if (generation !== this.seekGeneration || this.disposed) return
+    await this.afterPaint()
+    finish()
   }
 
-  private frameMidpoint(index: number): number {
-    const frames = this.frames
-    if (frames === null) return 0
-    const start = frames.times[index] ?? 0
-    const declaredDuration = frames.durations[index] ?? 1 / Math.max(1, this.snapshotValue.fps)
-    const next = index + 1 < frames.times.length ? frames.times[index + 1]! : start + declaredDuration
-    const duration = Math.max(0.000_5, next - start)
-    const midpoint = start + duration / 2
-    const limit = Math.max(0, this.snapshotValue.duration - 0.000_5)
-    return clamp(midpoint, 0, limit > 0 ? limit : midpoint)
+  async seekToTime(seconds: number): Promise<void> {
+    if (this.status !== 'ready') return
+    if (this.frames === null) {
+      const target = clamp(seconds, 0, Math.max(0, this.duration - 0.000_5))
+      const generation = ++this.seekGeneration
+      this.video.currentTime = target
+      await this.waitForSeek(generation)
+      if (generation === this.seekGeneration && !this.disposed) this.callbacks.onChange()
+      return
+    }
+    await this.seekToFrame(this.frameIndexAt(seconds))
   }
 
-  private waitForSeek(generation: number): Promise<void> {
-    return new Promise((resolve) => {
-      let settled = false
-      const finish = (): void => {
-        if (settled) return
-        settled = true
-        this.video.removeEventListener('seeked', onSeeked)
-        this.video.removeEventListener('error', finish)
-        window.clearTimeout(timer)
-        resolve()
-      }
-      const onSeeked = (): void => {
-        finish()
-      }
-      const timer = window.setTimeout(finish, 1200)
-      this.video.addEventListener('seeked', onSeeked)
-      this.video.addEventListener('error', finish)
-      // A cached seek can complete before the listener is installed; the
-      // generation check in the caller keeps a stale completion from winning.
-      // The timeout is the only fallback: resolving on the next rAF could paint
-      // the previous frame and make the next step skip one.
-    })
+  setEstimatedFps(fps: number): boolean {
+    if (this.frameSource !== 'estimated' || !(this.duration > 0)) return false
+    this.frames = buildEstimatedFrameTable(this.duration, fps)
+    this.frameSource = 'estimated'
+    this.start = clamp(this.start, 0, Math.max(0, this.duration - 0.001))
+    this.callbacks.onChange()
+    return true
   }
 
-  private afterPaint(): Promise<void> {
-    return new Promise((resolve) => {
-      let settled = false
-      const finish = (): void => {
-        if (settled) return
-        settled = true
-        window.clearTimeout(timer)
-        resolve()
-      }
-      const timer = window.setTimeout(finish, 120)
-      if (typeof this.video.requestVideoFrameCallback === 'function') {
-        const handle = this.video.requestVideoFrameCallback(() => finish())
-        // If the timeout wins, cancel the pending callback where supported.
-        window.setTimeout(() => {
-          if (settled && typeof this.video.cancelVideoFrameCallback === 'function') {
-            this.video.cancelVideoFrameCallback(handle)
-          }
-        }, 140)
-      } else {
-        window.requestAnimationFrame(() => window.requestAnimationFrame(finish))
-      }
-    })
+  async play(): Promise<void> {
+    if (this.status !== 'ready') return
+    await this.video.play()
   }
 
-  // -- preferences / audio --------------------------------------------------
+  pause(): void {
+    if (!this.video.paused) this.video.pause()
+  }
 
-  toggleMute(): void {
-    this.setMuted(!this.snapshotValue.muted)
+  setRate(rate: number): void {
+    this.video.playbackRate = rate
   }
 
   setMuted(muted: boolean): void {
     this.video.muted = muted
-    this.preferences.muted = muted
-    savePreferences(this.preferences)
-    this.patch({ muted })
   }
 
   setVolume(volume: number): void {
-    const next = clamp(volume, 0, 1)
-    this.video.volume = next
-    if (next > 0 && this.video.muted) this.video.muted = false
-    this.preferences.volume = next
-    this.preferences.muted = this.video.muted
-    savePreferences(this.preferences)
-    this.patch({ volume: next, muted: this.video.muted })
+    this.video.volume = clamp(volume, 0, 1)
   }
 
-  setRate(rate: number): void {
-    const next = RATES.includes(rate) ? rate : 1
-    this.video.playbackRate = next
-    this.preferences.rate = next
-    savePreferences(this.preferences)
-    this.patch({ rate: next })
-  }
-
-  setEstimatedFps(fps: number): void {
-    if (this.snapshotValue.frameSource !== 'estimated') return
-    const duration = this.snapshotValue.duration
-    if (!(duration > 0)) return
-    const table = buildEstimatedFrameTable(duration, fps)
-    this.frames = table
-    const index = frameIndexAt(table.times, this.video.currentTime)
-    this.targetFrame = index
-    this.patch({
-      frameCount: table.totalFrames,
-      fps: table.fps,
-      frameIndex: index,
-    })
-  }
-
-  // -- notification ---------------------------------------------------------
-
-  private notify(text: string): void {
-    if (this.noticeTimer !== null) window.clearTimeout(this.noticeTimer)
-    this.patch({ notice: text })
-    this.noticeTimer = window.setTimeout(() => {
-      this.noticeTimer = null
-      this.patch({ notice: null })
-    }, 2400)
-  }
-
-  // -- video events ---------------------------------------------------------
-
-  private bindVideoEvents(): void {
+  private bindEvents(): void {
     this.video.addEventListener('loadedmetadata', this.onLoadedMetadata)
     this.video.addEventListener('durationchange', this.onDurationChange)
     this.video.addEventListener('timeupdate', this.onTimeUpdate)
-    this.video.addEventListener('progress', this.onProgress)
     this.video.addEventListener('play', this.onPlay)
     this.video.addEventListener('pause', this.onPause)
     this.video.addEventListener('ended', this.onEnded)
     this.video.addEventListener('volumechange', this.onVolumeChange)
-    this.video.addEventListener('error', this.onVideoError)
+    this.video.addEventListener('error', this.onError)
   }
 
   private onLoadedMetadata = (): void => {
-    if (this.snapshotValue.status !== 'loading' && this.snapshotValue.status !== 'ready') return
-    this.patch({
-      duration: Number.isFinite(this.video.duration) ? this.video.duration : this.snapshotValue.duration,
-      width: this.video.videoWidth || this.snapshotValue.width,
-      height: this.video.videoHeight || this.snapshotValue.height,
-      buffered: this.bufferedEnd(),
-    })
+    if (this.status !== 'loading' && this.status !== 'ready') return
+    this.duration = Number.isFinite(this.video.duration) && this.video.duration > 0
+      ? this.video.duration
+      : this.duration
+    this.width = this.video.videoWidth || this.width
+    this.height = this.video.videoHeight || this.height
+    this.callbacks.onChange()
   }
 
   private onDurationChange = (): void => {
-    if (!Number.isFinite(this.video.duration)) return
-    if (Math.abs(this.video.duration - this.snapshotValue.duration) < 0.001) return
-    this.patch({ duration: this.video.duration })
+    if (!Number.isFinite(this.video.duration) || this.video.duration <= 0) return
+    if (Math.abs(this.video.duration - this.duration) < 0.001) return
+    this.duration = this.video.duration
+    this.start = clamp(this.start, 0, Math.max(0, this.duration - 0.001))
+    this.callbacks.onChange()
   }
 
   private onTimeUpdate = (): void => {
-    if (this.snapshotValue.status !== 'ready') return
-    if (this.stepping || this.scrubbing || this.snapshotValue.reverse) return
-    const index = frameIndexAt(this.frames?.times ?? EMPTY_TIMES, this.video.currentTime)
-    this.targetFrame = index
-    this.patch({
-      currentTime: this.video.currentTime,
-      frameIndex: index,
-      buffered: this.bufferedEnd(),
-    })
-  }
-
-  private onProgress = (): void => {
-    this.patch({ buffered: this.bufferedEnd() })
+    if (this.status !== 'ready') return
+    this.callbacks.onChange()
   }
 
   private onPlay = (): void => {
-    this.patch({ playing: true, reverse: false, error: null })
+    this.callbacks.onChange()
   }
 
   private onPause = (): void => {
-    if (this.snapshotValue.playing) this.patch({ playing: false })
+    this.callbacks.onChange()
   }
 
   private onEnded = (): void => {
-    this.patch({ playing: false, reverse: false })
-    if (this.frames !== null) {
-      this.targetFrame = this.frames.totalFrames - 1
-      this.patch({ frameIndex: this.targetFrame })
-    }
+    this.callbacks.onEnded()
+    this.callbacks.onChange()
   }
 
   private onVolumeChange = (): void => {
-    this.patch({ volume: this.video.volume, muted: this.video.muted })
+    this.callbacks.onChange()
   }
 
-  private onVideoError = (): void => {
-    if (this.snapshotValue.status === 'empty') return
-    this.patch({ status: 'error', playing: false, error: videoErrorMessage(this.video.error) })
+  private onError = (): void => {
+    if (this.video.getAttribute('src') === null) return
+    if (this.status === 'empty') return
+    this.status = 'error'
+    this.error = videoErrorMessage(this.video.error)
+    this.callbacks.onError()
+    this.callbacks.onChange()
   }
-
-  private bindFrameCallback(): void {
-    if (typeof this.video.requestVideoFrameCallback !== 'function') return
-    const onFrame = (_now: number, metadata: VideoFrameCallbackMetadata): void => {
-      if (this.disposed) return
-      this.frameCallbackId = this.video.requestVideoFrameCallback(onFrame)
-      if (this.snapshotValue.status !== 'ready') return
-      if (this.stepping || this.scrubbing || this.snapshotValue.reverse) return
-      const index = frameIndexAt(this.frames?.times ?? EMPTY_TIMES, metadata.mediaTime)
-      const now = performance.now()
-      const changed = index !== this.snapshotValue.frameIndex
-      if (!changed && now - this.lastTimeEmit < 120) return
-      this.lastTimeEmit = now
-      this.patch({
-        frameIndex: index,
-        currentTime: metadata.mediaTime,
-        buffered: this.bufferedEnd(),
-      })
-    }
-    this.frameCallbackId = this.video.requestVideoFrameCallback(onFrame)
-  }
-
-  // -- helpers --------------------------------------------------------------
 
   private waitForMetadata(): Promise<void> {
     if (this.video.readyState >= 1) return Promise.resolve()
@@ -885,24 +552,709 @@ export class PlayerEngine {
     })
   }
 
-  private bufferedEnd(): number {
-    try {
-      const ranges = this.video.buffered
-      const current = this.video.currentTime
-      let best = 0
-      for (let i = 0; i < ranges.length; i += 1) {
-        if (ranges.start(i) <= current + 0.1 && ranges.end(i) >= current) return ranges.end(i)
-        best = Math.max(best, ranges.end(i))
+  private waitForSeek(generation: number): Promise<void> {
+    return new Promise((resolve) => {
+      let settled = false
+      const finish = (): void => {
+        if (settled) return
+        settled = true
+        this.video.removeEventListener('seeked', onSeeked)
+        this.video.removeEventListener('error', finish)
+        window.clearTimeout(timer)
+        resolve()
       }
-      return best
-    } catch {
-      return 0
-    }
+      const onSeeked = (): void => {
+        if (generation !== this.seekGeneration) {
+          finish()
+          return
+        }
+        finish()
+      }
+      const timer = window.setTimeout(finish, 1200)
+      this.video.addEventListener('seeked', onSeeked)
+      this.video.addEventListener('error', finish)
+    })
+  }
+
+  private afterPaint(): Promise<void> {
+    return new Promise((resolve) => {
+      let settled = false
+      const finish = (): void => {
+        if (settled) return
+        settled = true
+        window.clearTimeout(timer)
+        resolve()
+      }
+      const timer = window.setTimeout(finish, 120)
+      if (typeof this.video.requestVideoFrameCallback === 'function') {
+        const handle = this.video.requestVideoFrameCallback(() => finish())
+        window.setTimeout(() => {
+          if (settled && typeof this.video.cancelVideoFrameCallback === 'function') {
+            this.video.cancelVideoFrameCallback(handle)
+          }
+        }, 140)
+      } else {
+        window.requestAnimationFrame(() => window.requestAnimationFrame(finish))
+      }
+    })
   }
 
   private revokeObjectUrl(): void {
     if (this.objectUrl === null) return
     URL.revokeObjectURL(this.objectUrl)
     this.objectUrl = null
+  }
+}
+
+/**
+ * The two-pane player. Transport is global; each pane contributes a video, a
+ * frame table and a start offset.
+ */
+export class PlayerEngine {
+  readonly left: Pane
+  readonly right: Pane
+
+  private snapshotValue: PlayerSnapshot
+  private readonly listeners = new Set<() => void>()
+  private layout: Layout = 'single'
+  private timelineValue = 0
+  private playing = false
+  private reverse = false
+  private reverseToken = 0
+  private queuedSteps = 0
+  private stepping = false
+  private stepPromise: Promise<void> = Promise.resolve()
+  private holdDirection: -1 | 0 | 1 = 0
+  private holdStride = 1
+  private holdPane: PaneId | null = null
+  private holdTimer: number | null = null
+  private scrubWasPlaying = false
+  private scrubWasReverse = false
+  private noticeTimer: number | null = null
+  private syncRaf = 0
+  private disposed = false
+  private readonly preferences: Preferences
+
+  constructor() {
+    this.preferences = readPreferences()
+    const callbacks: PaneCallbacks = {
+      onChange: () => this.handlePaneChange(),
+      onEnded: () => this.handlePaneEnded(),
+      onError: () => this.handlePaneError(),
+    }
+    this.left = new Pane('left', callbacks, this.preferences)
+    this.right = new Pane('right', callbacks, this.preferences)
+    this.snapshotValue = {
+      layout: 'single',
+      left: this.left.snapshot(),
+      right: this.right.snapshot(),
+      master: null,
+      timelinePosition: 0,
+      timelineDuration: 0,
+      playing: false,
+      reverse: false,
+      muted: this.preferences.muted,
+      volume: this.preferences.volume,
+      rate: this.preferences.rate,
+      notice: null,
+    }
+  }
+
+  // -- React store interface ------------------------------------------------
+
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
+    }
+  }
+
+  getSnapshot = (): PlayerSnapshot => this.snapshotValue
+
+  // -- page lifecycle -------------------------------------------------------
+
+  /** Pause everything and detach both video elements without notifying React. */
+  detach(): void {
+    this.endAllHolds()
+    this.haltSilently()
+    this.snapshotValue = {
+      ...this.snapshotValue,
+      playing: false,
+      reverse: false,
+    }
+    this.left.detach()
+    this.right.detach()
+  }
+
+  dispose(): void {
+    this.disposed = true
+    this.listeners.clear()
+    this.haltSilently()
+    this.endAllHolds()
+    if (this.noticeTimer !== null) window.clearTimeout(this.noticeTimer)
+    this.noticeTimer = null
+    this.left.dispose()
+    this.right.dispose()
+  }
+
+  // -- layout / files -------------------------------------------------------
+
+  setLayout(layout: Layout): void {
+    if (this.layout === layout || this.disposed) return
+    this.haltSilently()
+    this.endAllHolds()
+    this.layout = layout
+    this.timelineValue = 0
+    this.refresh()
+    void this.seekTimeline(0)
+  }
+
+  async openPane(paneId: PaneId, file: File): Promise<void> {
+    if (this.disposed) return
+    if (!looksLikeVideo(file)) {
+      this.notify('请选择视频文件（推荐 MP4 / H.264）')
+      return
+    }
+    if (file.size === 0) {
+      this.notify('这个文件是空的')
+      return
+    }
+    if (this.layout === 'single' && paneId === 'right') {
+      this.layout = 'dual'
+      this.refresh()
+    }
+    this.haltSilently()
+    this.endAllHolds()
+    this.timelineValue = 0
+    const pane = this.pane(paneId)
+    const ok = await pane.openFile(file, DEFAULT_FPS)
+    if (this.disposed) return
+    if (ok && pane.frameSource === 'estimated') {
+      this.notify(`${paneId === 'left' ? '左' : '右'}画面未能读取精确帧表，当前按 30fps 估算`)
+    }
+    this.timelineValue = 0
+    await this.seekTimeline(0)
+    if (this.disposed) return
+    this.refresh()
+    if (this.activeLoadedPanes().length > 0 && this.computeTimelineDuration() <= 0) {
+      this.notify('同步区间为 0，请调整起始位置')
+    }
+  }
+
+  closePane(paneId: PaneId): void {
+    if (this.disposed) return
+    this.haltSilently()
+    this.endAllHolds()
+    this.timelineValue = 0
+    this.pane(paneId).close()
+    this.timelineValue = clamp(this.timelineValue, 0, this.computeTimelineDuration())
+    this.refresh()
+    void this.seekTimeline(this.timelineValue)
+  }
+
+  async setPaneStart(paneId: PaneId, seconds: number): Promise<void> {
+    const pane = this.pane(paneId)
+    if (this.disposed || !pane.loaded) return
+    this.haltSilently()
+    this.endAllHolds()
+    pane.setStart(pane.snapStart(seconds))
+    this.timelineValue = 0
+    await this.seekTimeline(0)
+    if (this.disposed) return
+    this.refresh()
+    if (this.activeLoadedPanes().length > 0 && this.computeTimelineDuration() <= 0) {
+      this.notify('同步区间为 0，请调整起始位置')
+    }
+  }
+
+  /** Seek one pane individually (per-pane progress bar or selected-pane step). */
+  previewPane(paneId: PaneId, seconds: number): void {
+    const pane = this.pane(paneId)
+    if (this.disposed || !pane.loaded) return
+    if (this.playing || this.reverse) this.haltSilently()
+    void pane.seekToTime(seconds)
+  }
+
+  /** Set a pane's start to the frame it is currently showing. */
+  async setPaneStartAtCurrent(paneId: PaneId): Promise<void> {
+    const pane = this.pane(paneId)
+    if (this.disposed || !pane.loaded) return
+    await this.setPaneStart(paneId, pane.currentTime)
+  }
+
+  /** Step a single pane without moving the shared timeline or the other pane. */
+  async stepPane(paneId: PaneId, delta: number): Promise<void> {
+    const pane = this.pane(paneId)
+    if (this.disposed || !pane.loaded || pane.frames === null) return
+    this.haltSilently()
+    const current = pane.frameIndexAt(pane.currentTime)
+    const target = clamp(current + delta, 0, pane.frames.totalFrames - 1)
+    if (target === current) return
+    await pane.seekToTime(pane.frameStart(target))
+  }
+
+  setEstimatedFps(paneId: PaneId, fps: number): void {
+    const pane = this.pane(paneId)
+    if (this.disposed || !pane.setEstimatedFps(fps)) return
+    this.timelineValue = clamp(this.timelineValue, 0, this.computeTimelineDuration())
+    this.refresh()
+    void this.seekTimeline(this.timelineValue)
+  }
+
+  // -- transport ------------------------------------------------------------
+
+  async togglePlay(): Promise<void> {
+    if (this.playing) {
+      this.pause()
+      return
+    }
+    await this.play()
+  }
+
+  async play(): Promise<void> {
+    const panes = this.activeLoadedPanes()
+    if (this.disposed || panes.length === 0) return
+    this.endAllHolds()
+    this.haltSilently()
+    const duration = this.computeTimelineDuration()
+    if (!(duration > 0)) {
+      this.notify('同步区间为 0，无法播放')
+      return
+    }
+    if (this.timelineValue >= duration - 0.001) this.timelineValue = 0
+    await this.seekTimeline(this.timelineValue)
+    if (this.disposed) return
+    for (const pane of panes) pane.setRate(this.snapshotValue.rate)
+    this.playing = true
+    this.reverse = false
+    this.refresh()
+    try {
+      await Promise.all(panes.map((pane) => pane.play()))
+    } catch (error) {
+      this.haltSilently()
+      this.refresh()
+      this.notify(error instanceof Error ? `无法开始播放：${error.message}` : '无法开始播放')
+      return
+    }
+    if (!this.playing || this.disposed) return
+    this.startSyncLoop()
+  }
+
+  pause(): void {
+    if (this.disposed) return
+    this.haltSilently()
+    const master = this.masterPane()
+    this.timelineValue = master === null ? 0 : this.framePosition(master)
+    this.refresh()
+  }
+
+  toggleReverse(): void {
+    if (this.disposed) return
+    if (this.reverse) {
+      this.stopReverse()
+      this.notify('已停止倒放')
+      return
+    }
+    const panes = this.activeLoadedPanes()
+    if (panes.length === 0) return
+    this.haltSilently()
+    this.endAllHolds()
+    this.timelineValue = clamp(this.timelineValue, 0, this.computeTimelineDuration())
+    this.reverse = true
+    this.reverseToken += 1
+    this.refresh()
+    void this.runReverse()
+  }
+
+  /** The master pane's current frame start, expressed on the shared timeline. */
+  private framePosition(pane: Pane): number {
+    if (pane.frames === null) return 0
+    const index = pane.frameIndexAt(pane.currentTime)
+    return clamp(pane.frameStart(index) - pane.start, 0, this.computeTimelineDuration())
+  }
+
+  // -- frame stepping -------------------------------------------------------
+
+  /** Step the shared timeline by frames of the master pane; both panes follow. */
+  step(delta: number, fromHold = false): Promise<void> {
+    const panes = this.activeLoadedPanes()
+    const master = panes[0]
+    if (this.disposed || master === undefined || master.frames === null) return Promise.resolve()
+    this.haltSilently()
+    if (!fromHold) this.endAllHolds()
+    const duration = this.computeTimelineDuration()
+    const base = clamp(this.timelineValue, 0, duration)
+    const current = master.frameIndexAt(master.start + base)
+    const target = clamp(current + delta, 0, master.frames.totalFrames - 1)
+    if (target === current) return Promise.resolve()
+    this.queuedSteps += target - current
+    if (this.stepping) return this.stepPromise
+
+    this.stepping = true
+    this.stepPromise = (async () => {
+      let position = base
+      try {
+        while (this.queuedSteps !== 0) {
+          const direction = this.queuedSteps > 0 ? 1 : -1
+          this.queuedSteps -= direction
+          const active = this.activeLoadedPanes()
+          const clock = active[0]
+          if (clock === undefined || clock.frames === null) break
+          const index = clock.frameIndexAt(clock.start + position)
+          const next = clamp(index + direction, 0, clock.frames.totalFrames - 1)
+          if (next === index) continue
+          const nextPosition = clamp(
+            clock.frameStart(next) - clock.start,
+            0,
+            this.computeTimelineDuration(),
+          )
+          await this.seekTimeline(nextPosition)
+          if (this.disposed) return
+          this.timelineValue = nextPosition
+          position = nextPosition
+          this.refresh()
+        }
+      } finally {
+        this.stepping = false
+        this.queuedSteps = 0
+      }
+    })()
+    return this.stepPromise
+  }
+
+  beginHold(direction: -1 | 1, stride = 1, paneId: PaneId | null = null): void {
+    if (this.disposed || this.activeLoadedPanes().length === 0) return
+    const target = paneId !== null && this.pane(paneId).loaded ? paneId : null
+    this.holdPane = target
+    this.holdDirection = direction
+    this.holdStride = stride
+    this.clearHoldTimer()
+    if (target !== null) void this.stepPane(target, direction * stride)
+    else void this.step(direction * stride, true)
+    this.holdTimer = window.setTimeout(() => this.holdTick(direction), HOLD_DELAY_MS)
+  }
+
+  endHold(direction: -1 | 1): void {
+    if (this.holdDirection !== direction) return
+    this.holdDirection = 0
+    this.holdPane = null
+    this.clearHoldTimer()
+  }
+
+  endAllHolds(): void {
+    this.holdDirection = 0
+    this.holdPane = null
+    this.clearHoldTimer()
+  }
+
+  firstFrame(): void {
+    this.jumpToFrame(0)
+  }
+
+  lastFrame(): void {
+    const master = this.masterPane()
+    this.jumpToFrame((master?.frames?.totalFrames ?? 1) - 1)
+  }
+
+  jumpToFrame(index: number): void {
+    const master = this.masterPane()
+    if (this.disposed || master === null || master.frames === null) return
+    this.haltSilently()
+    this.endAllHolds()
+    const target = clamp(Math.round(index), 0, master.frames.totalFrames - 1)
+    const position = clamp(
+      master.frameStart(target) - master.start,
+      0,
+      this.computeTimelineDuration(),
+    )
+    this.timelineValue = position
+    this.refresh()
+    void this.seekTimeline(position)
+  }
+
+  // -- scrubbing ------------------------------------------------------------
+
+  scrubStart(): void {
+    if (this.disposed) return
+    this.endAllHolds()
+    this.scrubWasPlaying = this.playing
+    this.scrubWasReverse = this.reverse
+    // Silent pause: a controlled range must keep the click's value while the
+    // browser applies its default action; a render here would snap it back.
+    this.haltSilently()
+  }
+
+  scrubTo(seconds: number): void {
+    if (this.disposed) return
+    const duration = this.computeTimelineDuration()
+    this.timelineValue = clamp(seconds, 0, duration)
+    for (const pane of this.activeLoadedPanes()) {
+      void pane.seekToTime(pane.start + this.timelineValue)
+    }
+    this.refresh()
+  }
+
+  async scrubEnd(seconds: number): Promise<void> {
+    if (this.disposed) return
+    const master = this.masterPane()
+    const duration = this.computeTimelineDuration()
+    let position = clamp(seconds, 0, duration)
+    if (master !== null && master.frames !== null) {
+      const index = master.frameIndexAt(master.start + position)
+      position = clamp(master.frameStart(index) - master.start, 0, duration)
+    }
+    this.timelineValue = position
+    await this.seekTimeline(position)
+    if (this.disposed) return
+    this.refresh()
+    const resumeReverse = this.scrubWasReverse
+    const resumePlaying = this.scrubWasPlaying
+    this.scrubWasReverse = false
+    this.scrubWasPlaying = false
+    if (resumeReverse) {
+      this.toggleReverse()
+    } else if (resumePlaying) {
+      await this.play()
+    }
+  }
+
+  // -- audio / rate ---------------------------------------------------------
+
+  toggleMute(): void {
+    this.setMuted(!this.snapshotValue.muted)
+  }
+
+  setMuted(muted: boolean): void {
+    this.left.setMuted(muted)
+    this.right.setMuted(muted)
+    this.preferences.muted = muted
+    savePreferences(this.preferences)
+    this.patch({ muted })
+  }
+
+  setVolume(volume: number): void {
+    const next = clamp(volume, 0, 1)
+    const muted = next > 0 ? false : this.snapshotValue.muted
+    this.left.setVolume(next)
+    this.right.setVolume(next)
+    this.left.setMuted(muted)
+    this.right.setMuted(muted)
+    this.preferences.volume = next
+    this.preferences.muted = muted
+    savePreferences(this.preferences)
+    this.patch({ volume: next, muted })
+  }
+
+  setRate(rate: number): void {
+    const next = RATES.includes(rate) ? rate : 1
+    this.left.setRate(next)
+    this.right.setRate(next)
+    this.preferences.rate = next
+    savePreferences(this.preferences)
+    this.patch({ rate: next })
+  }
+
+  // -- engine internals -----------------------------------------------------
+
+  private pane(id: PaneId): Pane {
+    return id === 'left' ? this.left : this.right
+  }
+
+  private activeLoadedPanes(): Pane[] {
+    if (this.layout === 'single') return this.left.loaded ? [this.left] : []
+    return [this.left, this.right].filter((pane) => pane.loaded)
+  }
+
+  private masterPane(): Pane | null {
+    return this.activeLoadedPanes()[0] ?? null
+  }
+
+  private computeTimelineDuration(): number {
+    const panes = this.activeLoadedPanes()
+    if (panes.length === 0) return 0
+    return Math.max(0, Math.min(...panes.map((pane) => pane.duration - pane.start)))
+  }
+
+  private async seekTimeline(position: number): Promise<void> {
+    const panes = this.activeLoadedPanes()
+    const clamped = clamp(position, 0, this.computeTimelineDuration())
+    await Promise.all(panes.map((pane) => pane.seekToTime(pane.start + clamped)))
+  }
+
+  private refresh(): void {
+    if (this.disposed) return
+    const panes = this.activeLoadedPanes()
+    const duration = this.computeTimelineDuration()
+    let position = this.timelineValue
+    if (this.playing && panes.length > 0) {
+      const master = panes[0]!
+      position = master.currentTime - master.start
+    }
+    position = clamp(position, 0, duration)
+    this.timelineValue = position
+    this.snapshotValue = {
+      ...this.snapshotValue,
+      layout: this.layout,
+      left: this.left.snapshot(),
+      right: this.right.snapshot(),
+      master: panes[0]?.id ?? null,
+      timelinePosition: position,
+      timelineDuration: duration,
+      playing: this.playing,
+      reverse: this.reverse,
+    }
+    for (const listener of this.listeners) listener()
+  }
+
+  private patch(next: Partial<PlayerSnapshot>): void {
+    this.snapshotValue = { ...this.snapshotValue, ...next }
+    for (const listener of this.listeners) listener()
+  }
+
+  private notify(text: string): void {
+    if (this.noticeTimer !== null) window.clearTimeout(this.noticeTimer)
+    this.patch({ notice: text })
+    this.noticeTimer = window.setTimeout(() => {
+      this.noticeTimer = null
+      this.patch({ notice: null })
+    }, 2400)
+  }
+
+  private haltSilently(): void {
+    this.playing = false
+    this.reverse = false
+    this.reverseToken += 1
+    this.cancelSyncLoop()
+    this.left.pause()
+    this.right.pause()
+  }
+
+  private stopReverse(): void {
+    if (!this.reverse) return
+    this.reverse = false
+    this.reverseToken += 1
+    this.refresh()
+  }
+
+  private async runReverse(): Promise<void> {
+    const token = ++this.reverseToken
+    while (!this.disposed && this.reverse && token === this.reverseToken) {
+      const panes = this.activeLoadedPanes()
+      const master = panes[0]
+      if (master === undefined || master.frames === null) break
+      const duration = this.computeTimelineDuration()
+      const current = clamp(this.timelineValue, 0, duration)
+      if (current <= 0.000_5) {
+        this.reverse = false
+        this.timelineValue = 0
+        this.refresh()
+        this.notify('已到视频开头')
+        return
+      }
+      const index = master.frameIndexAt(master.start + current)
+      if (index <= 0) {
+        this.reverse = false
+        this.timelineValue = 0
+        await this.seekTimeline(0)
+        this.refresh()
+        this.notify('已到视频开头')
+        return
+      }
+      const previous = index - 1
+      const target = clamp(master.frameStart(previous) - master.start, 0, duration)
+      if (target >= current - 0.000_1) {
+        this.stopReverse()
+        return
+      }
+      const started = performance.now()
+      await this.seekTimeline(target)
+      if (!this.reverse || token !== this.reverseToken || this.disposed) return
+      this.timelineValue = target
+      this.refresh()
+      const interval = Math.max(8, (master.frameDuration(previous) * 1000) / this.snapshotValue.rate)
+      const elapsed = performance.now() - started
+      if (elapsed < interval) await delay(interval - elapsed)
+    }
+  }
+
+  private startSyncLoop(): void {
+    this.cancelSyncLoop()
+    const tick = (): void => {
+      if (!this.playing || this.disposed) return
+      const panes = this.activeLoadedPanes()
+      const master = panes[0]
+      if (master === undefined) {
+        this.haltSilently()
+        this.refresh()
+        return
+      }
+      const duration = this.computeTimelineDuration()
+      const position = clamp(master.currentTime - master.start, 0, duration)
+      this.timelineValue = position
+      for (let index = 1; index < panes.length; index += 1) {
+        const pane = panes[index]!
+        const expected = pane.start + position
+        if (Math.abs(pane.currentTime - expected) > 0.15) pane.video.currentTime = expected
+      }
+      this.refresh()
+      if (position >= duration - 0.008 || master.video.ended) {
+        this.finishPlayback()
+        return
+      }
+      this.syncRaf = window.requestAnimationFrame(tick)
+    }
+    this.syncRaf = window.requestAnimationFrame(tick)
+  }
+
+  private cancelSyncLoop(): void {
+    if (this.syncRaf !== 0) window.cancelAnimationFrame(this.syncRaf)
+    this.syncRaf = 0
+  }
+
+  private finishPlayback(): void {
+    if (!this.playing && !this.reverse) return
+    this.haltSilently()
+    this.timelineValue = this.computeTimelineDuration()
+    this.refresh()
+    this.notify('已到同步范围末尾')
+  }
+
+  private handlePaneChange(): void {
+    this.refresh()
+  }
+
+  private handlePaneEnded(): void {
+    if (this.playing) {
+      this.finishPlayback()
+      return
+    }
+    this.refresh()
+  }
+
+  private handlePaneError(): void {
+    if (this.playing || this.reverse) {
+      this.haltSilently()
+      this.refresh()
+    }
+  }
+
+  private holdTick(direction: -1 | 1): void {
+    if (this.holdDirection !== direction) return
+    const started = performance.now()
+    const paneId = this.holdPane
+    const action = paneId !== null
+      ? this.stepPane(paneId, direction * this.holdStride)
+      : this.step(direction * this.holdStride, true)
+    void action.then(() => {
+      if (this.holdDirection !== direction) return
+      const elapsed = performance.now() - started
+      const wait = Math.max(0, HOLD_INTERVAL_MS - elapsed)
+      this.holdTimer = window.setTimeout(() => this.holdTick(direction), wait)
+    })
+  }
+
+  private clearHoldTimer(): void {
+    if (this.holdTimer !== null) window.clearTimeout(this.holdTimer)
+    this.holdTimer = null
   }
 }

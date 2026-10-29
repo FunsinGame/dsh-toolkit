@@ -100,12 +100,23 @@ def encode(
     subprocess.run(command, check=True)
 
 
-def encode_demo(ffmpeg: str, output: str) -> None:
+def encode_demo(
+    ffmpeg: str,
+    output: str,
+    *,
+    c0: str = "0x0b1020",
+    c1: str = "0x4f8cff",
+    c2: str = "0x8b5cf6",
+    c3: str = "0xfb7299",
+    seed: int = 42,
+    kind: str = "spiral",
+    speed: float = 0.012,
+) -> None:
     """A colourful clip for the README screenshot (1-based frame labels)."""
     source = (
-        "gradients=s=1280x720:r=25:d=8:"
-        "c0=0x0b1020:c1=0x4f8cff:c2=0x8b5cf6:c3=0xfb7299:"
-        "nb_colors=4:speed=0.012:type=spiral:seed=42"
+        f"gradients=s=1280x720:r=25:d=8:"
+        f"c0={c0}:c1={c1}:c2={c2}:c3={c3}:"
+        f"nb_colors=4:speed={speed}:type={kind}:seed={seed}"
     )
     bold = "C:/Windows/Fonts/arialbd.ttf"
     regular = "C:/Windows/Fonts/arial.ttf"
@@ -184,6 +195,18 @@ def main() -> int:
     shutil.rmtree(work, ignore_errors=True)
     print("encoding demo.mp4 (README still)")
     encode_demo(ffmpeg, os.path.join(output_dir, "demo.mp4"))
+    print("encoding demo-b.mp4 (README dual still)")
+    encode_demo(
+        ffmpeg,
+        os.path.join(output_dir, "demo-b.mp4"),
+        c0="0x140b20",
+        c1="0xfb7299",
+        c2="0xffb86b",
+        c3="0x4f8cff",
+        seed=7,
+        kind="radial",
+        speed=0.018,
+    )
     print(f"fixtures written to {output_dir}")
     return 0
 
