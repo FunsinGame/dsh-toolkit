@@ -1,0 +1,50 @@
+{
+  "name": "dsh-feishu-bot",
+  "version": "0.1.0",
+  "description": "Feishu bot notifications and two-way interaction for DeepSeek Harness: task results, agent questions, and permission approvals as message cards.",
+  "type": "module",
+  "main": "lib/index.js",
+  "icon": "media/icon.svg",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./icon": "./media/icon.svg",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "engines": {
+    "node": ">=22",
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "files": [
+    "lib",
+    "media",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "check": "node --check lib/index.js && node --check lib/bridge.js && node --check lib/notify.js && node --check lib/cards.js && node --check lib/store.js && node --check lib/text.js && node --check lib/routes.js && node --check lib/client.js && node --check lib/service.js",
+    "test": "node scripts/test-host.mjs && node scripts/test-client.mjs",
+    "smoke": "node scripts/smoke-feishu.mjs"
+  },
+  "license": "MIT",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "protobufjs"
+    ]
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.5",
+    "@larksuiteoapi/node-sdk": "^1.76.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  }
+}

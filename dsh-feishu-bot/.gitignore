@@ -1,0 +1,8 @@
+# 依赖与本地缓存
+node_modules/
+.npm-cache/
+pnpm-lock.yaml
+
+# 本地状态（正常不在这里，DSH 状态在 $DSH_HOME/feishu-bot/）
+tmp/
+*.log

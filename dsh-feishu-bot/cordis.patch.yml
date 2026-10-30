@@ -1,0 +1,29 @@
+# dsh-feishu-bot 的 bundle patch：在 profile 组合树上插入一行。
+#
+# 这一行同时启用宿主半侧（`lib/index.js`：飞书长连接、卡片推送、提问/审批接管）
+# 和浏览器半侧（`lib/client.js`：Plugins 页本 bundle 的配置卡片）。
+#
+# 本行在 `lib/index.js` 中声明了 Config（字段均为 volatile），因此 Plugins 页上
+# 本 bundle 的配置卡片会把每个 profile 的覆盖值写进该 profile 自己的
+# cordis.patch.yml。平时用卡片即可；下面的注释是手写配置时的等价写法。
+#
+# app_secret 不在这里：它存放在凭据服务（$DSH_HOME/.credentials.yaml），
+# 由设置卡片或环境变量 DSH_FEISHU_APP_SECRET 提供。
+- insert:
+    - id: feishu-bot
+      name: dsh-feishu-bot
+      # config:
+      #   # 总开关。首次真正开启时会向已绑定的飞书私聊发送一张“已开启”卡片。
+      #   enabled: false
+      #   # 飞书自建应用的 app_id（App ID，形如 cli_xxx）。
+      #   appId: cli_xxxxxxxxxxxxxxxx
+      #   # 三类通知各自的开关。
+      #   notifyComplete: true
+      #   notifyQuestion: true
+      #   notifyApproval: true
+      #   # 回合结束后等多久再确认“真的空闲了”再发完成卡片（毫秒）。
+      #   completeDebounceMs: 1500
+      #   # 完成卡片里结果摘录的最大字符数。
+      #   maxResultChars: 3000
+      #   # 提问选项超过该数量时改用编号列表 + 文本回答。
+      #   maxCardButtons: 6
