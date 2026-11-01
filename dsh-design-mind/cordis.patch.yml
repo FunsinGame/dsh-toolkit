@@ -1,0 +1,12 @@
+# dsh-design-mind bundle patch.
+#
+# The host half registers the same-origin /dsh-design-mind routes that write the
+# exported image and feedback JSON into the plugin's own directory. The browser
+# half is loaded through the package's `dsh.client` declaration and contributes
+# the activity-bar entry plus the annotation page.
+#
+# No new port and no network listener: the routes live on DSH's existing Web
+# server, so the page and the host share one origin.
+- insert:
+    - id: dsh-design-mind
+      name: dsh-design-mind

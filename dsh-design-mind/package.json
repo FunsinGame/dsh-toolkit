@@ -1,0 +1,64 @@
+{
+  "name": "dsh-design-mind",
+  "version": "0.3.0",
+  "description": "DSH 设计批注插件：在左侧活动栏打开画布，框选设计图区域并逐条写意见，导出图片与结构化 JSON，并复制一段可直接交给 AI 的提示词。",
+  "type": "module",
+  "main": "lib/index.js",
+  "icon": "media/icon.svg",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./icon": "./media/icon.svg",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "files": [
+    "lib",
+    "media",
+    "docs/screenshot.png",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "fixture": "node scripts/make-fixture.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "check": "node --check lib/index.js && node --check lib/client.js",
+    "test:unit": "node scripts/test-unit.mjs",
+    "test:host": "node scripts/test-host.mjs",
+    "test:client": "node scripts/test-client.mjs",
+    "test": "npm run test:unit && npm run test:host && npm run test:client",
+    "screenshot": "node scripts/screenshot.mjs"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "design",
+    "annotation",
+    "screenshot"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.7",
+    "esbuild": "^0.28.2",
+    "jsdom": "^30.1.3",
+    "playwright-core": "^1.64.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.9.3"
+  }
+}
