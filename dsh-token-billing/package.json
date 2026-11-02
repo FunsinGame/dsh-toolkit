@@ -1,0 +1,53 @@
+{
+  "name": "dsh-token-billing",
+  "description": "DSH 模型 Token 计费插件：为每个 AI 模型配置单价表，按未缓存输入、缓存命中/写入与输出 token 计算每轮费用，支持人民币与美元，并显示在每条上下文之后",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "lib/index.js",
+  "icon": "media/icon.svg",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./icon": "./media/icon.svg",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-plugin-manager",
+        "@deepseek-ai/dsh-client-ui-chat"
+      ]
+    }
+  },
+  "scripts": {
+    "check": "node --check lib/index.js && node --check lib/client.js",
+    "test": "node scripts/test-client.mjs"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.5"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "jsdom": "^30.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "files": [
+    "lib",
+    "media",
+    "docs/screenshot.png",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "license": "MIT"
+}

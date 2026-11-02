@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<link rel="icon" href="data:,">
+<title>dsh-token-billing harness</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --dsw-alias-label-primary: #e8eaed;
+    --dsw-alias-label-secondary: #b7bcc5;
+    --dsw-alias-label-tertiary: #8b919c;
+    --dsw-alias-label-caption: #6f7681;
+    --dsw-alias-bg-base: #0f1115;
+    --dsw-alias-bg-layer-1: #171a21;
+    --dsw-alias-border-secondary: rgba(160, 170, 190, 0.22);
+    --dsw-specific-menu: #1d212b;
+    --dsw-elevation-panel: 0 18px 48px rgba(0, 0, 0, 0.55);
+    --dsh-content-font-size-secondary: 13px;
+    --dsh-content-font-delta: 0px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 44px 36px 64px;
+    background: radial-gradient(1100px 520px at 50% -10%, #1a2030 0%, #0f1115 62%);
+    color: var(--dsw-alias-label-primary);
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  }
+  .frame { width: min(860px, 100%); margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+  .title { font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: var(--dsw-alias-label-caption); }
+  .bubble { border-radius: 16px; padding: 13px 16px; line-height: 1.65; font-size: 14px; }
+  .bubble.user { align-self: flex-end; max-width: 78%; background: #23324a; color: #dce8ff; }
+  .bubble.assistant { background: #171a21; border: 1px solid rgba(160, 170, 190, 0.12); }
+  .bubble.assistant p { margin: 0 0 8px; }
+  .bubble.assistant p:last-child { margin-bottom: 0; }
+  .actions { display: flex; gap: 12px; color: var(--dsw-alias-label-caption); font-size: 12px; padding-left: 4px; }
+  .settings-card { background: #141821; border: 1px solid rgba(160, 170, 190, 0.14); border-radius: 16px; padding: 18px 20px; }
+  .settings-title { font-size: 14px; font-weight: 600; margin: 0 0 12px; }
+  code { background: rgba(160, 170, 190, .12); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .actions-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 28px;
+    color: var(--dsw-alias-label-tertiary);
+  }
+  .icon {
+    display: inline-flex;
+    width: 28px;
+    height: 28px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    color: var(--dsw-alias-label-tertiary);
+  }
+  .usage-pill {
+    padding: 1px 8px;
+    font-size: 12px;
+    color: var(--dsw-alias-label-tertiary);
+    white-space: nowrap;
+  }
+  .time {
+    color: var(--dsw-alias-label-tertiary);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .composer-card {
+    border: 1px solid rgba(160, 170, 190, 0.14);
+    border-radius: 18px;
+    padding: 14px 18px 4px;
+    background: #141821;
+  }
+  .composer-dock {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    min-height: 24px;
+    padding-top: 4px;
+    color: var(--dsw-alias-label-tertiary);
+    font-size: 12px;
+  }
+  .stat {
+    padding: 1px 8px;
+    color: var(--dsw-alias-label-tertiary);
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+<div class="frame">
+  <div class="title">Chat · conversation.chat.assistant-actions</div>
+  <div class="bubble user">把这份接口文档整理成迁移步骤，并估算一下这次重构的工作量。</div>
+  <div class="bubble assistant">
+    <p>我先按「读接口 → 找调用方 → 分阶段替换 → 回归」四步拆，重点标出会破坏兼容性的字段。</p>
+    <p><code>POST /v1/messages</code> 的 <code>cache_control</code> 语义保持不变；<code>tool_choice</code> 需要额外校验。</p>
+  </div>
+  <div id="turn-actions"></div>
+
+  <div class="composer-card">
+    <div class="composer-dock" id="composer-dock"></div>
+  </div>
+
+  <div class="settings-card">
+    <div class="settings-title">Plugins → Token 计费</div>
+    <div id="settings-card"></div>
+  </div>
+</div>
+
+<script src="/node_modules/react/umd/react.development.js"></script>
+<script src="/node_modules/react-dom/umd/react-dom.development.js"></script>
+<script>
+  window.__ModuleLoader__ = {
+    load(entry) {
+      window.__tokenBillingEntry = entry;
+    },
+  };
+</script>
+<script src="/lib/client.js"></script>
+<script>
+  (function () {
+    const entry = window.__tokenBillingEntry;
+    const exported = entry.factory((name) => {
+      if (name === "react") return React;
+      throw new Error("unexpected require " + name);
+    });
+
+    const defaults = {
+      enabled: true,
+      currency: "USD",
+      exchangeRate: 7.2,
+      showUnpriced: true,
+      models: [
+        { model: "deepseek-flash", currency: "USD", input: 0.3, output: 1.2 },
+        { model: "claude-opus-5-5", currency: "USD", input: 4, output: 20 },
+        { model: "gemini-3.8-flash", currency: "USD", input: 0.75, output: 3.75 },
+        { model: "gpt-6.1-sol", currency: "USD", input: 2, output: 10 },
+      ],
+    };
+    let formValue = defaults;
+    const listeners = new Set();
+    const formSnapshot = { status: "ready", value: formValue, writable: true, revision: 1, base: {}, user: {} };
+    const form = {
+      getSnapshot: () => formSnapshot,
+      subscribe(listener) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      async mutate() {
+        return true;
+      },
+    };
+
+    const registrations = [];
+    const slots = {
+      inject(_slot, callback) {
+        callback();
+        return () => {};
+      },
+      register(options, component) {
+        registrations.push({ slot: options.name, options, component });
+        return () => {};
+      },
+    };
+    const locale = {
+      register() {
+        return () => {};
+      },
+    };
+    const ctx = {
+      effect(factory) {
+        const dispose = factory();
+        return typeof dispose === "function" ? dispose : () => {};
+      },
+      inject(deps, callback) {
+        if (deps.includes("slots")) {
+          callback({
+            slots,
+            locale,
+            effect: ctx.effect,
+            inject(nestedDeps, nestedCallback) {
+              if (nestedDeps.includes("configForms")) {
+                nestedCallback({ configForms: { get: () => form }, effect: ctx.effect });
+              }
+            },
+          });
+          return;
+        }
+        if (deps.includes("configForms")) {
+          callback({ configForms: { get: () => form }, effect: ctx.effect });
+        }
+      },
+    };
+    exported.apply(ctx);
+
+    const turnCost = registrations.find((entry) => entry.slot === "conversation.chat.assistant-actions");
+    const sessionCost = registrations.find((entry) => entry.slot === "conversation.composer.dock");
+    const card = registrations.find((entry) => entry.slot === "plugins.bundle.config");
+    const turnInjected = turnCost.options.inject();
+    const sessionInjected = sessionCost.options.inject();
+
+    const usage = {
+      uncachedInputTokens: 12345,
+      cacheReadTokens: 285000,
+      cacheWriteTokens: 0,
+      outputTokens: 1024,
+      totalTokens: 298369,
+      routes: [{ provider: "deepseek-official", model: "deepseek-flash" }],
+    };
+    const route = { provider: "deepseek-official", model: "deepseek-flash" };
+    const stepData = { usage, finalNode: { usage, providerMetadata: route } };
+    const turn = {
+      turn: 1,
+      steps: [{ data: { get: (key) => (key === "assistant-step" ? stepData : undefined) } }],
+    };
+    const turnData = { tokenUsage: usage, closing: { finalNode: { messageId: "m1" } } };
+    turn.data = { get: (key) => (key === "turn-tail" ? turnData : undefined) };
+    const turns = new Map([[1, turn]]);
+    const chatSource = {
+      getSnapshot: () => ({ timeline: { turns } }),
+      subscribe: () => () => {},
+    };
+    const projectedUsage = {
+      uncachedInputTokens: usage.uncachedInputTokens,
+      cacheReadTokens: usage.cacheReadTokens,
+      cacheWriteTokens: usage.cacheWriteTokens,
+      outputTokens: usage.outputTokens,
+    };
+
+    const dicts = {
+      zh: {
+        costLabel: "费用",
+        costTitle: "本条上下文费用",
+        sessionCostLabel: "会话费用",
+        sessionCostTitle: "当前会话费用合计",
+        sessionCostTurns: "已计价 {priced} / {total} 轮",
+        sessionCostMissing: "另有 {tokens} token 来自尚未加载的历史回合，按最后已知单价估算",
+        sessionCostUnpriced: "{count} 轮没有匹配到单价",
+        partialUnpriced: "部分未配置",
+        cacheHit: "缓存",
+        uncachedInput: "未缓存输入",
+        cacheRead: "缓存读取",
+        cacheWrite: "缓存写入",
+        output: "输出",
+        tokens: "token",
+        estimated: "估算",
+        estimatedHint: "这个回合跨了多个模型，用量只能按各模型单价的平均值估算。",
+        unpriced: "未配置价格",
+        unpricedHint: "这个模型的单价还没有配置；打开 Plugins → Token 计费 添加。",
+        price: "单价",
+        formula: "费用 = Σ(token 数 × 对应单价) ÷ 100 万，再按汇率换算到显示货币。",
+        reasoning: "其中推理",
+        description: "按模型单价和 token 用量计算每条上下文的费用；缓存命中和缓存写入可以分别定价。",
+        enabled: "启用计费显示",
+        currency: "显示货币",
+        currencyCny: "人民币（CNY）",
+        currencyUsd: "美元（USD）",
+        exchangeRate: "汇率（1 USD = ? CNY）",
+        exchangeRateHint: "不同币种的单价会按这个汇率换算到显示货币。",
+        showUnpriced: "未匹配到单价时显示提示",
+        showUnpricedHint: "开启后，没有配置价格的模型会显示「未配置价格」，方便发现遗漏。",
+        models: "模型费用表",
+        modelsHint: "价格单位是每 100 万 token。缓存价格留空表示按输入价计费；填 0 表示免费。",
+        priceUnit: "每 100 万 token",
+        model: "模型",
+        modelPlaceholder: "例如 deepseek-flash",
+        provider: "提供方（可选）",
+        providerPlaceholder: "例如 deepseek-official；留空按模型名匹配",
+        billingCurrency: "计费币种",
+        inputPrice: "未缓存输入",
+        cacheReadPrice: "缓存命中",
+        cacheWritePrice: "缓存写入",
+        outputPrice: "输出",
+        sameAsInput: "同输入",
+        newModel: "新模型",
+        addModel: "添加模型",
+        removeModel: "删除这个模型",
+        resetDefaults: "恢复默认价格",
+        save: "保存",
+        saving: "保存中…",
+        discard: "放弃",
+        unsaved: "未保存",
+        readOnly: "当前设置只读",
+        loading: "正在读取设置…",
+        unavailable: "当前版本未提供该插件的设置",
+        saveFailed: "保存失败，请重试",
+        invalidRate: "请输入大于 0 的汇率",
+        invalidPrice: "第 {index} 行的「{field}」不是有效价格",
+        modelRequired: "第 {index} 行还没有填写模型名",
+        duplicateModel: "模型「{model}」重复配置了",
+        noModels: "还没有模型价格；点「添加模型」开始配置。",
+        conversionHint: "单价币种与显示币种不同时按汇率换算。",
+        close: "关闭",
+      },
+    };
+    const t = (key, params = {}) => {
+      let text = dicts.zh[key] ?? key;
+      for (const [name, value] of Object.entries(params)) text = text.replaceAll("{" + name + "}", String(value));
+      return text;
+    };
+    function hook(source) {
+      return (selector) => React.useSyncExternalStore(source.subscribe, () => selector(source.getSnapshot()));
+    }
+    const chat = hook(chatSource);
+    const turnPricing = hook(turnInjected.hooks.pricing);
+    const sessionPricing = hook(sessionInjected.hooks.pricing);
+
+    function ActionRow() {
+      return React.createElement(
+        "div",
+        { className: "actions-row" },
+        React.createElement("span", { className: "icon" }, "⧉"),
+        React.createElement("span", { className: "icon" }, "↻"),
+        React.createElement("span", { className: "icon" }, "⑂"),
+        React.createElement("span", { className: "usage-pill" }, "用量 298.4K tok"),
+        React.createElement("span", { className: "time" }, "16:40"),
+        React.createElement(turnCost.component, {
+          messageId: "m1",
+          t,
+          useChat: chat,
+          usePricing: turnPricing,
+        }),
+      );
+    }
+
+    function ComposerDock() {
+      return React.createElement(
+        "div",
+        { className: "composer-dock" },
+        React.createElement("span", { className: "stat" }, "1 轮 172 步 · 210 tok/s"),
+        React.createElement("span", { className: "stat" }, "298.4K tok · 缓存命中 95.8%"),
+        React.createElement("span", { className: "stat" }, "35%"),
+        React.createElement(sessionCost.component, {
+          t,
+          useChat: chat,
+          usePricing: sessionPricing,
+          useProjection: () => projectedUsage,
+        }),
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("turn-actions")).render(React.createElement(ActionRow));
+    ReactDOM.createRoot(document.getElementById("composer-dock")).render(React.createElement(ComposerDock));
+    ReactDOM.createRoot(document.getElementById("settings-card")).render(
+      React.createElement(card.component, { form: card.options.inject().form, t }),
+    );
+  })();
+</script>
+</body>
+</html>

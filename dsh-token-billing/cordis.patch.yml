@@ -1,0 +1,27 @@
+# dsh-token-billing 的 bundle patch：在 profile 组合树上插入一行。
+# 这一行同时启用宿主半侧（`lib/index.js`，负责配置表单）与浏览器半侧
+# （`lib/client.js`），后者在每条上下文（每个完成回合）之后显示本次费用。
+#
+# 本行在 `lib/index.js` 中声明了 Config（所有字段均为 volatile），因此
+# Plugins 页上本 bundle 的配置卡片会把每个 profile 的覆盖值写进该 profile
+# 自己的 cordis.patch.yml。平时用卡片即可；下面是手写配置时的等价写法。
+- insert:
+    - id: token-billing
+      name: dsh-token-billing
+      # config:
+      #   enabled: true
+      #   # 显示货币：CNY（人民币）或 USD（美元）
+      #   currency: CNY
+      #   # 1 USD 折合多少 CNY；用于把不同币种的单价换算到显示货币
+      #   exchangeRate: 7.2
+      #   # 没有匹配到单价时是否显示“未配置价格”
+      #   showUnpriced: true
+      #   # 每个模型的价格表；价格单位是“每 100 万 token”
+      #   models:
+      #     - provider: deepseek-official
+      #       model: deepseek-flash
+      #       currency: CNY
+      #       input: 2
+      #       cacheRead: 0.2
+      #       cacheWrite: 2
+      #       output: 3
