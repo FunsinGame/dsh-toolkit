@@ -42,6 +42,97 @@ export function stripAtTags(text) {
     .replace(/<at\b[^>]*\/>/giu, '')
 }
 
+/** 一行是否是 markdown 表格行（以竖线开头，且至少有两个竖线）。 */
+function isTableRow(line) {
+  const trimmed = String(line).trim()
+  if (!trimmed.startsWith('|')) return false
+  return trimmed.split('|').length >= 3
+}
+
+/** 一行是否是表格的分隔行（`| --- | :---: |`）。 */
+function isTableSeparator(line) {
+  const cells = String(line).trim().replace(/^\|/u, '').replace(/\|$/u, '').split('|')
+  if (cells.length === 0) return false
+  return cells.every(cell => /^\s*:?-{1,}:?\s*$/u.test(cell))
+}
+
+/**
+ * 把一段表格改写成普通文本行。
+ *
+ * 飞书卡片把 markdown 表格解析成真正的 `table` 组件，而**一张卡片最多只能有
+ * 5 个表格**（实测第 6 个就会整条消息 400 / 11310 "card table number over
+ * limit"）。超出的表格降级成以 `·` 开头的行，用全角竖线分隔单元格，保证
+ * 不会被再次解析成表格。
+ * @param block - 连续的表格行。
+ * @returns 普通文本行。
+ */
+function tableToLines(block) {
+  const lines = []
+  for (const line of block) {
+    if (isTableSeparator(line)) continue
+    const cells = String(line).trim().replace(/^\|/u, '').replace(/\|$/u, '').split('|').map(cell => cell.trim())
+    const text = cells.filter(cell => cell !== '').join(' ｜ ')
+    if (text !== '') lines.push(`· ${text}`)
+  }
+  return lines
+}
+
+/** 代码围栏的开启/关闭标记。 */
+function fenceOf(line) {
+  const match = /^\s*(`{3,}|~{3,})/u.exec(line)
+  if (match === null) return undefined
+  return match[1][0]
+}
+
+/**
+ * 卡片 markdown 的轻量净化：
+ *   1. 去掉 `<at>` 标签（避免 Agent 输出在飞书里圈人）；
+ *   2. 表格超出预算时降级为普通文本行（飞书卡片表格数量有上限）。
+ *
+ * 代码块（``` 或 ~~~）里的内容原样保留，不做任何改写。
+ * @param text - 原始 markdown。
+ * @param tablesLeft - 这张卡片还可以保留几个表格。
+ * @returns `{text, tablesLeft}`。
+ */
+export function sanitizeCardMarkdown(text, tablesLeft = Number.POSITIVE_INFINITY) {
+  const source = typeof text === 'string' ? text : String(text ?? '')
+  const lines = source.split('\n')
+  const out = []
+  let left = tablesLeft
+  let fence
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]
+    const marker = fenceOf(line)
+    if (marker !== undefined) {
+      if (fence === undefined) fence = marker
+      else if (line.trim().startsWith(marker.repeat(3))) fence = undefined
+      out.push(line)
+      continue
+    }
+    if (fence !== undefined) {
+      out.push(line)
+      continue
+    }
+    if (isTableRow(line)) {
+      const block = []
+      while (index < lines.length && isTableRow(lines[index])) {
+        block.push(lines[index])
+        index += 1
+      }
+      index -= 1
+      if (left > 0) {
+        left -= 1
+        out.push(...block)
+      } else {
+        out.push(...tableToLines(block))
+      }
+      continue
+    }
+    out.push(stripAtTags(line))
+  }
+  return { text: out.join('\n'), tablesLeft: left }
+}
+
 /**
  * 清洗用户文本：解析 `@_user_N` 占位符、去富文本标签、统一换行、去掉首尾空白。
  * @param text - 原始文本。

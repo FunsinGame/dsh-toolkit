@@ -118,6 +118,8 @@ export class FeishuBridge {
     this.sdkLoader = options.sdkLoader ?? loadLarkSdk
     this.onEvent = options.onEvent ?? {}
     this.onStatus = options.onStatus ?? (() => {})
+    /** SDK 放弃重连时调用，外层据此重建连接。 */
+    this.onTerminal = options.onTerminal
     this.status = 'stopped'
     this.lastError = ''
     this.appId = ''
@@ -168,7 +170,22 @@ export class FeishuBridge {
       'im.message.receive_v1': (payload) => this.handleMessage(payload),
       'card.action.trigger': (payload) => this.handleCardAction(payload),
     })
-    this.wsClient = new sdk.WSClient(base)
+    this.wsClient = new sdk.WSClient({
+      ...base,
+      autoReconnect: true,
+      // 卡住握手 / 半死连接都要被识别出来，否则会一直"看起来已连接"。
+      handshakeTimeoutMs: 15_000,
+      pingTimeout: 30,
+      onReady: () => this.markConnected('connected'),
+      onReconnecting: () => this.setStatus('connecting'),
+      onReconnected: () => this.markConnected('reconnected'),
+      onError: (error) => {
+        const message = error instanceof Error ? error.message : String(error)
+        // SDK 放弃重连（连续失败/致命错误）后不会再自己连回来，交给服务层重建。
+        this.setStatus('error', `长连接已停止重试：${message}`)
+        this.notifyTerminal(message)
+      },
+    })
     try {
       await this.wsClient.start({ eventDispatcher: dispatcher })
     } catch (error) {
@@ -178,8 +195,35 @@ export class FeishuBridge {
       this.setStatus('error', `长连接建立失败：${message}`)
       throw error
     }
-    this.setStatus('connected')
+    this.markConnected('connected')
     this.logger.info?.('[feishu-bot] long connection established')
+  }
+
+  /** 记录一次成功连接（首次或重连）。 */
+  markConnected(reason) {
+    this.setStatus('connected')
+    if (reason === 'reconnected') this.logger.info?.('[feishu-bot] long connection re-established')
+  }
+
+  /** 通知外层：SDK 已放弃重连，需要外部重建连接。 */
+  notifyTerminal(message) {
+    try {
+      this.onTerminal?.(message)
+    } catch {
+      // 外层回调失败不影响连接层。
+    }
+  }
+
+  /**
+   * SDK 自己的 WebSocket 状态快照。
+   * @returns `'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed'`，无 SDK 时为 undefined。
+   */
+  wsState() {
+    try {
+      return this.wsClient?.getConnectionStatus?.()?.state
+    } catch {
+      return undefined
+    }
   }
 
   /** 关闭连接（幂等）。 */
@@ -199,9 +243,15 @@ export class FeishuBridge {
     if (this.status !== 'stopped') this.setStatus('stopped')
   }
 
-  /** 当前是否可发送。 */
+  /**
+   * 当前是否可发送。
+   *
+   * 除了我们自己的状态机，还要看 SDK 的 WebSocket 状态：SDK 放弃重连后
+   * `state` 会停在 `failed`，这时即便我们记录的是 `connected` 也发不出去。
+   */
   get ready() {
-    return this.status === 'connected' && this.client !== undefined
+    if (this.status !== 'connected' || this.client === undefined) return false
+    return this.wsState() !== 'failed'
   }
 
   /**

@@ -9,13 +9,22 @@
  *   - 按钮行统一带 `element_id: 'fsb_actions'`，结算时整行移除；
  *   - 按钮的路由数据放 `behaviors[0].value`，回调里以 `event.action.value` 到达。
  */
-import { answerHint, formatTurnReason, truncate, DEFAULT_RESULT_CHARS } from './text.js'
+import { answerHint, formatTurnReason, sanitizeCardMarkdown, truncate, DEFAULT_RESULT_CHARS } from './text.js'
 
 /** 卡片 JSON 2.0 的 schema 版本。 */
 export const CARD_SCHEMA = '2.0'
 
 /** 飞书卡片消息体上限 30KB；留出 JSON 转义余量。 */
 export const MAX_CARD_BYTES = 28_000
+
+/**
+ * 一张卡片的表格上限。
+ *
+ * 飞书把 markdown 表格解析成 `table` 组件，而一张卡片最多 5 个表格（实测第 6 个
+ * 就整条消息 400 / 11310 `card table number over limit`）。这里留一个余量取 4，
+ * 超出的表格降级成普通文本行。
+ */
+export const MAX_CARD_TABLES = 4
 
 /** 按钮行的固定 element_id，结算时按它整行删除。 */
 export const ACTIONS_ELEMENT_ID = 'fsb_actions'
@@ -333,6 +342,38 @@ export function cardBytes(card) {
   return Buffer.byteLength(JSON.stringify(card), 'utf8')
 }
 
+/** 遍历卡片里所有 markdown 元素（含 column_set 里嵌套的）。 */
+function eachMarkdown(elements, visit) {
+  for (const element of elements ?? []) {
+    if (element?.tag === 'markdown' && typeof element.content === 'string') {
+      visit(element)
+      continue
+    }
+    if (Array.isArray(element?.columns)) {
+      for (const column of element.columns) eachMarkdown(column?.elements, visit)
+    }
+  }
+}
+
+/**
+ * 把卡片里超出预算的表格降级成普通文本行，并去掉 `<at>` 标签。
+ *
+ * Agent 的长结果里经常带好几个 markdown 表格；飞书对单卡表格数量有限制，
+ * 超了会让整条消息发不出去（11310）。这一步保证任何卡片都不会因此被拒。
+ * @param card - 卡片对象（原地修改并返回）。
+ * @param maxTables - 允许保留的表格数量。
+ * @returns 同一张卡片。
+ */
+export function limitCardMarkdown(card, maxTables = MAX_CARD_TABLES) {
+  let left = maxTables
+  eachMarkdown(card?.body?.elements, (element) => {
+    const result = sanitizeCardMarkdown(element.content, left)
+    element.content = result.text
+    left = result.tablesLeft
+  })
+  return card
+}
+
 /**
  * 保证卡片不超过大小上限：先削最长的 markdown，再丢弃尾部元素。
  * @param card - 卡片对象（原地修改并返回）。
@@ -340,6 +381,7 @@ export function cardBytes(card) {
  * @returns 同一张卡片。
  */
 export function fitCard(card, maxBytes = MAX_CARD_BYTES) {
+  limitCardMarkdown(card)
   let guard = 0
   while (cardBytes(card) > maxBytes && guard < 64) {
     guard += 1

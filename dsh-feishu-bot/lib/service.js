@@ -28,6 +28,12 @@ const BIND_TTL_MS = 10 * 60_000
 /** 绑定码最多尝试次数（防爆破）。 */
 const BIND_MAX_ATTEMPTS = 20
 
+/** 心跳核对长连接状态的间隔。 */
+const WATCHDOG_INTERVAL_MS = 30_000
+
+/** 重建长连接的退避间隔（毫秒，逐次拉长，最后一档持续使用）。 */
+const RECONNECT_DELAYS = [5_000, 15_000, 60_000, 300_000]
+
 /** 本机时区（喂给 prompt，让模型知道用户的时间语境）。 */
 const LOCAL_TIMEZONE = (() => {
   try {
@@ -62,6 +68,13 @@ export class FeishuBotService {
         if (error !== '' && error !== undefined) this.noteError(error)
         this.logger.info?.(`[feishu-bot] bridge ${status}${error ? `: ${error}` : ''}`)
       },
+      // SDK 放弃重连后不会再自己连回来：立刻安排一次重建，别等 30 秒心跳。
+      onTerminal: (message) => {
+        this.reconnectAttempts = 0
+        this.nextReconnectAt = 0
+        this.logger.warn?.(`[feishu-bot] long connection gave up: ${message}`)
+        void this.reconcileBridge().catch(() => {})
+      },
     })
     const host = this.hostInterface()
     this.takeover = new InteractionTakeover(host)
@@ -71,6 +84,10 @@ export class FeishuBotService {
     this.lastEnabled = null
     /** 本次开启是否已经发过“已开启”卡片。 */
     this.announced = false
+    /** 心跳重建的重试计数与下一次允许时间（指数退避）。 */
+    this.reconnectAttempts = 0
+    this.nextReconnectAt = 0
+    this.watchdog = undefined
     this.disposed = false
   }
 
@@ -85,15 +102,66 @@ export class FeishuBotService {
       void this.sync()
     })
     await this.sync()
+    this.startWatchdog()
+  }
+
+  /**
+   * 每 30 秒核对一次长连接是否还活着。
+   *
+   * 飞书的长连接会静默断开（休眠、换网、代理超时），而 SDK 在连续失败后可能
+   * **放弃重连**并且不再自己恢复；这时插件如果不主动重建，就会表现为"机器人
+   * 突然不理人了"。这里负责把这种状态拉回来。
+   */
+  startWatchdog() {
+    if (this.watchdog !== undefined || this.disposed) return
+    const timer = setInterval(() => {
+      void this.reconcileBridge().catch((error) => {
+        this.logger.warn?.(`[feishu-bot] watchdog failed: ${error instanceof Error ? error.message : String(error)}`)
+      })
+    }, WATCHDOG_INTERVAL_MS)
+    if (typeof timer.unref === 'function') timer.unref()
+    this.watchdog = timer
   }
 
   /** 停掉全部异步资源（幂等）。 */
   async dispose() {
     if (this.disposed) return
     this.disposed = true
+    if (this.watchdog !== undefined) clearInterval(this.watchdog)
+    this.watchdog = undefined
     this.takeover.detach()
     this.turns.detach()
     await this.bridge.stop()
+  }
+
+  /**
+   * 核对并（必要时）重建长连接。
+   * @param now - 当前时间戳（测试可注入）。
+   * @returns 本次采取的动作，便于测试与日志。
+   */
+  async reconcileBridge(now = Date.now()) {
+    if (this.disposed) return 'disposed'
+    const config = this.readConfig()
+    const appId = typeof config.appId === 'string' ? config.appId.trim() : ''
+    const appSecret = await this.resolveSecret()
+    if (appId === '' || appSecret === undefined || appSecret === '') {
+      if (this.bridge.status !== 'stopped') await this.bridge.stop()
+      return 'unconfigured'
+    }
+    const state = this.wsState()
+    if (state === 'connected' || (state === undefined && this.bridge.status === 'connected')) {
+      this.reconnectAttempts = 0
+      this.nextReconnectAt = 0
+      return 'ok'
+    }
+    if (state === 'connecting' || state === 'reconnecting') return 'waiting'
+    if (now < this.nextReconnectAt) return 'backoff'
+    this.reconnectAttempts += 1
+    const delay = RECONNECT_DELAYS[Math.min(this.reconnectAttempts - 1, RECONNECT_DELAYS.length - 1)]
+    this.nextReconnectAt = now + delay
+    this.logger.info?.(`[feishu-bot] rebuilding long connection (attempt ${this.reconnectAttempts}, ws=${String(state)})`)
+    await this.restartBridge()
+    return 'rebuilt'
   }
 
   /**
@@ -114,6 +182,8 @@ export class FeishuBotService {
       if (config.enabled !== true) this.lastEnabled = false
       return
     }
+    // SDK 已放弃重连（state=failed）时 start() 会提前返回，先彻底关掉再来。
+    if (this.wsState() === 'failed') await this.bridge.stop()
     if (this.bridge.status !== 'connected' || this.bridge.appId !== appId) {
       try {
         await this.bridge.start({ appId, appSecret })
@@ -135,8 +205,7 @@ export class FeishuBotService {
   }
 
   /** 取 app_secret：凭据服务优先，其次同名环境变量。 */
-  async resolveSecret() {
-    const credentials = this.ctx.get('credentials')
+  async resolveSecret() {    const credentials = this.ctx.get('credentials')
     if (credentials !== undefined && typeof credentials.resolve === 'function') {
       try {
         const resolved = await credentials.resolve(SECRET_REF)
@@ -148,6 +217,18 @@ export class FeishuBotService {
     }
     const fromEnv = process.env[SECRET_REF]
     return typeof fromEnv === 'string' && fromEnv.trim() !== '' ? fromEnv.trim() : undefined
+  }
+
+  /**
+   * 读 SDK 的 WebSocket 状态；连接层不提供时返回 `undefined`（此时只能相信自己的状态机）。
+   * @returns `'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed' | undefined`
+   */
+  wsState() {
+    try {
+      return typeof this.bridge.wsState === 'function' ? this.bridge.wsState() : undefined
+    } catch {
+      return undefined
+    }
   }
 
   // ── 宿主能力（注入给 TurnTracker / InteractionTakeover） ────────────────
@@ -600,6 +681,8 @@ export class FeishuBotService {
       appId: config.appId,
       secret,
       bridge: this.bridge.status,
+      /** SDK 的 WebSocket 状态（诊断/状态栏悬停用）；无 SDK 时为 null。 */
+      wsState: this.wsState() ?? null,
       bridgeError: this.bridge.lastError,
       binding: binding === undefined
         ? { bound: false }

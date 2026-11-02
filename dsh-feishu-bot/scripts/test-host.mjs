@@ -11,8 +11,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-const { parseAnswer, parseApproval, cleanUserText, parseMessageContent, matchBindCode, truncate, formatTurnReason, describePromptError, answerHint } = await import('../lib/text.js')
-const { buildCompleteCard, buildApprovalCard, buildQuestionCard, buildNoticeCard, buildEnabledCard, buildTestCard, finalizeCard, fitCard, cardBytes, cardTitleOf, ACTIONS_ELEMENT_ID } = await import('../lib/cards.js')
+const { parseAnswer, parseApproval, cleanUserText, parseMessageContent, matchBindCode, truncate, formatTurnReason, describePromptError, answerHint, sanitizeCardMarkdown } = await import('../lib/text.js')
+const { buildCompleteCard, buildApprovalCard, buildQuestionCard, buildNoticeCard, buildEnabledCard, buildTestCard, finalizeCard, fitCard, cardBytes, cardTitleOf, ACTIONS_ELEMENT_ID, MAX_CARD_TABLES, limitCardMarkdown } = await import('../lib/cards.js')
 const { StateStore, pruneCards, maskId, coerceState, emptyState, CARD_TTL_DAYS } = await import('../lib/store.js')
 const { FeishuBridge, describeTransportError } = await import('../lib/bridge.js')
 const { TurnTracker, InteractionTakeover, quotedMessageId, senderOpenId, messageText } = await import('../lib/notify.js')
@@ -378,9 +378,18 @@ function fakeSdk() {
       }
     },
     WSClient: class {
+      constructor(params) {
+        state.wsParams = params
+        state.wsState = 'connected'
+      }
+
       async start({ eventDispatcher }) {
         state.started += 1
         state.handlers = eventDispatcher.handlers
+      }
+
+      getConnectionStatus() {
+        return { state: state.wsState, reconnectAttempts: 0 }
       }
 
       async close() {
@@ -926,9 +935,14 @@ function fakeBridge() {
     status: 'connected',
     appId: 'cli_1',
     lastError: '',
+    starts: 0,
+    stops: 0,
+    wsStateOverride: 'connected',
     get ready() { return this.status === 'connected' },
-    async start() { this.status = 'connected' },
-    async stop() { this.status = 'stopped' },
+    wsState() { return this.wsStateOverride },
+    markConnected() { this.status = 'connected' },
+    async start() { this.starts += 1; this.status = 'connected' },
+    async stop() { this.stops += 1; this.status = 'stopped' },
     async sendCard(receipt, card) {
       cardSent.push({ receipt, card })
       return `om_${cardSent.length}`
@@ -1301,4 +1315,101 @@ test('bridge: describeTransportError 覆盖网络错误与无响应体', () => {
   )
   assert.match(describeTransportError({ response: { status: 502 } }, '发送消息'), /HTTP 502/u)
   assert.match(describeTransportError(new Error('ECONNRESET'), '回复消息'), /ECONNRESET/u)
+})
+
+// ── 回归：卡片表格数量上限与长连接自愈 ──────────────────────────────────
+
+test('text: 表格超出预算时降级为文本行，代码块内原样保留', () => {
+  const table = index => `| A${index} | B${index} |\n| --- | --- |\n| a${index} | b${index} |`
+  const source = [table(1), '', table(2), '', table(3)].join('\n')
+  const first = sanitizeCardMarkdown(source, 1)
+  assert.equal(first.tablesLeft, 0)
+  assert.match(first.text, /\| A1 \| B1 \|/u, '第一个表格保留')
+  assert.match(first.text, /· A2 ｜ B2/u, '第二个表格降级')
+  assert.match(first.text, /· a3 ｜ b3/u)
+  assert.ok(!/\| A3 \|/u.test(first.text))
+  const separatorLines = first.text.split('\n').filter(line => /^\|.*-{3,}/u.test(line.trim()))
+  assert.equal(separatorLines.length, 1, '只有被保留的那个表格还带分隔行')
+
+  const fenced = ['```', '| A | B |', '| --- | --- |', '```', '', 'hello <at id=all></at> world'].join('\n')
+  const kept = sanitizeCardMarkdown(fenced, 0)
+  assert.match(kept.text, /\| A \| B \|/u, '代码块里的表格不动')
+  assert.match(kept.text, /hello  world/u)
+  assert.ok(!kept.text.includes('<at'))
+})
+
+test('cards: 结果里有很多表格也只保留上限内的数量', () => {
+  const table = index => `| A${index} | B${index} |\n| --- | --- |\n| a${index} | b${index} |`
+  const resultText = Array.from({ length: 8 }, (_, index) => table(index + 1)).join('\n\n')
+  const card = buildCompleteCard({
+    workspaceTitle: 'w', sessionTitle: 's', turn: 1,
+    reason: { kind: 'completed' }, resultText, maxResultChars: 20_000,
+  })
+  const text = card.body.elements.filter(element => element.tag === 'markdown').map(element => element.content).join('\n')
+  const tableHeaders = text.split('\n').filter(line => /^\|\s*A\d+\s*\|/u.test(line.trim()))
+  assert.ok(tableHeaders.length <= MAX_CARD_TABLES, `tables=${tableHeaders.length}`)
+  assert.match(text, /· A8 ｜ B8/u, '超出的表格被降级而不是丢弃')
+
+  // 显式调用也保持幂等
+  const once = limitCardMarkdown(card, MAX_CARD_TABLES)
+  const before = JSON.stringify(once)
+  limitCardMarkdown(card, MAX_CARD_TABLES)
+  assert.equal(JSON.stringify(card), before)
+})
+
+test('bridge: 长连接选项与状态回调', async () => {
+  const fake = fakeSdk()
+  const terminal = []
+  const bridge = new FeishuBridge({
+    logger: silent,
+    sdkLoader: async () => fake.sdk,
+    onTerminal: message => terminal.push(message),
+  })
+  await bridge.start({ appId: 'cli_1', appSecret: 'secret' })
+  const params = fake.state.wsParams
+  assert.equal(params.autoReconnect, true)
+  assert.equal(params.handshakeTimeoutMs, 15_000)
+  assert.equal(params.pingTimeout, 30)
+  for (const name of ['onReady', 'onError', 'onReconnecting', 'onReconnected']) {
+    assert.equal(typeof params[name], 'function', `缺少 ${name}`)
+  }
+
+  params.onReconnecting()
+  assert.equal(bridge.status, 'connecting')
+  fake.state.wsState = 'connected'
+  params.onReconnected()
+  assert.equal(bridge.status, 'connected')
+
+  fake.state.wsState = 'failed'
+  params.onError(new Error('retries exhausted'))
+  assert.equal(bridge.status, 'error')
+  assert.match(bridge.lastError, /已停止重试/u)
+  assert.equal(terminal.length, 1)
+  assert.equal(bridge.wsState(), 'failed')
+  assert.equal(bridge.ready, false, 'SDK 放弃重连后不应再报告可发送')
+  await bridge.stop()
+  assert.equal(bridge.wsState(), undefined)
+})
+
+test('service: 心跳在 SDK 放弃重连后重建连接并退避', async () => {
+  const { service, bridge, cleanup } = makeService()
+  bridge.wsStateOverride = 'connected'
+  assert.equal(await service.reconcileBridge(1_000), 'ok')
+
+  bridge.wsStateOverride = 'reconnecting'
+  assert.equal(await service.reconcileBridge(2_000), 'waiting')
+
+  bridge.wsStateOverride = 'failed'
+  const startsBefore = bridge.starts
+  assert.equal(await service.reconcileBridge(3_000), 'rebuilt')
+  assert.equal(bridge.starts, startsBefore + 1)
+  assert.ok(bridge.stops > 0)
+
+  bridge.wsStateOverride = 'failed'
+  const startsAfter = bridge.starts
+  assert.equal(await service.reconcileBridge(3_500), 'backoff')
+  assert.equal(bridge.starts, startsAfter)
+
+  assert.equal(await service.reconcileBridge(3_000 + 5_000 + 1), 'rebuilt')
+  cleanup()
 })
