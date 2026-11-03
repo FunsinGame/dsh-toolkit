@@ -24,10 +24,14 @@ namespace ExplorerStateKeeper
         /// <summary>SW_SHOWNORMAL (1), SW_SHOWMINIMIZED (2) or SW_SHOWMAXIMIZED (3).</summary>
         public int ShowCommand { get; set; }
 
+        /// <summary>Zero-based active tab index, or -1 when it could not be detected.</summary>
+        public int ActiveTabIndex { get; set; }
+
         public ExplorerWindowState()
         {
             Tabs = new List<string>();
             ShowCommand = 1;
+            ActiveTabIndex = -1;
         }
 
         public List<string> GetPaths()
@@ -83,6 +87,7 @@ namespace ExplorerStateKeeper
             copy.Width = Width;
             copy.Height = Height;
             copy.ShowCommand = ShowCommand;
+            copy.ActiveTabIndex = ActiveTabIndex;
             return copy;
         }
     }
@@ -139,7 +144,8 @@ namespace ExplorerStateKeeper
 
         public string Describe()
         {
-            return DescribeTime() + " · " + FolderCount + " 个窗口";
+            return DescribeTime() + " · " + WindowCount + " 个窗口 / " +
+                   FolderCount + " 个页签";
         }
 
         public ExplorerSnapshot Clone()
@@ -174,6 +180,7 @@ namespace ExplorerStateKeeper
                       .Append(w.Left).Append(",").Append(w.Top).Append(" ")
                       .Append(w.Width).Append("x").Append(w.Height)
                       .Append(" show=").Append(w.ShowCommand)
+                      .Append(" active=").Append(w.ActiveTabIndex)
                       .Append(" ").Append(string.Join(" | ", w.GetPaths().ToArray()));
                 }
             }
@@ -242,14 +249,17 @@ namespace ExplorerStateKeeper
 
     internal sealed class RestoreResult
     {
+        public int RestoredGroups { get; set; }
         public int Restored { get; set; }
         public int Failed { get; set; }
         public List<string> Errors { get; set; }
+        public List<string> Warnings { get; set; }
         public string FatalError { get; set; }
 
         public RestoreResult()
         {
             Errors = new List<string>();
+            Warnings = new List<string>();
         }
     }
 }

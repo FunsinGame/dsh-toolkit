@@ -178,6 +178,11 @@ namespace ExplorerStateKeeper
                     window.Width = 0;
                     window.Height = 0;
                 }
+
+                if (window.ActiveTabIndex < -1)
+                {
+                    window.ActiveTabIndex = -1;
+                }
             }
 
             return snapshot;

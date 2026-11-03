@@ -16,6 +16,34 @@ namespace ExplorerStateKeeper
         internal const uint SWP_NOZORDER = 0x0004;
         internal const uint SWP_NOACTIVATE = 0x0010;
 
+        internal const byte VK_CONTROL = 0x11;
+        internal const byte VK_MENU = 0x12;
+        internal const byte VK_SHIFT = 0x10;
+        internal const byte VK_TAB = 0x09;
+        internal const byte VK_T = 0x54;
+        internal const byte VK_W = 0x57;
+        internal const byte VK_1 = 0x31;
+        internal const uint KEYEVENTF_KEYUP = 0x0002;
+
+        [DllImport("user32.dll")]
+        internal static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
+        internal static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        internal static extern bool BringWindowToTop(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        internal static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+        [DllImport("user32.dll")]
+        internal static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool attach);
+
+        [DllImport("user32.dll")]
+        internal static extern void keybd_event(byte virtualKey, byte scanCode,
+            uint flags, UIntPtr extraInfo);
+
         [DllImport("kernel32.dll")]
         internal static extern ulong GetTickCount64();
 

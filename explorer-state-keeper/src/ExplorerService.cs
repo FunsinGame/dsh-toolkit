@@ -10,6 +10,19 @@ namespace ExplorerStateKeeper
     internal sealed class ExplorerService
     {
         private const int LaunchTimeoutMilliseconds = 5500;
+        private const int NewTabTimeoutMilliseconds = 5000;
+        private const int TabNavigationTimeoutMilliseconds = 5000;
+
+        /// <summary>A Shell.Application window object plus the data needed to
+        /// identify the tab it represents.</summary>
+        private sealed class ShellTabRef
+        {
+            public object ComObject { get; set; }
+            public long Handle { get; set; }
+            public long Identity { get; set; }
+            public string Name { get; set; }
+            public string Path { get; set; }
+        }
 
         public CaptureResult Capture()
         {
@@ -22,28 +35,37 @@ namespace ExplorerStateKeeper
             }
 
             string error;
-            Dictionary<long, List<string>> paths = ReadShellPaths(out error);
-            if (paths == null)
+            List<ShellTabRef> tabs = EnumerateShellTabs(out error);
+            if (tabs == null)
             {
                 result.Error = error;
                 return result;
             }
 
-            for (int i = 0; i < handles.Count; i++)
+            try
             {
-                long handle = handles[i];
-                List<string> tabs;
-                if (!paths.TryGetValue(handle, out tabs) || tabs == null || tabs.Count == 0)
+                Dictionary<long, List<ShellTabRef>> byHandle = GroupTabsByHandle(tabs);
+                for (int i = 0; i < handles.Count; i++)
                 {
-                    Log.Warn("跳过无法读取路径的资源管理器窗口 HWND=" + handle);
-                    continue;
-                }
+                    long handle = handles[i];
+                    List<ShellTabRef> windowTabs;
+                    if (!byHandle.TryGetValue(handle, out windowTabs) ||
+                        windowTabs == null || windowTabs.Count == 0)
+                    {
+                        Log.Warn("跳过无法读取路径的资源管理器窗口 HWND=" + handle);
+                        continue;
+                    }
 
-                ExplorerWindowState state = ReadWindowState(handle, tabs);
-                if (state != null)
-                {
-                    result.Windows.Add(state);
+                    ExplorerWindowState state = ReadWindowState(handle, windowTabs);
+                    if (state != null)
+                    {
+                        result.Windows.Add(state);
+                    }
                 }
+            }
+            finally
+            {
+                ReleaseShellTabs(tabs);
             }
 
             if (result.Windows.Count == 0)
@@ -66,25 +88,38 @@ namespace ExplorerStateKeeper
                 return result;
             }
 
-            Dictionary<long, List<string>> paths = ReadShellPaths(out error);
-            if (paths == null)
+            List<ShellTabRef> tabs = EnumerateShellTabs(out error);
+            if (tabs == null)
             {
                 return result;
             }
 
-            for (int i = 0; i < handles.Count; i++)
+            try
             {
-                List<string> tabs;
-                if (!paths.TryGetValue(handles[i], out tabs) || tabs == null || tabs.Count == 0)
+                Dictionary<long, List<ShellTabRef>> byHandle = GroupTabsByHandle(tabs);
+                for (int i = 0; i < handles.Count; i++)
                 {
-                    continue;
-                }
+                    List<ShellTabRef> windowTabs;
+                    if (!byHandle.TryGetValue(handles[i], out windowTabs) ||
+                        windowTabs == null)
+                    {
+                        continue;
+                    }
 
-                LiveWindow live = new LiveWindow();
-                live.Handle = handles[i];
-                live.Title = NativeMethods.GetWindowTitle(new IntPtr(handles[i]));
-                live.Paths = new List<string>(tabs);
-                result.Add(live);
+                    LiveWindow live = new LiveWindow();
+                    live.Handle = handles[i];
+                    live.Title = NativeMethods.GetWindowTitle(new IntPtr(handles[i]));
+                    live.Paths = CollectRestorablePaths(windowTabs);
+                    if (live.Paths.Count == 0)
+                    {
+                        continue;
+                    }
+                    result.Add(live);
+                }
+            }
+            finally
+            {
+                ReleaseShellTabs(tabs);
             }
 
             if (result.Count == 0)
@@ -140,6 +175,75 @@ namespace ExplorerStateKeeper
                     state.Width > 0 ? state.Width : 1000,
                     state.Height > 0 ? state.Height : 700));
 
+                LiveWindow existing = FindExistingWindow(live, claimed, paths);
+                long groupHandle = 0;
+                List<string> currentPaths = new List<string>();
+                bool baseReady = false;
+                string lastError = null;
+
+                if (existing != null)
+                {
+                    groupHandle = existing.Handle;
+                    claimed.Add(groupHandle);
+                    currentPaths.AddRange(existing.Paths);
+                    baseReady = true;
+                }
+                else
+                {
+                    // Launch one of the folders as the first tab.  Normally
+                    // paths[0] works; if it disappeared, try the next one.
+                    for (int i = 0; i < paths.Count; i++)
+                    {
+                        if (!PathTools.LooksRestorable(paths[i]))
+                        {
+                            continue;
+                        }
+                        if (!PathTools.LocalDirectoryExists(paths[i]))
+                        {
+                            lastError = "文件夹不存在：" + paths[i];
+                            continue;
+                        }
+
+                        if (LaunchAndWait(paths[i], out groupHandle, out lastError))
+                        {
+                            claimed.Add(groupHandle);
+                            currentPaths.Add(paths[i]);
+                            baseReady = true;
+                            Thread.Sleep(250);
+                            break;
+                        }
+                    }
+                }
+
+                if (!baseReady)
+                {
+                    result.Failed += paths.Count;
+                    result.Errors.Add("无法打开窗口组：" +
+                        (lastError == null ? "未知错误" : lastError));
+                    continue;
+                }
+
+                result.RestoredGroups++;
+                Log.Info("恢复窗口组：HWND=" + groupHandle +
+                         "，记录页签 " + paths.Count + " 个。");
+
+                HashSet<string> currentSet = new HashSet<string>(
+                    StringComparer.OrdinalIgnoreCase);
+                for (int i = 0; i < currentPaths.Count; i++)
+                {
+                    currentSet.Add(PathTools.NormalizeForCompare(currentPaths[i]));
+                }
+
+                if (paths.Count > 1)
+                {
+                    string prepareError;
+                    if (!ApplyBounds(groupHandle, baseRectangle,
+                        NativeMethods.SW_SHOWNORMAL, out prepareError))
+                    {
+                        result.Warnings.Add("窗口准备失败：" + prepareError);
+                    }
+                }
+
                 for (int tabIndex = 0; tabIndex < paths.Count; tabIndex++)
                 {
                     string path = paths[tabIndex];
@@ -150,57 +254,85 @@ namespace ExplorerStateKeeper
                         continue;
                     }
 
-                    long handle = 0;
-                    string reason;
-                    bool applied;
-
-                    if (TryClaimExisting(live, claimed, path, out handle))
-                    {
-                        applied = ApplyBounds(handle, baseRectangle, tabIndex,
-                            state.ShowCommand, out reason);
-                    }
-                    else
-                    {
-                        if (!PathTools.LocalDirectoryExists(path))
-                        {
-                            result.Failed++;
-                            result.Errors.Add("文件夹不存在：" + path);
-                            continue;
-                        }
-
-                        if (!LaunchAndWait(path, out handle, out reason))
-                        {
-                            result.Failed++;
-                            result.Errors.Add("打开失败：" + path + "（" + reason + "）");
-                            continue;
-                        }
-
-                        claimed.Add(handle);
-                        // Let Explorer finish its initial layout before moving
-                        // the window; otherwise some versions snap back.
-                        Thread.Sleep(220);
-                        applied = ApplyBounds(handle, baseRectangle, tabIndex,
-                            state.ShowCommand, out reason);
-                    }
-
-                    if (applied)
+                    string normalized = PathTools.NormalizeForCompare(path);
+                    if (currentSet.Contains(normalized))
                     {
                         result.Restored++;
-                        Log.Info("已恢复：" + path);
+                        continue;
                     }
-                    else
+
+                    if (!PathTools.LocalDirectoryExists(path))
                     {
                         result.Failed++;
-                        result.Errors.Add("窗口定位失败：" + path + "（" + reason + "）");
+                        result.Errors.Add("文件夹不存在：" + path);
+                        continue;
                     }
+
+                    string tabError;
+                    if (AddTabAndNavigate(groupHandle, path, out tabError))
+                    {
+                        currentSet.Add(normalized);
+                        result.Restored++;
+                        Log.Info("已在同一窗口新增页签：" + path);
+                        continue;
+                    }
+
+                    // Last resort: restore the folder, but as a separate
+                    // window.  The warning tells the user why the group is
+                    // not exact.
+                    long fallbackHandle = 0;
+                    string fallbackError;
+                    if (!LaunchAndWait(path, out fallbackHandle, out fallbackError))
+                    {
+                        result.Failed++;
+                        result.Errors.Add("页签创建失败，且无法打开独立窗口：" +
+                            path + "（" + tabError + "；" + fallbackError + "）");
+                        continue;
+                    }
+
+                    claimed.Add(fallbackHandle);
+                    Thread.Sleep(200);
+                    Rectangle fallbackRectangle = WindowGeometry.OffsetForTab(
+                        baseRectangle, Math.Min(4, result.Restored % 5 + 1));
+                    string applyError;
+                    ApplyBounds(fallbackHandle, fallbackRectangle,
+                        NativeMethods.SW_SHOWNORMAL, out applyError);
+                    currentSet.Add(normalized);
+                    result.Restored++;
+                    result.Warnings.Add("页签创建失败，已作为独立窗口打开：" +
+                        path + "（" + tabError + "）");
+                    Log.Warn("页签创建失败，已作为独立窗口打开：" + path +
+                             "；原因：" + tabError);
+                }
+
+                if (state.ActiveTabIndex >= 0 &&
+                    state.ActiveTabIndex < paths.Count &&
+                    paths.Count > 1)
+                {
+                    if (!ActivateTab(groupHandle, state.ActiveTabIndex))
+                    {
+                        Log.Warn("活动页签恢复失败，索引 " +
+                                 state.ActiveTabIndex + "，窗口 " + groupHandle);
+                    }
+                }
+
+                string finalError;
+                if (!ApplyBounds(groupHandle, baseRectangle,
+                    state.ShowCommand, out finalError))
+                {
+                    result.Warnings.Add("窗口定位失败：" +
+                        paths[0] + "（" + finalError + "）");
                 }
             }
 
-            Log.Info("恢复完成：成功 " + result.Restored + "，失败 " + result.Failed);
+            Log.Info("恢复完成：窗口 " + result.RestoredGroups +
+                     " 个，页签 " + result.Restored +
+                     " 个，失败 " + result.Failed + "。");
             return result;
         }
 
-        private static ExplorerWindowState ReadWindowState(long handle, List<string> tabs)
+        private static ExplorerWindowState ReadWindowState(long handle,
+            List<ShellTabRef> tabs)
         {
             IntPtr hwnd = new IntPtr(handle);
             NativeMethods.WINDOWPLACEMENT placement = new NativeMethods.WINDOWPLACEMENT();
@@ -241,38 +373,153 @@ namespace ExplorerStateKeeper
                 return null;
             }
 
+            List<string> paths = new List<string>();
+            List<ShellTabRef> validTabs = new List<ShellTabRef>();
+            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < tabs.Count; i++)
+            {
+                ShellTabRef tab = tabs[i];
+                if (string.IsNullOrEmpty(tab.Path))
+                {
+                    continue;
+                }
+
+                string path = tab.Path.Trim();
+                if (path.Length == 0 || !PathTools.LooksRestorable(path))
+                {
+                    continue;
+                }
+
+                if (seen.Add(PathTools.NormalizeForCompare(path)))
+                {
+                    paths.Add(path);
+                    validTabs.Add(tab);
+                }
+            }
+
+            if (paths.Count == 0)
+            {
+                return null;
+            }
+
             ExplorerWindowState state = new ExplorerWindowState();
-            state.Path = tabs[0];
+            state.Path = paths[0];
             state.Title = NativeMethods.GetWindowTitle(hwnd);
             state.Left = rect.Left;
             state.Top = rect.Top;
             state.Width = rect.Width;
             state.Height = rect.Height;
             state.ShowCommand = showCommand;
-
-            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            for (int i = 0; i < tabs.Count; i++)
-            {
-                if (string.IsNullOrEmpty(tabs[i]))
-                {
-                    continue;
-                }
-                if (seen.Add(tabs[i].Trim()))
-                {
-                    state.Tabs.Add(tabs[i].Trim());
-                }
-            }
-
+            state.Tabs = new List<string>(paths);
+            state.ActiveTabIndex = DetectActiveTabIndex(state.Title, validTabs);
             return state;
         }
 
-        private static bool TryClaimExisting(List<LiveWindow> live, HashSet<long> claimed,
-            string path, out long handle)
+        private static List<string> CollectRestorablePaths(List<ShellTabRef> tabs)
         {
-            handle = 0;
-            if (live == null)
+            List<string> paths = new List<string>();
+            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < tabs.Count; i++)
+            {
+                string path = tabs[i].Path;
+                if (string.IsNullOrEmpty(path))
+                {
+                    continue;
+                }
+
+                path = path.Trim();
+                if (path.Length == 0 || !PathTools.LooksRestorable(path))
+                {
+                    continue;
+                }
+
+                if (seen.Add(PathTools.NormalizeForCompare(path)))
+                {
+                    paths.Add(path);
+                }
+            }
+            return paths;
+        }
+
+        private static int DetectActiveTabIndex(string title, List<ShellTabRef> tabs)
+        {
+            if (tabs == null || tabs.Count == 0)
+            {
+                return -1;
+            }
+
+            List<string> names = new List<string>();
+            for (int i = 0; i < tabs.Count; i++)
+            {
+                string name = tabs[i].Name;
+                if (string.IsNullOrEmpty(name))
+                {
+                    name = PathTools.LeafName(tabs[i].Path);
+                }
+                names.Add(name);
+            }
+
+            return DetectActiveTabIndex(title, (IList<string>)names);
+        }
+
+        internal static int DetectActiveTabIndex(string title, IList<string> tabNames)
+        {
+            if (string.IsNullOrEmpty(title) || tabNames == null || tabNames.Count == 0)
+            {
+                return -1;
+            }
+
+            int best = -1;
+            int bestLength = 0;
+            bool ambiguous = false;
+            for (int i = 0; i < tabNames.Count; i++)
+            {
+                string name = tabNames[i];
+                if (string.IsNullOrEmpty(name) || !TitleStartsWithTabName(title, name))
+                {
+                    continue;
+                }
+
+                if (name.Length > bestLength)
+                {
+                    best = i;
+                    bestLength = name.Length;
+                    ambiguous = false;
+                }
+                else if (name.Length == bestLength)
+                {
+                    ambiguous = true;
+                }
+            }
+
+            return ambiguous ? -1 : best;
+        }
+
+        private static bool TitleStartsWithTabName(string title, string name)
+        {
+            if (!title.StartsWith(name, StringComparison.OrdinalIgnoreCase))
             {
                 return false;
+            }
+
+            if (title.Length == name.Length)
+            {
+                return true;
+            }
+
+            string rest = title.Substring(name.Length);
+            return rest.StartsWith(" 和 ", StringComparison.Ordinal) ||
+                   rest.StartsWith(" and ", StringComparison.OrdinalIgnoreCase) ||
+                   rest.StartsWith(" - ", StringComparison.Ordinal) ||
+                   rest.StartsWith(" – ", StringComparison.Ordinal);
+        }
+
+        private static LiveWindow FindExistingWindow(List<LiveWindow> live,
+            HashSet<long> claimed, List<string> paths)
+        {
+            if (live == null)
+            {
+                return null;
             }
 
             for (int i = 0; i < live.Count; i++)
@@ -283,18 +530,19 @@ namespace ExplorerStateKeeper
                     continue;
                 }
 
-                if (window.HasPath(path))
+                for (int p = 0; p < paths.Count; p++)
                 {
-                    claimed.Add(window.Handle);
-                    handle = window.Handle;
-                    return true;
+                    if (window.HasPath(paths[p]))
+                    {
+                        return window;
+                    }
                 }
             }
 
-            return false;
+            return null;
         }
 
-        private static bool ApplyBounds(long handle, Rectangle baseRectangle, int tabIndex,
+        private static bool ApplyBounds(long handle, Rectangle rectangle,
             int showCommand, out string error)
         {
             error = null;
@@ -305,13 +553,8 @@ namespace ExplorerStateKeeper
             }
 
             IntPtr hwnd = new IntPtr(handle);
-            Rectangle rectangle = tabIndex == 0
-                ? WindowGeometry.Sanitize(baseRectangle)
-                : WindowGeometry.OffsetForTab(baseRectangle, tabIndex);
-
-            int show = tabIndex == 0
-                ? WindowGeometry.NormalizeShowCommand(showCommand)
-                : NativeMethods.SW_SHOWNORMAL;
+            Rectangle target = WindowGeometry.Sanitize(rectangle);
+            int show = WindowGeometry.NormalizeShowCommand(showCommand);
 
             for (int attempt = 0; attempt < 3; attempt++)
             {
@@ -324,10 +567,10 @@ namespace ExplorerStateKeeper
                 bool ok = NativeMethods.SetWindowPos(
                     hwnd,
                     IntPtr.Zero,
-                    rectangle.Left,
-                    rectangle.Top,
-                    Math.Max(200, rectangle.Width),
-                    Math.Max(120, rectangle.Height),
+                    target.Left,
+                    target.Top,
+                    Math.Max(200, target.Width),
+                    Math.Max(120, target.Height),
                     NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
 
                 if (ok)
@@ -350,6 +593,319 @@ namespace ExplorerStateKeeper
             return false;
         }
 
+        private static bool AddTabAndNavigate(long handle, string path, out string error)
+        {
+            error = null;
+            IntPtr hwnd = new IntPtr(handle);
+
+            for (int attempt = 0; attempt < 2; attempt++)
+            {
+                if (!ActivateWindow(handle))
+                {
+                    error = "无法激活资源管理器窗口";
+                    return false;
+                }
+
+                List<ShellTabRef> before = null;
+                List<ShellTabRef> after = null;
+                try
+                {
+                    string enumError;
+                    before = EnumerateShellTabs(out enumError);
+                    if (before == null)
+                    {
+                        error = enumError;
+                        return false;
+                    }
+
+                    HashSet<long> beforeIds = new HashSet<long>();
+                    for (int i = 0; i < before.Count; i++)
+                    {
+                        if (before[i].Handle == handle && before[i].Identity != 0)
+                        {
+                            beforeIds.Add(before[i].Identity);
+                        }
+                    }
+
+                    if (beforeIds.Count == 0)
+                    {
+                        error = "无法识别当前窗口的已有页签";
+                        return false;
+                    }
+
+                    if (!SendCtrlT(hwnd))
+                    {
+                        error = "无法发送新建页签快捷键";
+                        continue;
+                    }
+
+                    ShellTabRef newTab = null;
+                    DateTime deadline = DateTime.UtcNow.AddMilliseconds(
+                        NewTabTimeoutMilliseconds);
+
+                    while (DateTime.UtcNow < deadline)
+                    {
+                        Thread.Sleep(120);
+                        after = EnumerateShellTabs(out enumError);
+                        if (after == null)
+                        {
+                            continue;
+                        }
+
+                        for (int i = 0; i < after.Count; i++)
+                        {
+                            ShellTabRef tab = after[i];
+                            if (tab.Handle == handle && tab.Identity != 0 &&
+                                !beforeIds.Contains(tab.Identity))
+                            {
+                                newTab = tab;
+                                break;
+                            }
+                        }
+
+                        if (newTab != null)
+                        {
+                            break;
+                        }
+
+                        ReleaseShellTabs(after);
+                        after = null;
+                    }
+
+                    if (newTab == null)
+                    {
+                        error = "新建页签超时";
+                        continue;
+                    }
+
+                    string navigationError;
+                    bool navigated;
+                    try
+                    {
+                        navigated = NavigateTab(newTab, path, out navigationError);
+                    }
+                    catch (Exception ex)
+                    {
+                        navigated = false;
+                        navigationError = ex.Message;
+                    }
+
+                    if (!navigated)
+                    {
+                        error = navigationError;
+                        if (NativeMethods.GetForegroundWindow() == hwnd)
+                        {
+                            SendCtrlKey(hwnd, NativeMethods.VK_W);
+                        }
+                        continue;
+                    }
+
+                    return true;
+                }
+                finally
+                {
+                    ReleaseShellTabs(before);
+                    ReleaseShellTabs(after);
+                }
+            }
+
+            return false;
+        }
+
+        private static bool NavigateTab(ShellTabRef tab, string path, out string error)
+        {
+            error = null;
+            dynamic window = tab.ComObject;
+            string targetUrl = ToNavigationUrl(path);
+            try
+            {
+                window.Navigate2(targetUrl, 0);
+            }
+            catch (Exception ex)
+            {
+                error = "页签导航失败：" + ex.Message;
+                return false;
+            }
+
+            bool virtualPath = PathTools.IsVirtualPath(path);
+            DateTime started = DateTime.UtcNow;
+            DateTime deadline = started.AddMilliseconds(
+                TabNavigationTimeoutMilliseconds);
+            while (DateTime.UtcNow < deadline)
+            {
+                Thread.Sleep(150);
+
+                string currentPath;
+                try
+                {
+                    currentPath = GetShellWindowPath(window);
+                }
+                catch
+                {
+                    currentPath = string.Empty;
+                }
+
+                if (!string.IsNullOrEmpty(currentPath) &&
+                    PathTools.PathsEqual(currentPath, path))
+                {
+                    return true;
+                }
+
+                if (virtualPath &&
+                    DateTime.UtcNow - started > TimeSpan.FromMilliseconds(1500))
+                {
+                    // Shell namespace paths (This PC, Recycle Bin etc.) do
+                    // not always string-compare with their reported Path.
+                    // Give Explorer a moment, then treat the tab as done.
+                    return true;
+                }
+            }
+
+            error = "页签导航超时：" + path;
+            return false;
+        }
+
+        private static string ToNavigationUrl(string path)
+        {
+            if (PathTools.IsVirtualPath(path))
+            {
+                if (path.StartsWith("::", StringComparison.Ordinal))
+                {
+                    return "shell:" + path;
+                }
+                return path;
+            }
+
+            try
+            {
+                return new Uri(path, UriKind.Absolute).AbsoluteUri;
+            }
+            catch
+            {
+                return path;
+            }
+        }
+
+        private static bool ActivateTab(long handle, int index)
+        {
+            if (index < 0 || !ActivateWindow(handle))
+            {
+                return false;
+            }
+
+            IntPtr hwnd = new IntPtr(handle);
+            if (!SendCtrlDigit(hwnd, 1))
+            {
+                return false;
+            }
+            Thread.Sleep(60);
+
+            for (int i = 0; i < index; i++)
+            {
+                if (!SendCtrlKey(hwnd, NativeMethods.VK_TAB))
+                {
+                    return false;
+                }
+                Thread.Sleep(45);
+            }
+
+            return true;
+        }
+
+        private static bool ActivateWindow(long handle)
+        {
+            IntPtr hwnd = new IntPtr(handle);
+            if (NativeMethods.GetForegroundWindow() == hwnd)
+            {
+                return true;
+            }
+
+            NativeMethods.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
+            Thread.Sleep(60);
+
+            // The synthetic Alt tap releases Windows' foreground lock in the
+            // common case where the user just clicked our tray menu.
+            NativeMethods.keybd_event(NativeMethods.VK_MENU, 0, 0, UIntPtr.Zero);
+            NativeMethods.keybd_event(NativeMethods.VK_MENU, 0,
+                NativeMethods.KEYEVENTF_KEYUP, UIntPtr.Zero);
+            NativeMethods.SetForegroundWindow(hwnd);
+            Thread.Sleep(100);
+            if (NativeMethods.GetForegroundWindow() == hwnd)
+            {
+                return true;
+            }
+
+            IntPtr foreground = NativeMethods.GetForegroundWindow();
+            uint processId;
+            uint foregroundThread = NativeMethods.GetWindowThreadProcessId(
+                foreground, out processId);
+            uint targetThread = NativeMethods.GetWindowThreadProcessId(
+                hwnd, out processId);
+            if (foregroundThread != 0 && targetThread != 0 &&
+                foregroundThread != targetThread)
+            {
+                bool attached = NativeMethods.AttachThreadInput(
+                    foregroundThread, targetThread, true);
+                try
+                {
+                    NativeMethods.BringWindowToTop(hwnd);
+                    NativeMethods.SetForegroundWindow(hwnd);
+                }
+                finally
+                {
+                    if (attached)
+                    {
+                        NativeMethods.AttachThreadInput(
+                            foregroundThread, targetThread, false);
+                    }
+                }
+            }
+
+            Thread.Sleep(100);
+            return NativeMethods.GetForegroundWindow() == hwnd;
+        }
+
+        private static bool SendCtrlT(IntPtr hwnd)
+        {
+            return SendCtrlKey(hwnd, NativeMethods.VK_T);
+        }
+
+        private static bool SendCtrlDigit(IntPtr hwnd, int digit)
+        {
+            if (digit < 1 || digit > 9)
+            {
+                return false;
+            }
+            return SendCtrlKey(hwnd, (byte)(NativeMethods.VK_1 + digit - 1));
+        }
+
+        private static bool SendCtrlKey(IntPtr hwnd, byte key)
+        {
+            if (NativeMethods.GetForegroundWindow() != hwnd)
+            {
+                return false;
+            }
+
+            NativeMethods.keybd_event(NativeMethods.VK_CONTROL, 0, 0, UIntPtr.Zero);
+            try
+            {
+                Thread.Sleep(18);
+                NativeMethods.keybd_event(key, 0, 0, UIntPtr.Zero);
+                Thread.Sleep(28);
+                NativeMethods.keybd_event(key, 0,
+                    NativeMethods.KEYEVENTF_KEYUP, UIntPtr.Zero);
+            }
+            finally
+            {
+                Thread.Sleep(15);
+                NativeMethods.keybd_event(NativeMethods.VK_CONTROL, 0,
+                    NativeMethods.KEYEVENTF_KEYUP, UIntPtr.Zero);
+            }
+
+            Thread.Sleep(50);
+            return true;
+        }
+
         private static bool LaunchAndWait(string path, out long handle, out string error)
         {
             handle = 0;
@@ -363,7 +919,8 @@ namespace ExplorerStateKeeper
             try
             {
                 ProcessStartInfo startInfo = new ProcessStartInfo();
-                string windowsDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+                string windowsDirectory = Environment.GetFolderPath(
+                    Environment.SpecialFolder.Windows);
                 string explorerPath = string.IsNullOrEmpty(windowsDirectory)
                     ? "explorer.exe"
                     : System.IO.Path.Combine(windowsDirectory, "explorer.exe");
@@ -375,7 +932,8 @@ namespace ExplorerStateKeeper
                 startInfo.FileName = explorerPath;
                 startInfo.Arguments = BuildExplorerArguments(path);
                 startInfo.UseShellExecute = true;
-                startInfo.WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                startInfo.WorkingDirectory = Environment.GetFolderPath(
+                    Environment.SpecialFolder.UserProfile);
 
                 Process process = Process.Start(startInfo);
                 if (process != null)
@@ -421,7 +979,8 @@ namespace ExplorerStateKeeper
                     for (int c = 0; c < candidates.Count; c++)
                     {
                         List<string> tabs;
-                        if (!currentPaths.TryGetValue(candidates[c], out tabs) || tabs == null)
+                        if (!currentPaths.TryGetValue(candidates[c], out tabs) ||
+                            tabs == null)
                         {
                             continue;
                         }
@@ -440,7 +999,8 @@ namespace ExplorerStateKeeper
                 // Some shell namespace folders (This PC, Recycle Bin) do not
                 // report a comparable path; if a brand new Explorer window is
                 // present and stable, use it.
-                if (candidate != 0 && DateTime.UtcNow - started > TimeSpan.FromMilliseconds(1200))
+                if (candidate != 0 &&
+                    DateTime.UtcNow - started > TimeSpan.FromMilliseconds(1200))
                 {
                     handle = candidate;
                     return true;
@@ -505,9 +1065,56 @@ namespace ExplorerStateKeeper
 
         private static Dictionary<long, List<string>> ReadShellPaths(out string error)
         {
+            List<ShellTabRef> tabs = EnumerateShellTabs(out error);
+            if (tabs == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                Dictionary<long, List<string>> result =
+                    new Dictionary<long, List<string>>();
+                Dictionary<long, List<ShellTabRef>> byHandle = GroupTabsByHandle(tabs);
+                foreach (KeyValuePair<long, List<ShellTabRef>> pair in byHandle)
+                {
+                    List<string> paths = CollectRestorablePaths(pair.Value);
+                    if (paths.Count > 0)
+                    {
+                        result[pair.Key] = paths;
+                    }
+                }
+                return result;
+            }
+            finally
+            {
+                ReleaseShellTabs(tabs);
+            }
+        }
+
+        private static Dictionary<long, List<ShellTabRef>> GroupTabsByHandle(
+            List<ShellTabRef> tabs)
+        {
+            Dictionary<long, List<ShellTabRef>> byHandle =
+                new Dictionary<long, List<ShellTabRef>>();
+            for (int i = 0; i < tabs.Count; i++)
+            {
+                ShellTabRef tab = tabs[i];
+                List<ShellTabRef> list;
+                if (!byHandle.TryGetValue(tab.Handle, out list))
+                {
+                    list = new List<ShellTabRef>();
+                    byHandle[tab.Handle] = list;
+                }
+                list.Add(tab);
+            }
+            return byHandle;
+        }
+
+        private static List<ShellTabRef> EnumerateShellTabs(out string error)
+        {
             error = null;
-            Dictionary<long, List<string>> result =
-                new Dictionary<long, List<string>>();
+            List<ShellTabRef> result = new List<ShellTabRef>();
 
             object shellObject = null;
             object windowsObject = null;
@@ -560,33 +1167,25 @@ namespace ExplorerStateKeeper
                             handle = root.ToInt64();
                         }
 
-                        string path = GetShellWindowPath(window);
-                        if (string.IsNullOrEmpty(path) || !PathTools.LooksRestorable(path))
+                        string name = string.Empty;
+                        try
                         {
-                            continue;
+                            name = Convert.ToString(window.LocationName);
+                        }
+                        catch
+                        {
                         }
 
-                        path = PathTools.TrimTrailingSeparators(path);
-                        List<string> tabs;
-                        if (!result.TryGetValue(handle, out tabs))
-                        {
-                            tabs = new List<string>();
-                            result[handle] = tabs;
-                        }
+                        ShellTabRef tab = new ShellTabRef();
+                        tab.ComObject = windowObject;
+                        tab.Handle = handle;
+                        tab.Identity = GetComIdentity(windowObject);
+                        tab.Name = name == null ? string.Empty : name.Trim();
+                        tab.Path = GetShellWindowPath(window);
+                        result.Add(tab);
 
-                        bool already = false;
-                        for (int t = 0; t < tabs.Count; t++)
-                        {
-                            if (PathTools.PathsEqual(tabs[t], path))
-                            {
-                                already = true;
-                                break;
-                            }
-                        }
-                        if (!already)
-                        {
-                            tabs.Add(path);
-                        }
+                        // Ownership of the COM reference moved to the tab.
+                        windowObject = null;
                     }
                     catch (Exception ex)
                     {
@@ -602,6 +1201,7 @@ namespace ExplorerStateKeeper
             {
                 error = "无法访问 Windows Shell：" + ex.Message;
                 Log.Error("枚举资源管理器窗口失败", ex);
+                ReleaseShellTabs(result);
                 return null;
             }
             finally
@@ -611,6 +1211,41 @@ namespace ExplorerStateKeeper
             }
 
             return result;
+        }
+
+        private static void ReleaseShellTabs(List<ShellTabRef> tabs)
+        {
+            if (tabs == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < tabs.Count; i++)
+            {
+                ReleaseComObject(tabs[i].ComObject);
+                tabs[i].ComObject = null;
+            }
+        }
+
+        private static long GetComIdentity(object value)
+        {
+            IntPtr unknown = IntPtr.Zero;
+            try
+            {
+                unknown = Marshal.GetIUnknownForObject(value);
+                return unknown.ToInt64();
+            }
+            catch
+            {
+                return 0;
+            }
+            finally
+            {
+                if (unknown != IntPtr.Zero)
+                {
+                    Marshal.Release(unknown);
+                }
+            }
         }
 
         private static string GetShellWindowPath(dynamic window)

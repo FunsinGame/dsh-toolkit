@@ -26,6 +26,7 @@ namespace ExplorerStateKeeper
             try
             {
                 TestPaths(failures, details);
+                TestActiveTabDetection(failures, details);
                 TestBootId(failures, details);
                 TestDynamicRuntime(failures, details);
                 TestGeometry(failures);
@@ -101,6 +102,34 @@ namespace ExplorerStateKeeper
             string quotedSpace = PathTools.QuoteCommandLineArgument(@"C:\A B");
             Expect(failures, details, "空格路径命令行引号",
                 quotedSpace == "\"C:\\A B\"", quotedSpace);
+        }
+
+        private static void TestActiveTabDetection(List<string> failures,
+            StringBuilder details)
+        {
+            int index = ExplorerService.DetectActiveTabIndex(
+                "infinite-canvas 和 3 个其他选项卡 - 文件资源管理器",
+                new string[] { "参考资料", "ComfyUI", "Design", "infinite-canvas" });
+            Expect(failures, details, "中文窗口标题识别活动页签", index == 3,
+                index.ToString());
+
+            index = ExplorerService.DetectActiveTabIndex(
+                "Windows and 1 other tab - File Explorer",
+                new string[] { "System32", "Windows" });
+            Expect(failures, details, "英文窗口标题识别活动页签", index == 1,
+                index.ToString());
+
+            index = ExplorerService.DetectActiveTabIndex(
+                "Windows - File Explorer",
+                new string[] { "Windows" });
+            Expect(failures, details, "单页签窗口识别活动页签", index == 0,
+                index.ToString());
+
+            index = ExplorerService.DetectActiveTabIndex(
+                "文档 和 1 个其他选项卡 - 文件资源管理器",
+                new string[] { "文档", "文档" });
+            Expect(failures, details, "重名页签不误判活动页签", index == -1,
+                index.ToString());
         }
 
         private static void TestBootId(List<string> failures, StringBuilder details)
@@ -193,6 +222,7 @@ namespace ExplorerStateKeeper
             window.Width = 1100;
             window.Height = 720;
             window.ShowCommand = NativeMethods.SW_SHOWMAXIMIZED;
+            window.ActiveTabIndex = 1;
             window.Tabs.Add(@"C:\资料\项目");
             window.Tabs.Add(@"D:\备份");
             snapshot.Windows.Add(window);
@@ -204,7 +234,8 @@ namespace ExplorerStateKeeper
                 loaded.Windows[0].Path == @"C:\资料\项目" &&
                 loaded.Windows[0].GetPaths().Count == 2 &&
                 loaded.Windows[0].Left == -1200 &&
-                loaded.Windows[0].ShowCommand == NativeMethods.SW_SHOWMAXIMIZED,
+                loaded.Windows[0].ShowCommand == NativeMethods.SW_SHOWMAXIMIZED &&
+                loaded.Windows[0].ActiveTabIndex == 1,
                 loaded == null ? "null" : loaded.ToDebugString());
 
             AppSettings settings = new AppSettings();

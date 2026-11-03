@@ -419,18 +419,29 @@ namespace ExplorerStateKeeper
                 return;
             }
 
+            string summary = "窗口 " + result.RestoredGroups + " 个，页签 " +
+                             result.Restored + " 个。";
+
             if (result.Restored > 0 && result.Failed == 0)
             {
-                ShowBalloon("恢复完成",
-                    "已恢复 " + result.Restored + " 个资源管理器窗口。",
-                    ToolTipIcon.Info);
+                if (result.Warnings.Count > 0)
+                {
+                    ShowBalloon("恢复完成（有提示）",
+                        summary + "\n" + result.Warnings[0],
+                        ToolTipIcon.Warning);
+                }
+                else
+                {
+                    ShowBalloon("恢复完成", summary, ToolTipIcon.Info);
+                }
             }
             else if (result.Restored > 0)
             {
-                string detail = result.Errors.Count > 0 ? result.Errors[0] : "部分窗口未能恢复。";
+                string detail = result.Errors.Count > 0
+                    ? result.Errors[0]
+                    : (result.Warnings.Count > 0 ? result.Warnings[0] : "部分窗口未能恢复。");
                 ShowBalloon("部分恢复完成",
-                    "成功 " + result.Restored + "，失败 " + result.Failed +
-                    "。\n" + detail,
+                    summary + " 失败 " + result.Failed + " 个。\n" + detail,
                     ToolTipIcon.Warning);
             }
             else
