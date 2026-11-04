@@ -1,0 +1,10 @@
+# dsh-toolbox bundle patch.
+#
+# The host half is deliberately empty: every tool works on files the browser
+# already has (a local video, two local images), so the toolbox needs no route,
+# no port and no host state. The row exists so the client-module registry can
+# attach the browser half declared by `dsh.client`, which contributes the single
+# activity-bar entry that opens the toolbox page.
+- insert:
+    - id: dsh-toolbox
+      name: dsh-toolbox
