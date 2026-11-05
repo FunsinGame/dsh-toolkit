@@ -31,6 +31,7 @@ namespace ExplorerStateKeeper
                 TestDynamicRuntime(failures, details);
                 TestGeometry(failures);
                 TestPersistence(directory, failures, details);
+                TestHistory(directory, failures, details);
                 TestRestoreTarget(directory, failures, details);
             }
             catch (Exception ex)
@@ -247,6 +248,70 @@ namespace ExplorerStateKeeper
             Expect(failures, details, "设置 JSON 往返",
                 loadedSettings.IntervalMinutes == 10 && !loadedSettings.AutoStart,
                 loadedSettings.IntervalMinutes + "/" + loadedSettings.AutoStart);
+        }
+
+        private static void TestHistory(string directory, List<string> failures,
+            StringBuilder details)
+        {
+            SnapshotStore store = new SnapshotStore(directory);
+            DateTimeOffset now = DateTimeOffset.Now;
+            for (int i = 0; i < 12; i++)
+            {
+                ExplorerSnapshot snapshot = CreateHistorySnapshot(i, now.AddMinutes(i));
+                store.AddHistory(snapshot);
+            }
+
+            List<ExplorerSnapshot> history = store.LoadHistory();
+            Expect(failures, details, "历史记录最多保留 10 条",
+                history.Count == 10, history.Count.ToString());
+            Expect(failures, details, "历史记录按时间倒序",
+                history.Count > 0 && history[0].Windows[0].Left == 11 &&
+                history[history.Count - 1].Windows[0].Left == 2,
+                history.Count == 0 ? "empty" :
+                history[0].Windows[0].Left + ".." +
+                history[history.Count - 1].Windows[0].Left);
+
+            ExplorerSnapshot repeated = CreateHistorySnapshot(11, now.AddHours(1));
+            store.AddHistory(repeated);
+            history = store.LoadHistory();
+            Expect(failures, details, "相同状态不重复占用历史槽位",
+                history.Count == 10 && history[0].Windows[0].Left == 11,
+                history.Count + "/" +
+                (history.Count == 0 ? -1 : history[0].Windows[0].Left));
+
+            string seedDirectory = Path.Combine(directory, "seed-test");
+            if (Directory.Exists(seedDirectory))
+            {
+                Directory.Delete(seedDirectory, true);
+            }
+            Directory.CreateDirectory(seedDirectory);
+            SnapshotStore seedStore = new SnapshotStore(seedDirectory);
+            seedStore.SaveRestore(CreateHistorySnapshot(1, now.AddMinutes(1)));
+            seedStore.SaveState(CreateHistorySnapshot(2, now.AddMinutes(2)));
+            seedStore.SeedHistoryFromLegacy();
+            List<ExplorerSnapshot> seeded = seedStore.LoadHistory();
+            Expect(failures, details, "旧版记录迁移为历史记录",
+                seeded.Count == 2 && seeded[0].Windows[0].Left == 2,
+                seeded.Count + "/" +
+                (seeded.Count == 0 ? -1 : seeded[0].Windows[0].Left));
+        }
+
+        private static ExplorerSnapshot CreateHistorySnapshot(int left,
+            DateTimeOffset recordedAt)
+        {
+            ExplorerSnapshot snapshot = new ExplorerSnapshot();
+            snapshot.RecordedAt = recordedAt.ToString("o");
+            snapshot.BootId = "history-test";
+            snapshot.Trigger = "test";
+            ExplorerWindowState window = new ExplorerWindowState();
+            window.Path = @"C:\History\" + left;
+            window.Tabs.Add(window.Path);
+            window.Left = left;
+            window.Top = left;
+            window.Width = 800;
+            window.Height = 600;
+            snapshot.Windows.Add(window);
+            return snapshot;
         }
 
         private static void TestRestoreTarget(string directory, List<string> failures,

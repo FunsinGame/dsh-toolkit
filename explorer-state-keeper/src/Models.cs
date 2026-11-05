@@ -148,6 +148,46 @@ namespace ExplorerStateKeeper
                    FolderCount + " 个页签";
         }
 
+        public bool IsSameState(ExplorerSnapshot other)
+        {
+            if (other == null || WindowCount != other.WindowCount)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < Windows.Count; i++)
+            {
+                ExplorerWindowState left = Windows[i];
+                ExplorerWindowState right = other.Windows[i];
+                if (left.ShowCommand != right.ShowCommand ||
+                    left.Left != right.Left ||
+                    left.Top != right.Top ||
+                    left.Width != right.Width ||
+                    left.Height != right.Height ||
+                    left.ActiveTabIndex != right.ActiveTabIndex)
+                {
+                    return false;
+                }
+
+                List<string> leftPaths = left.GetPaths();
+                List<string> rightPaths = right.GetPaths();
+                if (leftPaths.Count != rightPaths.Count)
+                {
+                    return false;
+                }
+
+                for (int p = 0; p < leftPaths.Count; p++)
+                {
+                    if (!PathTools.PathsEqual(leftPaths[p], rightPaths[p]))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
         public ExplorerSnapshot Clone()
         {
             ExplorerSnapshot copy = new ExplorerSnapshot();
@@ -185,6 +225,18 @@ namespace ExplorerStateKeeper
                 }
             }
             return sb.ToString();
+        }
+    }
+
+    internal sealed class SnapshotHistoryFile
+    {
+        public int Version { get; set; }
+        public List<ExplorerSnapshot> Snapshots { get; set; }
+
+        public SnapshotHistoryFile()
+        {
+            Version = 1;
+            Snapshots = new List<ExplorerSnapshot>();
         }
     }
 

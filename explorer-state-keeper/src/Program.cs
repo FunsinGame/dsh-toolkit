@@ -14,6 +14,7 @@ namespace ExplorerStateKeeper
         {
             bool selfTest = false;
             bool manageAutoStart = true;
+            bool startedByWindows = false;
             string dataDirectory = null;
 
             for (int i = 0; i < args.Length; i++)
@@ -26,6 +27,10 @@ namespace ExplorerStateKeeper
                 else if (string.Equals(argument, "--no-autostart", StringComparison.OrdinalIgnoreCase))
                 {
                     manageAutoStart = false;
+                }
+                else if (string.Equals(argument, "--startup", StringComparison.OrdinalIgnoreCase))
+                {
+                    startedByWindows = true;
                 }
                 else if (string.Equals(argument, "--data-dir", StringComparison.OrdinalIgnoreCase))
                 {
@@ -94,7 +99,8 @@ namespace ExplorerStateKeeper
                 TrayAppContext context = null;
                 try
                 {
-                    context = new TrayAppContext(resolvedDataDirectory, manageAutoStart);
+                    context = new TrayAppContext(resolvedDataDirectory,
+                        manageAutoStart, startedByWindows);
                     Application.Run(context);
                     return 0;
                 }

@@ -8,10 +8,13 @@ namespace ExplorerStateKeeper
 {
     internal sealed class SnapshotStore
     {
+        private const int MaxHistoryEntries = 10;
+
         private readonly object _sync = new object();
         private readonly JavaScriptSerializer _serializer = new JavaScriptSerializer();
         private readonly string _statePath;
         private readonly string _restorePath;
+        private readonly string _historyPath;
         private readonly string _settingsPath;
 
         public string DataDirectory { get; private set; }
@@ -21,6 +24,7 @@ namespace ExplorerStateKeeper
             DataDirectory = dataDirectory;
             _statePath = Path.Combine(dataDirectory, "state.json");
             _restorePath = Path.Combine(dataDirectory, "restore.json");
+            _historyPath = Path.Combine(dataDirectory, "history.json");
             _settingsPath = Path.Combine(dataDirectory, "settings.json");
             _serializer.MaxJsonLength = 8 * 1024 * 1024;
             _serializer.RecursionLimit = 64;
@@ -79,6 +83,153 @@ namespace ExplorerStateKeeper
             {
                 SaveAtomic(_restorePath, _serializer.Serialize(snapshot));
             }
+        }
+
+        public List<ExplorerSnapshot> LoadHistory()
+        {
+            lock (_sync)
+            {
+                return LoadHistoryUnlocked();
+            }
+        }
+
+        public void AddHistory(ExplorerSnapshot snapshot)
+        {
+            if (snapshot == null || snapshot.Windows == null || snapshot.Windows.Count == 0)
+            {
+                return;
+            }
+
+            lock (_sync)
+            {
+                List<ExplorerSnapshot> history = LoadHistoryUnlocked();
+                if (history.Count > 0 && history[0].IsSameState(snapshot))
+                {
+                    // Repeated timer snapshots with the same window state only
+                    // refresh the newest entry instead of filling all 10 slots
+                    // with duplicates.
+                    history[0].RecordedAt = snapshot.RecordedAt;
+                    history[0].BootId = snapshot.BootId;
+                    history[0].Trigger = snapshot.Trigger;
+                }
+                else
+                {
+                    history.Insert(0, snapshot);
+                }
+
+                NormalizeHistory(history);
+                SaveHistoryUnlocked(history);
+            }
+        }
+
+        /// <summary>
+        /// Upgrade from versions that only had state.json/restore.json.  The
+        /// newest legacy snapshots become the first history entries.
+        /// </summary>
+        public void SeedHistoryFromLegacy()
+        {
+            lock (_sync)
+            {
+                if (File.Exists(_historyPath))
+                {
+                    return;
+                }
+
+                List<ExplorerSnapshot> history = new List<ExplorerSnapshot>();
+                ExplorerSnapshot state = NormalizeSnapshot(
+                    Load<ExplorerSnapshot>(_statePath));
+                ExplorerSnapshot restore = NormalizeSnapshot(
+                    Load<ExplorerSnapshot>(_restorePath));
+
+                AddUniqueHistory(history, state);
+                AddUniqueHistory(history, restore);
+                if (history.Count == 0)
+                {
+                    return;
+                }
+
+                NormalizeHistory(history);
+                SaveHistoryUnlocked(history);
+                Log.Info("已从旧版记录初始化历史状态：" + history.Count + " 条。");
+            }
+        }
+
+        private List<ExplorerSnapshot> LoadHistoryUnlocked()
+        {
+            SnapshotHistoryFile file = Load<SnapshotHistoryFile>(_historyPath);
+            List<ExplorerSnapshot> history = new List<ExplorerSnapshot>();
+            if (file != null && file.Snapshots != null)
+            {
+                for (int i = 0; i < file.Snapshots.Count; i++)
+                {
+                    ExplorerSnapshot snapshot = NormalizeSnapshot(file.Snapshots[i]);
+                    if (snapshot != null && snapshot.Windows.Count > 0)
+                    {
+                        history.Add(snapshot);
+                    }
+                }
+            }
+
+            NormalizeHistory(history);
+            return history;
+        }
+
+        private void SaveHistoryUnlocked(List<ExplorerSnapshot> history)
+        {
+            SnapshotHistoryFile file = new SnapshotHistoryFile();
+            file.Snapshots = history;
+            SaveAtomic(_historyPath, _serializer.Serialize(file));
+        }
+
+        private static void AddUniqueHistory(List<ExplorerSnapshot> history,
+            ExplorerSnapshot snapshot)
+        {
+            if (snapshot == null || snapshot.Windows == null || snapshot.Windows.Count == 0)
+            {
+                return;
+            }
+
+            for (int i = 0; i < history.Count; i++)
+            {
+                if (history[i].IsSameState(snapshot))
+                {
+                    return;
+                }
+            }
+            history.Add(snapshot);
+        }
+
+        private static void NormalizeHistory(List<ExplorerSnapshot> history)
+        {
+            if (history == null)
+            {
+                return;
+            }
+
+            history.Sort(delegate(ExplorerSnapshot left, ExplorerSnapshot right)
+            {
+                return GetSnapshotTime(right).CompareTo(GetSnapshotTime(left));
+            });
+
+            while (history.Count > MaxHistoryEntries)
+            {
+                history.RemoveAt(history.Count - 1);
+            }
+        }
+
+        private static DateTime GetSnapshotTime(ExplorerSnapshot snapshot)
+        {
+            if (snapshot == null || string.IsNullOrEmpty(snapshot.RecordedAt))
+            {
+                return DateTime.MinValue;
+            }
+
+            DateTimeOffset parsed;
+            if (DateTimeOffset.TryParse(snapshot.RecordedAt, out parsed))
+            {
+                return parsed.UtcDateTime;
+            }
+            return DateTime.MinValue;
         }
 
         /// <summary>

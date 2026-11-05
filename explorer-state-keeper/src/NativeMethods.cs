@@ -83,6 +83,9 @@ namespace ExplorerStateKeeper
         [DllImport("user32.dll")]
         internal static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
 
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        internal static extern uint RegisterWindowMessage(string message);
+
         [DllImport("user32.dll")]
         internal static extern bool SetProcessDPIAware();
 
