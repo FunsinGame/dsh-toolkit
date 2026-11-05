@@ -1,0 +1,9 @@
+# dsh-design-doc bundle patch.
+#
+# The host half mounts `<workspace>/Docs/Design` on DSH's own Web server under
+# /dsh-design-doc (no new port, no separate listener). The browser half is loaded
+# through the package's `dsh.client` declaration and contributes the activity-bar
+# entry plus the three-column document page.
+- insert:
+    - id: dsh-design-doc
+      name: dsh-design-doc

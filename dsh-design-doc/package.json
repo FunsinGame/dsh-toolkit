@@ -1,0 +1,43 @@
+{
+  "name": "dsh-design-doc",
+  "version": "0.2.0",
+  "description": "DSH 设计文档阅读器：页签打开多篇文档，点正文任意段落看章节坐标、直接改、写回源文件，或把改动送进会话让 AI 同步代码。",
+  "type": "module",
+  "main": "lib/host.js",
+  "icon": "media/icon.svg",
+  "exports": {
+    ".": "./lib/host.js",
+    "./client": "./lib/client.js",
+    "./icon": "./media/icon.svg",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "files": [
+    "lib",
+    "media",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "check": "node --check lib/host.js && node --check lib/client.js && node --check lib/overlay.js",
+    "test": "node scripts/test-host.mjs"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "design-doc",
+    "html"
+  ],
+  "license": "MIT"
+}
