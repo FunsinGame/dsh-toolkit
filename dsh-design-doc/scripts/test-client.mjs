@@ -130,6 +130,12 @@ check('registers the activity page', slots.some((slot) => slot.name === 'shell.a
 check('activity id is design-doc', slots.some((slot) => slot.component?.options?.id === 'design-doc'))
 check('page component is a function', slots.some((slot) => typeof slot.component?.component === 'function'))
 
+// The resize gutter must keep receiving pointer events while the pointer is over
+// the document frame, otherwise dragging leftwards dies the moment it crosses.
+const styleNode = documentStub.head.children.find((node) => typeof node.textContent === 'string' && node.textContent.includes('.dd-root'))
+check('overlay styles are injected', styleNode !== undefined)
+check('dragging disables pointer events on the document frame', styleNode !== undefined && styleNode.textContent.includes('.dd-dragging .dd-frame{pointer-events:none'))
+
 // Construct the tabbed reader without a real browser: this catches layout and
 // tab wiring mistakes that the slot check cannot see.
 const View = exported.View

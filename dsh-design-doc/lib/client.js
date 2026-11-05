@@ -43,6 +43,8 @@ window.__ModuleLoader__.load({
       '.dd-gutter{flex:none;width:7px;cursor:col-resize;position:relative;background:transparent;touch-action:none}',
       '.dd-gutter::after{content:"";position:absolute;top:0;bottom:0;left:3px;width:1px;background:var(--dsh-border,rgba(127,127,127,.25))}',
       '.dd-gutter:hover::after,.dd-gutter.dragging::after{background:#4f9cf9;width:2px;left:2.5px}',
+      '.dd-dragging .dd-frame{pointer-events:none !important}',
+      '.dd-dragging .dd-view{cursor:col-resize}',
       '.dd-view{flex:1 1 auto;width:0;min-width:0;background:#fff;position:relative}',
       '.dd-frame{width:100%;height:100%;border:0;display:block;background:#fff}',
       '.dd-placeholder{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;text-align:center;font-size:12px;line-height:1.9;opacity:.75;background:#fff;color:#555}',
@@ -384,8 +386,14 @@ window.__ModuleLoader__.load({
         var startX = event.clientX
         var startPanel = self.state.panelWidth
         var panelMax = Math.max(320, Math.round(self.dom.root.clientWidth * 0.7))
+
         gutter.classList.add('dragging')
+        // The document lives in an iframe: without this, dragging leftwards puts
+        // the pointer inside the frame, which then eats every pointermove and the
+        // drag dies. Switching the frame off keeps the events in this document.
+        self.dom.root.classList.add('dd-dragging')
         document.body.style.cursor = 'col-resize'
+        document.body.style.userSelect = 'none'
 
         function move(moveEvent) {
           self.state.panelWidth = Math.min(panelMax, Math.max(240, startPanel - (moveEvent.clientX - startX)))
@@ -393,15 +401,19 @@ window.__ModuleLoader__.load({
         }
         function finish() {
           gutter.classList.remove('dragging')
+          self.dom.root.classList.remove('dd-dragging')
           document.body.style.cursor = ''
+          document.body.style.userSelect = ''
           window.removeEventListener('pointermove', move)
           window.removeEventListener('pointerup', finish)
           window.removeEventListener('pointercancel', finish)
+          window.removeEventListener('blur', finish)
           self.persistLayout()
         }
         window.addEventListener('pointermove', move)
         window.addEventListener('pointerup', finish)
         window.addEventListener('pointercancel', finish)
+        window.addEventListener('blur', finish)
       })
       gutter.addEventListener('dblclick', function () {
         self.state.panelWidth = 380
