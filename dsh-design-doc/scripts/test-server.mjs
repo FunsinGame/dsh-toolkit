@@ -49,6 +49,12 @@ await mkdir(path.join(docsRoot, 'styles'), { recursive: true })
 await writeFile(path.join(docsRoot, 'modules.json'), JSON.stringify({ modules: [{ id: 'demo', title: '演示模块' }] }), 'utf8')
 await writeFile(path.join(docsRoot, 'modules', 'demo', 'documents', '01-demo.html'), demoHtml, 'utf8')
 await writeFile(path.join(docsRoot, 'styles', 'docs.css'), 'body{color:#111}', 'utf8')
+await mkdir(path.join(docsRoot, 'assets'), { recursive: true })
+const demoSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="40">
+  <text x="4" y="20" font-size="14">甲</text>
+  <text x="60" y="20" font-size="14">乙 &amp; 丙</text>
+</svg>`
+await writeFile(path.join(docsRoot, 'assets', 'demo.svg'), demoSvg, 'utf8')
 
 const routes = []
 const ctx = {
@@ -143,6 +149,35 @@ const conflict = await fetch(`${base}/dsh-design-doc/save`, {
   body: JSON.stringify({ ...saveBody, html: '又改一次。' }),
 })
 check('stale text is rejected', conflict.status === 409, String(conflict.status))
+
+// An <img src="…svg"> block exposes the SVG's text runs so they can be edited.
+const svgSrc = '../../../assets/demo.svg'
+const docRel = 'modules/demo/documents/01-demo.html'
+const svgQuery = `root=${root}&rel=${encodeURIComponent(docRel)}&src=${encodeURIComponent(svgSrc)}`
+const svgList = await json(await fetch(`${base}/dsh-design-doc/svg?${svgQuery}`))
+check('svg text runs are listed', svgList.ok === true && svgList.texts.length === 2, JSON.stringify(svgList.error ?? null))
+check('entities are decoded for display', svgList.texts?.[1]?.text === '乙 & 丙', svgList.texts?.[1]?.text)
+
+const svgSave = await json(await fetch(`${base}/dsh-design-doc/svg-save`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ root: workspace, rel: docRel, src: svgSrc, texts: [{ index: 0, original: '甲', text: '丁' }] }),
+}))
+check('svg text is written back', svgSave.ok === true && svgSave.changed === 1, JSON.stringify(svgSave.error ?? null))
+const afterSvg = await readFile(path.join(docsRoot, 'assets/demo.svg'), 'utf8')
+check('the edited run changed', afterSvg.includes('>丁<'))
+check('the other run survived', afterSvg.includes('乙 &amp; 丙'))
+check('the svg is otherwise identical', afterSvg === demoSvg.replace('>甲<', '>丁<'))
+
+const svgStale = await fetch(`${base}/dsh-design-doc/svg-save`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ root: workspace, rel: docRel, src: svgSrc, texts: [{ index: 0, original: '甲', text: '戊' }] }),
+})
+check('stale svg text is rejected', svgStale.status === 409, String(svgStale.status))
+
+const notSvg = await fetch(`${base}/dsh-design-doc/svg?root=${root}&rel=${encodeURIComponent(docRel)}&src=${encodeURIComponent('../../../styles/docs.css')}`)
+check('non-svg images are refused', notSvg.status === 400, String(notSvg.status))
 
 const traversal = await fetch(`${base}/dsh-design-doc/site/..%2F..%2Fpackage.json?root=${root}`)
 check('traversal is refused', traversal.status === 403 || traversal.status === 404, String(traversal.status))

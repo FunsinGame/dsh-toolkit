@@ -235,6 +235,17 @@ if (typeof View === 'function') {
     check('selecting marks the block in the document', posted.some((message) => message.type === 'mark' && message.ddPath === 'job-01|p1'))
     built.postMark(null)
     check('clearing the selection removes the outline', posted[posted.length - 1].ddPath === null)
+
+    // Image blocks expose the SVG's text runs for in-place editing.
+    built.state.svg = {
+      src: 'x.svg',
+      file: 'assets/x.svg',
+      texts: [{ index: 0, text: '甲', original: '甲' }, { index: 1, text: '乙', original: '乙' }],
+    }
+    const svgEditor = built.buildSvgEditor('x.svg')
+    check('svg editor renders one row per text run', svgEditor.children.length === 4, String(svgEditor.children.length))
+    const loadingEditor = built.buildSvgEditor('other.svg')
+    check('a different svg switches to a loading state', loadingEditor.children.length === 1, String(loadingEditor.children.length))
   }
 
   // Leaving the activity page and coming back must not rebuild the state: the

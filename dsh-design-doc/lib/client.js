@@ -67,6 +67,10 @@ window.__ModuleLoader__.load({
       '.dd-editor{width:100%;box-sizing:border-box;min-height:150px;resize:vertical;border-radius:6px;border:1px solid var(--dsh-border,rgba(127,127,127,.3));background:transparent;color:inherit;font:12px/1.6 ui-monospace,Consolas,monospace;padding:7px}',
       '.dd-actions{display:flex;gap:8px;margin-top:8px}',
       '.dd-hint{font-size:11px;opacity:.6;line-height:1.6;margin-top:6px}',
+      '.dd-svg{margin-top:6px;display:flex;flex-direction:column;gap:4px;max-height:240px;overflow:auto}',
+      '.dd-svg-row{display:flex;align-items:center;gap:6px}',
+      '.dd-svg-no{font-size:10px;opacity:.5;width:20px;flex:none;text-align:right}',
+      '.dd-svg-input{flex:1;min-width:0;background:transparent;border:1px solid var(--dsh-border,rgba(127,127,127,.3));border-radius:5px;color:inherit;font-size:12px;padding:3px 6px}',
       '.dd-diff{margin-top:8px;font:11px/1.5 ui-monospace,Consolas,monospace;white-space:pre-wrap;word-break:break-all;background:rgba(127,127,127,.1);border-radius:6px;padding:6px;max-height:220px;overflow:auto}',
       '.dd-status{padding:4px 10px;font-size:11px;border-top:1px solid var(--dsh-border,rgba(127,127,127,.25));opacity:.8;flex:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.dd-ctx{position:fixed;z-index:80;min-width:152px;padding:4px;background:var(--dsh-bg-elevated,#fff);color:var(--dsh-fg,#222);border:1px solid var(--dsh-border,rgba(127,127,127,.35));border-radius:8px;box-shadow:0 10px 26px rgba(0,0,0,.18)}',
@@ -214,6 +218,7 @@ window.__ModuleLoader__.load({
         mode: 'text',
         saved: false,
         drafts: {},
+        svg: null,
         panelWidth: 380,
       }
       this.manifests = {}
@@ -914,6 +919,7 @@ window.__ModuleLoader__.load({
       this.persist()
       this.state.sel = payload
       this.state.drafts = {}
+      this.state.svg = null
       this.state.saved = false
       this.state.mode = /<[a-z][^>]*>/i.test(payload.html || '') ? 'html' : 'text'
       this.renderPanel()
@@ -983,12 +989,14 @@ window.__ModuleLoader__.load({
       // A block whose content is a picture: the only thing editable here is the
       // <img> tag itself, so say so instead of showing an empty text box.
       var imageMatch = /<img\b[^>]*src="([^"]*)"/i.exec(sel.html || '')
+      var svgEditor = null
       if (imageMatch !== null) {
         card.append(
           el('div', { class: 'dd-k', text: '图片' }),
           el('div', { class: 'dd-v' }, [el('code', { text: imageMatch[1] })]),
-          el('div', { class: 'dd-hint', text: '这一块的内容是图片：能改的是 <img> 标签本身（src / alt / style）。图里的文字存在它指向的 SVG 文件里，要改正文得改那个文件。' }),
+          el('div', { class: 'dd-hint', text: '这一块的内容是图片：能改的是 <img> 标签本身（src / alt / style）。图里的文字存在它指向的 SVG 文件里，下面直接改那段文字。' }),
         )
+        if (/\.svg(\?|#|$)/i.test(imageMatch[1])) svgEditor = this.buildSvgEditor(imageMatch[1])
       }
 
       var editor = el('textarea', { class: 'dd-editor', spellcheck: 'false' })
@@ -1017,8 +1025,9 @@ window.__ModuleLoader__.load({
       var diffBox = el('pre', { class: 'dd-diff', style: 'display:none' })
       this.dom.diffBox = diffBox
 
-      panel.append(
-        card,
+      var parts = [card]
+      if (svgEditor !== null) parts.push(svgEditor)
+      parts.push(
         modes,
         editor,
         el('div', { class: 'dd-hint', text: hint }),
@@ -1028,7 +1037,103 @@ window.__ModuleLoader__.load({
         ]),
         diffBox,
       )
+      panel.append.apply(panel, parts)
       this.dom.editor = editor
+    }
+
+    /** Editor for the `<text>` runs of the SVG the selected picture points at. */
+    View.prototype.buildSvgEditor = function (src) {
+      var self = this
+      var box = el('div', { class: 'dd-svg' })
+      var svg = this.state.svg
+
+      if (svg === null || svg.src !== src) {
+        this.loadSvgTexts(src)
+        box.append(el('div', { class: 'dd-hint', text: '读取图内文字…' }))
+        return box
+      }
+      if (svg.failed === true) {
+        box.append(el('div', { class: 'dd-hint', text: '读不到这个 SVG：' + (svg.error || '未知错误') }))
+        return box
+      }
+
+      box.append(el('div', { class: 'dd-hint', text: '图内文字（' + svg.file + '）' }))
+      svg.texts.forEach(function (item, position) {
+        box.append(el('div', { class: 'dd-svg-row' }, [
+          el('span', { class: 'dd-svg-no', text: String(position + 1) }),
+          el('input', {
+            class: 'dd-svg-input',
+            value: item.text,
+            oninput: function () { item.text = this.value },
+          }),
+        ]))
+      })
+      box.append(el('div', { class: 'dd-actions' }, [
+        el('button', { class: 'dd-btn primary', text: '保存 SVG', onclick: function () { self.saveSvg() } }),
+      ]))
+      return box
+    }
+
+    View.prototype.loadSvgTexts = function (src) {
+      var self = this
+      var tab = this.activeTab()
+      if (tab === null || tab.root === null || tab.rel === null) return
+      this.state.svg = { src: src, texts: [], loading: true }
+      fetch(PREFIX + '/svg?root=' + encodeURIComponent(tab.root) + '&rel=' + encodeURIComponent(tab.rel) + '&src=' + encodeURIComponent(src))
+        .then(function (response) { return response.json() })
+        .then(function (data) {
+          if (self.state.svg === null || self.state.svg.src !== src) return
+          if (!data.ok) {
+            self.state.svg = { src: src, texts: [], failed: true, error: (data.error && data.error.message) || '未知错误' }
+          } else {
+            self.state.svg = {
+              src: src,
+              file: data.file,
+              texts: (data.texts || []).map(function (item) { return { index: item.index, text: item.text, original: item.text } }),
+            }
+          }
+          if (self.state.sel !== null && self.state.sel.ddPath !== null) self.renderPanel()
+        })
+        .catch(function (error) {
+          if (self.state.svg === null || self.state.svg.src !== src) return
+          self.state.svg = { src: src, texts: [], failed: true, error: String((error && error.message) || error) }
+          self.renderPanel()
+        })
+    }
+
+    View.prototype.saveSvg = function () {
+      var self = this
+      var tab = this.activeTab()
+      var svg = this.state.svg
+      if (tab === null || tab.rel === null || svg === null || svg.texts === undefined) return
+      this.status('写回 SVG…')
+      fetch(PREFIX + '/svg-save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          root: tab.root,
+          rel: tab.rel,
+          src: svg.src,
+          texts: svg.texts.map(function (item) {
+            return { index: item.index, original: item.original, text: item.text }
+          }),
+        }),
+      })
+        .then(function (response) { return response.json() })
+        .then(function (data) {
+          if (!data.ok) {
+            self.status('SVG 保存失败：' + ((data.error && data.error.message) || '未知错误'))
+            return
+          }
+          if (data.changed === 0) {
+            self.status('图内文字没有变化')
+            return
+          }
+          svg.texts.forEach(function (item) { item.original = item.text })
+          self.reloadFrame()
+          self.status('已写回 ' + data.file + '（' + data.changed + ' 处）')
+        })
+        .catch(function (error) { self.status('SVG 保存失败：' + String((error && error.message) || error)) })
     }
 
     View.prototype.switchMode = function (mode) {

@@ -478,6 +478,12 @@ async function handle(req, res, deps) {
   if (pathname === `${PREFIX}/save` && method === 'POST') {
     return saveDoc(req, res, deps)
   }
+  if (pathname === `${PREFIX}/svg` && method === 'GET') {
+    return readSvg(req, res, url, deps)
+  }
+  if (pathname === `${PREFIX}/svg-save` && method === 'POST') {
+    return saveSvg(req, res, deps)
+  }
   if (pathname === `${PREFIX}/sync` && method === 'POST') {
     return runSync(req, res, deps)
   }
@@ -547,6 +553,90 @@ async function saveDoc(req, res, deps) {
     bytesBefore: Buffer.byteLength(src),
     bytesAfter: Buffer.byteLength(updated),
   })
+}
+
+/* ------------------------------------------------------------------- svg -- */
+
+const SVG_TEXT = /<text\b([^>]*)>([\s\S]*?)<\/text>/gi
+
+function svgTextNodes(src) {
+  const out = []
+  SVG_TEXT.lastIndex = 0
+  let match
+  while ((match = SVG_TEXT.exec(src)) !== null) {
+    out.push({
+      index: out.length,
+      text: decodeEntities(match[2].replace(/<[^>]*>/g, '')),
+      openEnd: match.index + match[0].indexOf('>') + 1,
+      closeStart: match.index + match[0].length - '</text>'.length,
+    })
+  }
+  return out
+}
+
+function escapeXml(text) {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+/** Resolves an `<img src>` to the SVG file it points at, inside the docs root. */
+async function resolveSvg(root, rel, src) {
+  const docsRoot = await resolveDocsRoot(root)
+  if (docsRoot === null) throw new HttpError(404, 'docs_not_found', '没找到 Docs/Design')
+  if (typeof src !== 'string' || !/\.svg$/i.test(src.split(/[?#]/)[0])) {
+    throw new HttpError(400, 'not_svg', '这一块指向的不是 SVG 文件')
+  }
+  let decoded = src.split(/[?#]/)[0]
+  try {
+    decoded = decodeURIComponent(src)
+  } catch {
+    decoded = src
+  }
+  const docDir = path.dirname(path.resolve(docsRoot, String(rel ?? '')))
+  const target = path.resolve(docDir, decoded)
+  assertInside(docsRoot, target)
+  return { target, file: path.relative(docsRoot, target).split(path.sep).join('/') }
+}
+
+/** Lists the `<text>` runs of an SVG so the panel can edit them in place. */
+async function readSvg(req, res, url, deps) {
+  const svg = await resolveSvg(url.searchParams.get('root'), url.searchParams.get('rel'), url.searchParams.get('src'))
+  const src = await readFile(svg.target, 'utf8')
+  sendJson(res, 200, {
+    ok: true,
+    file: svg.file,
+    texts: svgTextNodes(src).map(({ index, text }) => ({ index, text })),
+  })
+}
+
+async function saveSvg(req, res, deps) {
+  const body = await readJson(req)
+  const svg = await resolveSvg(body.root, body.rel, body.src)
+  const src = await readFile(svg.target, 'utf8')
+  const nodes = svgTextNodes(src)
+  const items = Array.isArray(body.texts) ? body.texts : []
+
+  const edits = []
+  for (const item of items) {
+    if (item === null || typeof item !== 'object') continue
+    const node = nodes[Number(item.index)]
+    if (node === undefined) throw new HttpError(409, 'svg_changed', 'SVG 结构变了，请刷新后重试')
+    if (typeof item.original === 'string' && squash(item.original) !== squash(node.text)) {
+      throw new HttpError(409, 'svg_changed', 'SVG 已经被改过，请刷新后重试')
+    }
+    const next = escapeXml(String(item.text ?? ''))
+    if (next !== src.slice(node.openEnd, node.closeStart)) edits.push({ node, text: next })
+  }
+
+  if (edits.length === 0) return sendJson(res, 200, { ok: true, changed: 0, file: svg.file })
+
+  edits.sort((a, b) => b.node.openEnd - a.node.openEnd)
+  let updated = src
+  for (const edit of edits) {
+    updated = updated.slice(0, edit.node.openEnd) + edit.text + updated.slice(edit.node.closeStart)
+  }
+  await writeFile(svg.target, updated, 'utf8')
+  deps.logger?.info?.(`design-doc: patched ${svg.file} (${edits.length} text runs)`)
+  sendJson(res, 200, { ok: true, changed: edits.length, file: svg.file })
 }
 
 async function runSync(req, res, deps) {
