@@ -134,11 +134,13 @@ Get-Content (Join-Path $dir 'self-test.txt') -Encoding UTF8
 3. 删除 `ExplorerStateKeeper.exe`。
 4. 如需清理记录，删除 `%APPDATA%\ExplorerStateKeeper\`。
 
-如程序已被手动删除但仍在开机启动，可删除注册表值：
+如程序已被手动删除但仍在开机启动，删除以下任意一项：
 
 ```text
+%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\ExplorerStateKeeper.lnk
+
 HKCU\Software\Microsoft\Windows\CurrentVersion\Run
-    名称：ExplorerStateKeeper
+    名称：ExplorerStateKeeper（仅回退模式使用）
 ```
 
 ## 已知限制

@@ -57,6 +57,13 @@ namespace ExplorerStateKeeper
                 return ApplyLegacyRunEntry();
             }
 
+            if (File.Exists(GetShortcutPath()))
+            {
+                RemoveLegacyRunEntry();
+                Log.Warn("启动文件夹快捷方式更新失败，继续使用已存在的快捷方式。");
+                return true;
+            }
+
             Log.Warn("启动文件夹快捷方式创建失败，回退到注册表 Run。");
             return ApplyLegacyRunEntry();
         }
