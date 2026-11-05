@@ -74,6 +74,18 @@ window.__ModuleLoader__.load({
 
     var services = { conversation: null, sessions: null }
 
+    /**
+     * The shell unmounts the activity page on every switch away from it, so the
+     * view — and with it the open tabs, the selected block and the edit draft —
+     * has to live outside React's tree.
+     */
+    var viewInstance = null
+
+    function getView() {
+      if (viewInstance === null) viewInstance = new View()
+      return viewInstance
+    }
+
     function el(tag, props, children) {
       var node = document.createElement(tag)
       if (props) {
@@ -401,16 +413,34 @@ window.__ModuleLoader__.load({
       this.dom.panel.style.width = this.state.panelWidth + 'px'
     }
 
-    View.prototype.mount = function (host) {
+    /**
+     * Attaches the (persistent) view to a freshly rendered host node.
+     *
+     * The shell unmounts the activity page whenever you switch away and back,
+     * so this runs more than once per session. The View instance is kept in a
+     * module-level singleton: re-attaching only moves the DOM back in, it never
+     * rebuilds state — the selected block, the edit draft and the open tabs are
+     * still there when you come back.
+     */
+    View.prototype.bind = function (host) {
+      if (this.dom.root.parentNode) this.dom.root.parentNode.removeChild(this.dom.root)
       host.append(this.dom.root)
+      window.removeEventListener('message', this.onMessage)
       window.addEventListener('message', this.onMessage)
+      if (this.started === true) return
+      this.started = true
       this.refresh()
     }
 
-    View.prototype.dispose = function () {
+    View.prototype.unbind = function () {
       window.removeEventListener('message', this.onMessage)
+      this.captureScroll()
       this.closeMenu()
       if (this.dom.root.parentNode) this.dom.root.parentNode.removeChild(this.dom.root)
+    }
+
+    View.prototype.dispose = function () {
+      this.unbind()
     }
 
     View.prototype.status = function (text) {
@@ -1120,9 +1150,9 @@ window.__ModuleLoader__.load({
       React.useEffect(function () {
         var mount = el('div', { style: 'flex:1 1 auto;min-width:0;min-height:0;display:flex' })
         host.current.append(mount)
-        var instance = new View()
-        instance.mount(mount)
-        return function () { instance.dispose() }
+        var view = getView()
+        view.bind(mount)
+        return function () { view.unbind() }
       }, [])
       return React.createElement('div', {
         ref: host,
@@ -1159,6 +1189,6 @@ window.__ModuleLoader__.load({
       })
     }
 
-    return { apply: apply, Page: Page, View: View }
+    return { apply: apply, Page: Page, View: View, getView: getView }
   },
 })

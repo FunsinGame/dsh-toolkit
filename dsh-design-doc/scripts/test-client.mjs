@@ -42,8 +42,16 @@ function makeElement(tag) {
     clientWidth: 1200,
     classList: { add() {}, remove() {}, contains: () => false },
     setAttribute() {},
-    append(...kids) { this.children.push(...kids); this.firstChild = this.children[0] ?? null },
-    removeChild(child) { this.children = this.children.filter((entry) => entry !== child); this.firstChild = this.children[0] ?? null },
+    append(...kids) {
+      kids.forEach((kid) => { if (kid && typeof kid === 'object') kid.parentNode = this })
+      this.children.push(...kids)
+      this.firstChild = this.children[0] ?? null
+    },
+    removeChild(child) {
+      this.children = this.children.filter((entry) => entry !== child)
+      if (child && typeof child === 'object') child.parentNode = null
+      this.firstChild = this.children[0] ?? null
+    },
     addEventListener() {},
     removeEventListener() {},
     querySelector() { return null },
@@ -213,6 +221,38 @@ if (typeof View === 'function') {
 
     const menu = built.menuItems()
     check('the context menu offers 新页签显示', menu.some((item) => item.label === '新页签显示'))
+  }
+
+  // Leaving the activity page and coming back must not rebuild the state: the
+  // shell unmounts Page, so bind/unbind has to preserve the selection.
+  const getView = exported.getView
+  check('the view is exposed as a singleton', typeof getView === 'function' && getView() === getView())
+  if (typeof getView === 'function') {
+    const view = new View()
+    let refreshes = 0
+    const originalRefresh = view.refresh
+    view.refresh = function () { refreshes += 1; return originalRefresh.call(this) }
+
+    view.state.tabs = [{ root: 'C:/libA', rel: 'modules/demo/index.html', label: '演示', scrollY: 12 }]
+    view.state.active = 0
+    view.state.sel = { ddPath: 'job-01|p1', tag: 'p', text: '原文', html: '原文', scrollY: 0 }
+    view.state.drafts = { text: '改了一半' }
+
+    const hostA = makeElement('div')
+    view.bind(hostA)
+    check('bind attaches the view', view.dom.root.parentNode === hostA)
+    check('first bind loads the workspace', refreshes === 1)
+
+    view.unbind()
+    check('unbind detaches the view', view.dom.root.parentNode === null)
+
+    const hostB = makeElement('div')
+    view.bind(hostB)
+    check('re-attach puts the view back', view.dom.root.parentNode === hostB)
+    check('re-attach keeps the selection', view.state.sel !== null && view.state.sel.ddPath === 'job-01|p1')
+    check('re-attach keeps the edit draft', view.state.drafts.text === '改了一半')
+    check('re-attach keeps the tabs', view.state.tabs.length === 1 && view.state.tabs[0].scrollY === 12)
+    check('re-attach does not reload the workspace', refreshes === 1)
   }
 }
 
