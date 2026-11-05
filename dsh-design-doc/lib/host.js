@@ -36,6 +36,12 @@ const EDITABLE = new Set([
   'dd', 'dt', 'blockquote', 'pre', 'figcaption', 'summary', 'caption', 'aside',
 ])
 
+/**
+ * Containers that carry no editable block of their own — an image wrapper, for
+ * example — are selectable as a whole, so a picture is not a dead zone.
+ */
+const CONTAINER = new Set(['div', 'figure'])
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -193,12 +199,25 @@ export function collectPaths(tree) {
   const out = []
   const counters = new Map()
 
+  const hasEditableBlock = (node) => {
+    let found = false
+    walk(node, (child) => {
+      if (found === false && EDITABLE.has(child.tag)) found = true
+    })
+    return found
+  }
+
+  const selectable = (node) => {
+    if (EDITABLE.has(node.tag)) return true
+    return CONTAINER.has(node.tag) && hasEditableBlock(node) === false
+  }
+
   const walkRegion = (node, scope) => {
     let current = scope
     for (const child of node.children) {
       const id = child.attrs && typeof child.attrs.id === 'string' ? child.attrs.id : ''
       if (id !== '') current = id
-      if (EDITABLE.has(child.tag) && current !== null) {
+      if (selectable(child) && current !== null) {
         if (id !== '' && id === current) {
           out.push({ node: child, ddPath: `${current}|.` })
         } else {

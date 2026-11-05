@@ -37,6 +37,7 @@ const demoHtml = `<!DOCTYPE html>
   <p>小节里的段落。</p>
   <div class="table-wrap"><table><thead><tr><th>项</th><th>值</th></tr></thead>
   <tbody><tr><td>甲</td><td>1</td></tr></tbody></table></div>
+  <div class="figure-wrap"><img src="../../../assets/demo.svg" alt="示例图"></div>
 </section>
 </body></html>
 `
@@ -103,6 +104,15 @@ check('overlay is served', overlay.status === 200)
 const entries = collectPaths(parseHtml(demoHtml))
 const paragraph = entries.find((entry) => entry.node.tag === 'p' && entry.ddPath.startsWith('demo-01-1'))
 check('found the target paragraph', paragraph !== undefined)
+
+// A picture is not a dead zone, but a wrapper around real blocks stays unpickable.
+const divEntries = entries.filter((entry) => entry.node.tag === 'div')
+check('an image-only container is selectable', divEntries.length === 1, JSON.stringify(divEntries.map((entry) => entry.ddPath)))
+check(
+  'the selectable container is the image one',
+  divEntries.length === 1 && demoHtml.slice(divEntries[0].node.openEnd, divEntries[0].node.closeStart).includes('<img'),
+  divEntries.length === 1 ? demoHtml.slice(divEntries[0].node.openEnd, divEntries[0].node.closeStart).trim().slice(0, 40) : '',
+)
 
 const saveBody = {
   root: workspace,

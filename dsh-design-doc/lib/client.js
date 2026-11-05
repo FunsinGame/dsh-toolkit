@@ -980,6 +980,17 @@ window.__ModuleLoader__.load({
         card.append(el('div', { class: 'dd-k', text: '关联代码' }), el('div', { class: 'dd-v', text: '这一节还没有代码关联' }))
       }
 
+      // A block whose content is a picture: the only thing editable here is the
+      // <img> tag itself, so say so instead of showing an empty text box.
+      var imageMatch = /<img\b[^>]*src="([^"]*)"/i.exec(sel.html || '')
+      if (imageMatch !== null) {
+        card.append(
+          el('div', { class: 'dd-k', text: '图片' }),
+          el('div', { class: 'dd-v' }, [el('code', { text: imageMatch[1] })]),
+          el('div', { class: 'dd-hint', text: '这一块的内容是图片：能改的是 <img> 标签本身（src / alt / style）。图里的文字存在它指向的 SVG 文件里，要改正文得改那个文件。' }),
+        )
+      }
+
       var editor = el('textarea', { class: 'dd-editor', spellcheck: 'false' })
       var drafts = this.state.drafts || {}
       editor.value = drafts[this.state.mode] !== undefined
