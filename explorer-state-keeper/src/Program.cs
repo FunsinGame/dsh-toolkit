@@ -91,8 +91,17 @@ namespace ExplorerStateKeeper
             {
                 if (!createdNew)
                 {
-                    MessageBox.Show("资源管理器状态守护已经在运行。\n请查看任务栏通知区域。",
-                        "资源管理器状态守护", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    // During logon, a duplicate startup entry must not leave a
+                    // second process with a hidden message box and no tray icon.
+                    bool atLogon = startedByWindows ||
+                                   NativeMethods.GetTickCount64() < 180000;
+                    if (!atLogon)
+                    {
+                        MessageBox.Show(
+                            "资源管理器状态守护已经在运行。\n请查看任务栏通知区域。",
+                            "资源管理器状态守护", MessageBoxButtons.OK,
+                            MessageBoxIcon.Information);
+                    }
                     return 0;
                 }
 
