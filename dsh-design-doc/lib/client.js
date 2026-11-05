@@ -343,6 +343,8 @@ window.__ModuleLoader__.load({
         } catch (error) {
           /* frame not scrollable yet */
         }
+        // Re-draw the "you are editing this" outline after every (re)load.
+        self.postMark(self.state.sel === null ? null : self.state.sel.ddPath)
         try {
           var frameWindow = self.dom.frame.contentWindow
           frameWindow.addEventListener('scroll', function () {
@@ -445,6 +447,22 @@ window.__ModuleLoader__.load({
 
     View.prototype.status = function (text) {
       this.dom.status.textContent = text
+    }
+
+    /** Talks to the overlay inside the document frame. */
+    View.prototype.postToFrame = function (message) {
+      try {
+        var target = this.dom.frame.contentWindow
+        if (!target) return
+        target.postMessage(Object.assign({ source: 'dsh-design-doc' }, message), window.location.origin)
+      } catch (error) {
+        /* the frame is between documents; the next load re-marks */
+      }
+    }
+
+    /** Outlines the block the inspector is editing, or clears the outline. */
+    View.prototype.postMark = function (ddPath) {
+      this.postToFrame({ type: 'mark', ddPath: ddPath === null || ddPath === undefined ? null : ddPath })
     }
 
     /* -------------------------------------------------------------- tabs -- */
@@ -887,6 +905,7 @@ window.__ModuleLoader__.load({
       this.state.saved = false
       this.state.mode = /<[a-z][^>]*>/i.test(payload.html || '') ? 'html' : 'text'
       this.renderPanel()
+      this.postMark(payload.ddPath)
       this.status('已选中 ' + payload.ddPath)
     }
 

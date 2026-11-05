@@ -15,6 +15,7 @@
 
   var STYLE_ID = 'dsh-design-doc-overlay-style'
   var HOVER_CLASS = 'dsh-design-doc-hover'
+  var SELECTED_CLASS = 'dsh-design-doc-selected'
   var CONTROLS = { a: 1, button: 1, summary: 1, input: 1, select: 1, textarea: 1, label: 1, option: 1 }
 
   function installStyle() {
@@ -23,8 +24,37 @@
     style.id = STYLE_ID
     style.textContent =
       '.' + HOVER_CLASS + '{outline:2px dashed #4f9cf9 !important;outline-offset:2px;' +
-      'background:rgba(79,156,249,.08) !important;cursor:pointer !important}'
+      'background:rgba(79,156,249,.08) !important;cursor:pointer !important}' +
+      '.' + SELECTED_CLASS + '{outline:2px solid #4f9cf9 !important;outline-offset:3px;' +
+      'background:rgba(79,156,249,.12) !important;' +
+      'box-shadow:0 0 0 4px rgba(79,156,249,.16) !important}'
     document.head.appendChild(style)
+  }
+
+  /**
+   * Marks the block the inspector is editing. The plugin page drives this — it
+   * is the only owner of "what am I editing right now".
+   */
+  function markSelected(ddPath) {
+    var marked = document.querySelectorAll('.' + SELECTED_CLASS)
+    for (var index = 0; index < marked.length; index += 1) {
+      marked[index].classList.remove(SELECTED_CLASS)
+    }
+    if (ddPath === null || ddPath === undefined || ddPath === '') return
+    var candidates = document.querySelectorAll('[data-dd-path]')
+    for (var position = 0; position < candidates.length; position += 1) {
+      if (candidates[position].getAttribute('data-dd-path') === ddPath) {
+        candidates[position].classList.add(SELECTED_CLASS)
+        return
+      }
+    }
+  }
+
+  function onMessage(event) {
+    if (event.origin !== window.location.origin) return
+    var data = event.data
+    if (!data || data.source !== 'dsh-design-doc') return
+    if (data.type === 'mark') markSelected(data.ddPath || null)
   }
 
   function pathOf(element) {
@@ -156,6 +186,7 @@
   document.addEventListener('click', onClickLink, false)
   document.addEventListener('contextmenu', onContextMenu, true)
   document.addEventListener('mouseleave', clearHover, true)
+  window.addEventListener('message', onMessage, false)
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', onReady, { once: true })

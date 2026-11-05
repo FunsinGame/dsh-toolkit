@@ -221,6 +221,14 @@ if (typeof View === 'function') {
 
     const menu = built.menuItems()
     check('the context menu offers 新页签显示', menu.some((item) => item.label === '新页签显示'))
+
+    // The selected block must stay outlined in the document, not just on hover.
+    const posted = []
+    built.dom.frame.contentWindow = { postMessage: (message) => posted.push(message), scrollTo: () => {} }
+    built.select({ ddPath: 'job-01|p1', tag: 'p', text: '原文', html: '原文', scrollY: 0 })
+    check('selecting marks the block in the document', posted.some((message) => message.type === 'mark' && message.ddPath === 'job-01|p1'))
+    built.postMark(null)
+    check('clearing the selection removes the outline', posted[posted.length - 1].ddPath === null)
   }
 
   // Leaving the activity page and coming back must not rebuild the state: the
