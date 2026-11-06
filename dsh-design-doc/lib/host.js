@@ -421,6 +421,11 @@ async function loadManifest(docsRoot) {
   return { docsRoot, modules, sections }
 }
 
+/** Drops the trailing `#` the design docs put inside their headings as an anchor link. */
+function trimAnchor(text) {
+  return String(text).replace(/\s*#\s*$/, '').trim()
+}
+
 function documentTitle(src, fallback) {
   const match = /<title>([\s\S]*?)<\/title>/i.exec(src)
   if (match === null) return fallback.replace(/^\d+-/, '').replace(/\.html$/, '')
@@ -441,9 +446,11 @@ function chaptersOf(src) {
     })
     const sections = []
     walk(node, (child) => {
-      if (child.tag === 'h3' && child.attrs.id) sections.push({ id: child.attrs.id, title: textOf(src, child) })
+      if (child.tag === 'h3' && child.attrs.id) {
+        sections.push({ id: child.attrs.id, title: trimAnchor(textOf(src, child)) })
+      }
     })
-    chapters.push({ id, module: node.attrs['data-module'] ?? '', title, sections })
+    chapters.push({ id, module: node.attrs['data-module'] ?? '', title: trimAnchor(title), sections })
   })
   return chapters
 }

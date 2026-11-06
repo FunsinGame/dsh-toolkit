@@ -246,6 +246,18 @@ if (typeof View === 'function') {
     check('svg editor renders one row per text run', svgEditor.children.length === 4, String(svgEditor.children.length))
     const loadingEditor = built.buildSvgEditor('other.svg')
     check('a different svg switches to a loading state', loadingEditor.children.length === 1, String(loadingEditor.children.length))
+
+    // The prompt hands the finishing steps to the agent instead of the user.
+    built.state.tabs = [{ root: 'C:/libA', rel: 'modules/demo/documents/01-demo.html', label: '演示', scrollY: 0 }]
+    built.state.active = 0
+    built.state.mode = 'text'
+    built.state.saved = true
+    built.state.sel = { ddPath: 'job-04-1|p2', tag: 'p', text: '原文', html: '原文', scrollY: 0 }
+    const prompt = built.buildPrompt({ value: '改后的文字' })
+    check('prompt carries the build_docs command', prompt.includes('/Docs/Design/scripts/build_docs.py'))
+    check('prompt carries the map.py command', prompt.includes('/Tools/DesignSync/map.py'))
+    check('prompt tells the agent to run them itself', prompt.includes('收尾请你自己执行'))
+    check('prompt no longer asks the user to run scripts', prompt.includes('提醒我') === false)
   }
 
   // Leaving the activity page and coming back must not rebuild the state: the

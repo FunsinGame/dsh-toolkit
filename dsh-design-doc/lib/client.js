@@ -1219,10 +1219,16 @@ window.__ModuleLoader__.load({
       lines.push('改成：' + after)
       lines.push(this.state.saved
         ? '状态：已经写回源文件，请按上面的新措辞同步代码'
-        : '状态：还没写回源文件（这只是提议），如果需要先改文档再同步代码，请一并处理')
+        : '状态：还没写回源文件 —— 请先把这一处改成上面的措辞，再同步代码')
       if (links.length > 0) lines.push('关联代码（design-map.json 里这一节绑定的文件）：' + links.map(function (file) { return file.split('/').pop() }).join('、'))
       lines.push('')
-      lines.push('如果改动落在数值/规则上，请一并检查对应的 data/*.json 是否需要同步；最后提醒我跑一遍 build_docs.py 和 map.py status。')
+      lines.push('收尾请你自己执行，不要说「记得去跑」：')
+      if (tab !== null && tab.root !== null) {
+        var root = tab.root.replace(/[\\/]+$/, '')
+        lines.push('1. python "' + root + '/Docs/Design/scripts/build_docs.py"')
+        lines.push('2. python "' + root + '/Tools/DesignSync/map.py" status —— 按 dirty 列表逐节处理，处理完 accept')
+      }
+      lines.push('如果改动落在数值/规则上，一并检查并同步对应的 data/*.json。')
       return lines.join('\n')
     }
 
