@@ -62,6 +62,11 @@ function makeElement(tag) {
   return node
 }
 
+function findText(node, needle) {
+  if (typeof node.textContent === 'string' && node.textContent.includes(needle)) return true
+  return (node.children || []).some((child) => findText(child, needle))
+}
+
 const documentStub = {
   head: makeElement('head'),
   body: makeElement('body'),
@@ -321,6 +326,24 @@ if (typeof View === 'function') {
     check('the enemy panel shows title and stats fields', panelInputs.length === 2, String(panelInputs.length))
     check('the enemy panel resolves the chapter', built.chapterById('demo-01') !== null)
     built.state.sel = null
+
+    // With nothing selected the panel shows the change journal, which is what
+    // tells a later agent what moved in the design docs.
+    built.state.journal = [{
+      at: '2026-11-07T16:40:00.000Z',
+      kind: 'block',
+      file: 'modules/demo/documents/01-demo.html',
+      anchor: 'demo-01-1',
+      ddPath: 'demo-01-1|p1',
+      before: '旧文字',
+      after: '新文字',
+    }]
+    built.state.journalPath = 'C:/libA/Tools/DesignSync/pending-changes.jsonl'
+    built.renderPanel()
+    check('the empty panel offers the change list', findText(built.dom.panel, '复制修改清单'))
+    check('the journal entry is rendered', findText(built.dom.panel, '旧文字 → 新文字'))
+    check('the journal path is shown', findText(built.dom.panel, 'pending-changes.jsonl'))
+    built.state.journal = []
     built.renderPanel()
   }
 

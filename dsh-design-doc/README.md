@@ -21,6 +21,7 @@ DeepSeek Harness（DSH）插件：把**设计文档阅读器**放进左侧活动
 - **坐标卡**：文档、章节（`JOB-10 · 十、…` / `10.2 …`）、坐标（`job-10-2|p3`）、原文、以及 `design-map.json` 里这一节绑定的 `.cs` 文件清单。
 - **编辑并写回**：右侧「文本 / HTML」两个页签，改完点「保存到源文件」，宿主只替换该元素的 innerHTML，返回改动的行；文档自动刷新并保留滚动位置。
 - **冲突保护**：保存时带上「原文」，源文件已经被别人改过就返回 409，不会覆盖。
+- **变更记录**：每次保存都往 `<workspace>/Tools/DesignSync/pending-changes.jsonl` 追加一行（时间 / 文档 / 章节锚点 / 坐标 / 改前 / 改后），不选中任何东西时右侧就显示这份记录，可以一键「复制修改清单」把「改了什么」整体交给 AI 判断要不要同步代码。
 - **发送到会话**：把改动整理成一段提示词（章节锚点 + 坐标 + 原文 + 改成 + 关联代码），并附上 `build_docs.py` 与 `map.py status` 的完整命令、明确要求 AI **自己执行收尾**，不写在「提醒用户去跑」。插进当前会话的输入框，按回车发送；插入失败时自动退回复制到剪贴板。
 - **生成派生层**：一键跑 `scripts/build_docs.py`，把 md 镜像、检索索引、目录、统计重新生成。
 
@@ -67,6 +68,21 @@ src.slice(0, node.openEnd) + newHtml + src.slice(node.closeStart)
 ```
 
 所以一次改一段只动一行，`git diff` 不会有整篇重排。
+
+## 变更记录
+
+每次成功保存（正文块 / SVG 文字 / 敌人数据行）都往 `<workspace>/Tools/DesignSync/pending-changes.jsonl` 追加一行，只增不改，保留最近 500 条：
+
+```json
+{"at":"2026-11-07T08:40:12.000Z","tool":"dsh-design-doc","kind":"block",
+ "file":"modules/jobs/documents/01-jobs.html","anchor":"job-04-1","ddPath":"job-04-1|p2",
+ "before":"位置记号○ 不可用；…","after":"位置记号○ 不可用；…"}
+```
+
+- `kind` 是 `block`（正文块）/ `svg`（图内文字）/ `enemy`（敌人数据行）
+- 不选中任何东西时，右侧面板就显示这份记录；「复制修改清单」把最近 20 条整理成一段提示词送进会话
+- 它记录的是**「改了什么」**；`python Tools/DesignSync/map.py status` 记录的是**「哪一节还没和代码对齐」**，两者互补
+- 想清空：`POST /dsh-design-doc/journal/clear`（或直接删那个文件）
 
 ## 文件
 

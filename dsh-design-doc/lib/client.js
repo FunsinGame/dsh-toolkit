@@ -1,4 +1,4 @@
-/**
+﻿/**
  * dsh-design-doc browser half.
  *
  * One activity-bar entry: a tabbed reader for design-doc libraries.
@@ -75,6 +75,9 @@ window.__ModuleLoader__.load({
       '.dd-svg-row{display:flex;align-items:center;gap:6px}',
       '.dd-svg-no{font-size:10px;opacity:.5;width:20px;flex:none;text-align:right}',
       '.dd-svg-input{flex:1;min-width:0;background:transparent;border:1px solid var(--dsh-border,rgba(127,127,127,.3));border-radius:5px;color:inherit;font-size:12px;padding:3px 6px}',
+      '.dd-jrow{border-top:1px solid var(--dsh-border,rgba(127,127,127,.16));padding:6px 0}',
+      '.dd-jmeta{font-size:10px;opacity:.55;margin-bottom:2px}',
+      '.dd-jtext{font-size:11px;line-height:1.55;word-break:break-word;opacity:.9}',
       '.dd-diff{margin-top:8px;font:11px/1.5 ui-monospace,Consolas,monospace;white-space:pre-wrap;word-break:break-all;background:rgba(127,127,127,.1);border-radius:6px;padding:6px;max-height:220px;overflow:auto}',
       '.dd-status{padding:4px 10px;font-size:11px;border-top:1px solid var(--dsh-border,rgba(127,127,127,.25));opacity:.8;flex:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.dd-ctx{position:fixed;z-index:80;min-width:152px;padding:4px;background:var(--dsh-bg-elevated,#fff);color:var(--dsh-fg,#222);border:1px solid var(--dsh-border,rgba(127,127,127,.35));border-radius:8px;box-shadow:0 10px 26px rgba(0,0,0,.18)}',
@@ -902,6 +905,7 @@ window.__ModuleLoader__.load({
         self.mountActive()
         self.renderPanel()
         self.status('工作区：' + tab.root + '（' + manifest.modules.length + ' 个模块）')
+        self.loadJournal()
       })
     }
 
@@ -1092,6 +1096,7 @@ window.__ModuleLoader__.load({
       var sel = this.state.sel
       if (!sel) {
         panel.append(el('div', { class: 'dd-empty', text: '在中间的文档里点任意一段正文：这里会显示它的章节锚点、所在位置和关联代码，并可以直接改写。' }))
+        this.renderJournalSection(panel)
         return
       }
 
@@ -1276,8 +1281,98 @@ window.__ModuleLoader__.load({
           svg.texts.forEach(function (item) { item.original = item.text })
           self.reloadFrame()
           self.status('已写回 ' + data.file + '（' + data.changed + ' 处）')
+          self.loadJournal()
         })
         .catch(function (error) { self.status('SVG 保存失败：' + String((error && error.message) || error)) })
+    }
+
+    /* ----------------------------------------------------------- journal -- */
+
+    View.prototype.loadJournal = function () {
+      var self = this
+      var tab = this.activeTab()
+      if (tab === null || tab.root === null) return
+      fetch(PREFIX + '/journal?root=' + encodeURIComponent(tab.root) + '&limit=40')
+        .then(function (response) { return response.json() })
+        .then(function (data) {
+          if (!data.ok) return
+          self.state.journal = data.entries || []
+          self.state.journalPath = data.path || ''
+          if (self.state.sel === null) self.renderPanel()
+        })
+        .catch(function () {
+          /* the log is a convenience; never let it disturb editing */
+        })
+    }
+
+    function shortTime(iso) {
+      var text = String(iso || '')
+      var match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2})/.exec(text)
+      return match === null ? text : match[2] + '-' + match[3] + ' ' + match[4]
+    }
+
+    function shortFile(rel) {
+      var parts = String(rel || '').split('/')
+      return parts.length <= 2 ? parts.join('/') : parts[parts.length - 2] + '/' + parts[parts.length - 1]
+    }
+
+    View.prototype.renderJournalSection = function (panel) {
+      var self = this
+      var entries = this.state.journal || []
+      panel.append(el('div', { class: 'dd-k', text: '最近修改（' + entries.length + '）' }))
+      if (this.state.journalPath) {
+        panel.append(el('div', { class: 'dd-v' }, [el('code', { text: this.state.journalPath })]))
+      }
+      if (entries.length === 0) {
+        panel.append(el('div', { class: 'dd-empty', text: '还没有通过这个插件保存过改动。' }))
+      } else {
+        entries.slice(0, 20).forEach(function (entry) {
+          panel.append(el('div', { class: 'dd-jrow' }, [
+            el('div', {
+              class: 'dd-jmeta',
+              text: shortTime(entry.at) + ' · ' + shortFile(entry.file) +
+                (entry.anchor ? ' #' + entry.anchor : '') +
+                (entry.ddPath ? ' · ' + entry.ddPath : ''),
+            }),
+            el('div', { class: 'dd-jtext', text: (entry.before || '') + ' → ' + (entry.after || '') }),
+          ]))
+        })
+      }
+      panel.append(el('div', { class: 'dd-actions' }, [
+        el('button', { class: 'dd-btn', text: '刷新记录', onclick: function () { self.loadJournal() } }),
+        el('button', { class: 'dd-btn primary', text: '复制修改清单', onclick: function () { self.copyJournalPrompt() } }),
+      ]))
+    }
+
+    View.prototype.copyJournalPrompt = function () {
+      var self = this
+      var entries = this.state.journal || []
+      if (entries.length === 0) {
+        this.status('还没有可复制的修改记录')
+        return
+      }
+      var tab = this.activeTab()
+      var lines = []
+      lines.push('【设计文档变更清单】共 ' + entries.length + ' 处（由 DSH 设计文档插件在保存时记录）')
+      entries.slice(0, 20).forEach(function (entry, index) {
+        lines.push((index + 1) + '. ' + shortTime(entry.at) + ' · ' + entry.file + (entry.anchor ? ' #' + entry.anchor : ''))
+        if (entry.ddPath) lines.push('   位置：' + entry.ddPath)
+        if (entry.index !== undefined) lines.push('   第 ' + entry.index + ' 只')
+        lines.push('   旧：' + (entry.before || ''))
+        lines.push('   新：' + (entry.after || ''))
+      })
+      lines.push('')
+      lines.push('请判断这些设计改动是否要同步到代码：先跑 map.py status 看哪些节被标脏，逐条判断影响面，只改需要改的。')
+      this.appendPromptTail(lines, tab)
+      var text = lines.join('\n')
+      var result = insertIntoComposer(text)
+      if (result.ok) {
+        this.status('已插入会话输入框，按回车发送')
+        return
+      }
+      copyText(text).then(function (ok) {
+        self.status(ok ? '插入失败（' + result.reason + '），已复制到剪贴板' : '插入失败（' + result.reason + '），请手动复制')
+      })
     }
 
     /* ------------------------------------------------------------- enemy -- */
@@ -1377,6 +1472,7 @@ window.__ModuleLoader__.load({
           self.reloadFrame()
           self.renderDiff(data.diff)
           self.status('已写回 ' + tab.rel + '（改动 ' + data.changed + ' 行）')
+          self.loadJournal()
         })
         .catch(function (error) { self.status('保存失败：' + String((error && error.message) || error)) })
     }
@@ -1472,6 +1568,7 @@ window.__ModuleLoader__.load({
           self.reloadFrame()
           self.renderDiff(data.diff)
           self.status('已写回 ' + tab.rel + '（改动 ' + data.changed + ' 行）')
+          self.loadJournal()
         })
         .catch(function (error) { self.status('保存失败：' + String((error && error.message) || error)) })
     }

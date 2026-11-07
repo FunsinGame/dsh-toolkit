@@ -510,6 +510,12 @@ async function handle(req, res, deps) {
   if (pathname === `${PREFIX}/enemy-save` && method === 'POST') {
     return saveEnemy(req, res, deps)
   }
+  if (pathname === `${PREFIX}/journal` && method === 'GET') {
+    return readJournal(req, res, url, deps)
+  }
+  if (pathname === `${PREFIX}/journal/clear` && method === 'POST') {
+    return clearJournal(req, res, deps)
+  }
   if (pathname === `${PREFIX}/sync` && method === 'POST') {
     return runSync(req, res, deps)
   }
@@ -572,6 +578,14 @@ async function saveDoc(req, res, deps) {
 
   await writeFile(target, updated, 'utf8')
   deps.logger?.info?.(`design-doc: patched ${rel} ${body.ddPath}`)
+  await appendJournal(docsRoot, deps.logger, {
+    kind: 'block',
+    file: rel,
+    anchor: String(body.ddPath).split('|')[0],
+    ddPath: String(body.ddPath),
+    before: previous,
+    after: plainText(next),
+  })
   return sendJson(res, 200, {
     ok: true,
     changed: lineDiff(src, updated).length,
@@ -678,7 +692,14 @@ async function saveEnemy(req, res, deps) {
   for (const edit of edits) updated = updated.slice(0, edit.start) + edit.text + updated.slice(edit.end)
 
   await writeFile(target, updated, 'utf8')
-  deps.logger?.info?.(`design-doc: patched enemy row ${rel} #${String(body.index)}`)
+  await appendJournal(docsRoot, deps.logger, {
+    kind: 'enemy',
+    file: rel,
+    anchor: chapterId,
+    index: Number(body.index),
+    before: `${currentTitle} | ${currentStats}`,
+    after: `${nextTitle} | ${nextStats}`,
+  })
   return sendJson(res, 200, { ok: true, changed: lineDiff(src, updated).length, diff: lineDiff(src, updated) })
 }
 
@@ -728,7 +749,9 @@ async function saveSvg(req, res, deps) {
       throw new HttpError(409, 'svg_changed', 'SVG 已经被改过，请刷新后重试')
     }
     const next = escapeXml(String(item.text ?? ''))
-    if (next !== src.slice(node.openEnd, node.closeStart)) edits.push({ node, text: next })
+    if (next !== src.slice(node.openEnd, node.closeStart)) {
+      edits.push({ node, text: next, before: node.text, after: String(item.text ?? '') })
+    }
   }
 
   if (edits.length === 0) return sendJson(res, 200, { ok: true, changed: 0, file: svg.file })
@@ -740,7 +763,94 @@ async function saveSvg(req, res, deps) {
   }
   await writeFile(svg.target, updated, 'utf8')
   deps.logger?.info?.(`design-doc: patched ${svg.file} (${edits.length} text runs)`)
+  const docsRoot = await resolveDocsRoot(body.root)
+  for (const edit of edits) {
+    await appendJournal(docsRoot, deps.logger, {
+      kind: 'svg',
+      file: String(body.rel ?? ''),
+      target: svg.file,
+      before: edit.before,
+      after: edit.after,
+    })
+  }
   sendJson(res, 200, { ok: true, changed: edits.length, file: svg.file })
+}
+
+/* --------------------------------------------------------------- journal -- */
+
+function journalPathOf(docsRoot) {
+  return path.resolve(docsRoot, '..', '..', 'Tools', 'DesignSync', 'pending-changes.jsonl')
+}
+
+function plainText(html) {
+  return decodeEntities(String(html).replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim()
+}
+
+function clip(text, limit) {
+  const value = String(text ?? '')
+  return value.length > limit ? `${value.slice(0, limit)}…` : value
+}
+
+/**
+ * Appends one record per save.
+ *
+ * This is the only place that knows "what the design doc said before and after",
+ * which is what lets a later agent decide whether any code has to follow.
+ */
+async function appendJournal(docsRoot, logger, entry) {
+  const target = journalPathOf(docsRoot)
+  try {
+    await mkdir(path.dirname(target), { recursive: true })
+    let lines = []
+    try {
+      lines = (await readFile(target, 'utf8')).split('\n').filter((line) => line.trim() !== '')
+    } catch {
+      lines = []
+    }
+    lines.push(JSON.stringify({
+      at: new Date().toISOString(),
+      tool: 'dsh-design-doc',
+      ...entry,
+      before: clip(entry.before, 400),
+      after: clip(entry.after, 400),
+    }))
+    await writeFile(target, `${lines.slice(-500).join('\n')}\n`, 'utf8')
+  } catch (error) {
+    logger?.warn?.('design-doc: cannot write the change journal', error)
+  }
+}
+
+async function readJournal(req, res, url, deps) {
+  const docsRoot = await resolveDocsRoot(url.searchParams.get('root'))
+  if (docsRoot === null) throw new HttpError(404, 'docs_not_found', '没找到 Docs/Design')
+  const target = journalPathOf(docsRoot)
+  const limit = Math.min(200, Math.max(1, Number(url.searchParams.get('limit')) || 30))
+  let lines = []
+  try {
+    lines = (await readFile(target, 'utf8')).split('\n').filter((line) => line.trim() !== '')
+  } catch {
+    lines = []
+  }
+  const entries = []
+  for (const line of lines.slice(-limit)) {
+    try {
+      entries.push(JSON.parse(line))
+    } catch {
+      /* one corrupt line must not hide the rest */
+    }
+  }
+  entries.reverse()
+  sendJson(res, 200, { ok: true, path: target, count: lines.length, entries })
+}
+
+async function clearJournal(req, res, deps) {
+  const body = await readJson(req)
+  const docsRoot = await resolveDocsRoot(body.root)
+  if (docsRoot === null) throw new HttpError(404, 'docs_not_found', '没找到 Docs/Design')
+  const target = journalPathOf(docsRoot)
+  await writeFile(target, '', 'utf8')
+  deps.logger?.info?.('design-doc: cleared the change journal')
+  sendJson(res, 200, { ok: true, path: target })
 }
 
 async function runSync(req, res, deps) {

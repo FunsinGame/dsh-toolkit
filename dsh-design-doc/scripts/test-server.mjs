@@ -220,6 +220,28 @@ const enemyStale = await fetch(`${base}/dsh-design-doc/enemy-save`, {
 })
 check('stale enemy data is rejected', enemyStale.status === 409, String(enemyStale.status))
 
+// Every successful save appends to the change journal, which is what a later
+// agent reads to decide whether any code has to follow the design.
+const journalPath = path.join(workspace, 'Tools', 'DesignSync', 'pending-changes.jsonl')
+const journalText = await readFile(journalPath, 'utf8')
+check('the journal file exists', journalText.trim().length > 0)
+
+const journal = await json(await fetch(`${base}/dsh-design-doc/journal?root=${root}&limit=20`))
+check('the journal lists the saves', journal.ok === true && journal.entries.length >= 3, String(journal.entries?.length))
+check('newest entry comes first', journal.entries?.[0]?.kind === 'enemy', journal.entries?.[0]?.kind)
+check('entries carry before/after', typeof journal.entries?.[0]?.before === 'string' && typeof journal.entries?.[0]?.after === 'string')
+check('block edits are recorded too', journal.entries?.some((entry) => entry.kind === 'block' && entry.ddPath === paragraph.ddPath))
+check('svg edits are recorded too', journal.entries?.some((entry) => entry.kind === 'svg'))
+
+const cleared = await json(await fetch(`${base}/dsh-design-doc/journal/clear`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ root: workspace }),
+}))
+check('the journal can be cleared', cleared.ok === true)
+const afterClear = await json(await fetch(`${base}/dsh-design-doc/journal?root=${root}`))
+check('clearing empties the journal', afterClear.ok === true && afterClear.count === 0)
+
 const traversal = await fetch(`${base}/dsh-design-doc/site/..%2F..%2Fpackage.json?root=${root}`)
 check('traversal is refused', traversal.status === 403 || traversal.status === 404, String(traversal.status))
 
