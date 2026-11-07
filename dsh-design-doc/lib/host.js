@@ -426,6 +426,22 @@ function trimAnchor(text) {
   return String(text).replace(/\s*#\s*$/, '').trim()
 }
 
+/** Enemy tables are rebuilt at runtime from `data-stats`; list them for the panel. */
+function enemyRowsOf(src, section) {
+  const rows = []
+  walk(section, (node) => {
+    if (node.tag !== 'tr') return
+    const stats = node.attrs['data-stats']
+    if (typeof stats !== 'string') return
+    let title = ''
+    walk(node, (cell) => {
+      if (title === '' && cell.tag === 'th') title = textOf(src, cell)
+    })
+    rows.push({ index: rows.length + 1, title: title.trim(), stats: stats.trim() })
+  })
+  return rows
+}
+
 function documentTitle(src, fallback) {
   const match = /<title>([\s\S]*?)<\/title>/i.exec(src)
   if (match === null) return fallback.replace(/^\d+-/, '').replace(/\.html$/, '')
@@ -450,7 +466,7 @@ function chaptersOf(src) {
         sections.push({ id: child.attrs.id, title: trimAnchor(textOf(src, child)) })
       }
     })
-    chapters.push({ id, module: node.attrs['data-module'] ?? '', title: trimAnchor(title), sections })
+    chapters.push({ id, module: node.attrs['data-module'] ?? '', title: trimAnchor(title), sections, enemies: enemyRowsOf(src, node) })
   })
   return chapters
 }
@@ -490,6 +506,9 @@ async function handle(req, res, deps) {
   }
   if (pathname === `${PREFIX}/svg-save` && method === 'POST') {
     return saveSvg(req, res, deps)
+  }
+  if (pathname === `${PREFIX}/enemy-save` && method === 'POST') {
+    return saveEnemy(req, res, deps)
   }
   if (pathname === `${PREFIX}/sync` && method === 'POST') {
     return runSync(req, res, deps)
@@ -583,6 +602,84 @@ function svgTextNodes(src) {
 
 function escapeXml(text) {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+function escapeAttr(text) {
+  return text.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+}
+
+/**
+ * Writes the `<tr data-stats>` row behind a runtime-built enemy block.
+ *
+ * The page rebuilds those tables from the row's `data-stats` and its `<th>`
+ * text, so the rendered cells carry no coordinate of their own; this is the
+ * source those cells come from.
+ */
+async function saveEnemy(req, res, deps) {
+  const body = await readJson(req)
+  const docsRoot = await resolveDocsRoot(body.root)
+  if (docsRoot === null) throw new HttpError(404, 'docs_not_found', '没找到 Docs/Design')
+
+  const rel = String(body.rel ?? '')
+  if (!rel.endsWith('.html')) throw new HttpError(400, 'bad_rel', '只能写回 .html 正文')
+  const target = path.resolve(docsRoot, rel)
+  assertInside(docsRoot, target)
+
+  const src = await readFile(target, 'utf8')
+  const tree = parseHtml(src)
+
+  const chapterId = String(body.chapter ?? '')
+  let section = null
+  walk(tree, (node) => {
+    if (section === null && node.tag === 'section' && node.attrs.id === chapterId) section = node
+  })
+  if (section === null) throw new HttpError(404, 'anchor_moved', '文档结构变了，找不到这一章，请刷新后重试')
+
+  const rows = []
+  walk(section, (node) => {
+    if (node.tag === 'tr' && typeof node.attrs['data-stats'] === 'string') rows.push(node)
+  })
+  const row = rows[Number(body.index) - 1]
+  if (row === undefined) throw new HttpError(404, 'anchor_moved', '找不到这一行敌人数据，请刷新后重试')
+
+  let titleNode = null
+  walk(row, (node) => {
+    if (titleNode === null && node.tag === 'th') titleNode = node
+  })
+
+  const currentStats = String(row.attrs['data-stats'] ?? '')
+  const currentTitle = titleNode === null ? '' : textOf(src, titleNode)
+  if (typeof body.expectStats === 'string' && squash(body.expectStats) !== squash(currentStats)) {
+    throw new HttpError(409, 'content_changed', '这一行已经被改过，请刷新后重试')
+  }
+  if (typeof body.expectTitle === 'string' && squash(body.expectTitle) !== squash(currentTitle)) {
+    throw new HttpError(409, 'content_changed', '这一行已经被改过，请刷新后重试')
+  }
+
+  const nextStats = String(body.stats ?? currentStats).trim()
+  const nextTitle = String(body.title ?? currentTitle).trim()
+
+  const edits = []
+  if (nextStats !== currentStats) {
+    const open = src.slice(row.start, row.openEnd)
+    const replaced = open.replace(
+      /(\sdata-stats\s*=\s*")([^"]*)(")/i,
+      (_match, prefix, _value, suffix) => prefix + escapeAttr(nextStats) + suffix,
+    )
+    if (replaced !== open) edits.push({ start: row.start, end: row.openEnd, text: replaced })
+  }
+  if (titleNode !== null && nextTitle !== currentTitle) {
+    edits.push({ start: titleNode.openEnd, end: titleNode.closeStart, text: escapeXml(nextTitle) })
+  }
+  if (edits.length === 0) return sendJson(res, 200, { ok: true, changed: 0, diff: [] })
+
+  edits.sort((a, b) => b.start - a.start)
+  let updated = src
+  for (const edit of edits) updated = updated.slice(0, edit.start) + edit.text + updated.slice(edit.end)
+
+  await writeFile(target, updated, 'utf8')
+  deps.logger?.info?.(`design-doc: patched enemy row ${rel} #${String(body.index)}`)
+  return sendJson(res, 200, { ok: true, changed: lineDiff(src, updated).length, diff: lineDiff(src, updated) })
 }
 
 /** Resolves an `<img src>` to the SVG file it points at, inside the docs root. */

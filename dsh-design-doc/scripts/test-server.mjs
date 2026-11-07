@@ -38,6 +38,13 @@ const demoHtml = `<!DOCTYPE html>
   <div class="table-wrap"><table><thead><tr><th>项</th><th>值</th></tr></thead>
   <tbody><tr><td>甲</td><td>1</td></tr></tbody></table></div>
   <div class="figure-wrap"><img src="../../../assets/demo.svg" alt="示例图"></div>
+  <div class="table-wrap"><table class="enemy-table">
+    <thead><tr><th>序号</th><th>技能</th><th>范围</th></tr></thead>
+    <tbody>
+      <tr class="enemy-row" data-stats="hp=300;atk=36"><th colspan="3">铜臭鬼 · 普通</th></tr>
+      <tr><td>1</td><td>撞击</td><td>1</td></tr>
+    </tbody>
+  </table></div>
 </section>
 </body></html>
 `
@@ -178,6 +185,40 @@ check('stale svg text is rejected', svgStale.status === 409, String(svgStale.sta
 
 const notSvg = await fetch(`${base}/dsh-design-doc/svg?root=${root}&rel=${encodeURIComponent(docRel)}&src=${encodeURIComponent('../../../styles/docs.css')}`)
 check('non-svg images are refused', notSvg.status === 400, String(notSvg.status))
+
+// Enemy tables are generated from `<tr data-stats>`: the manifest lists the rows,
+// and the save route writes the stats attribute plus the heading text back.
+const enemyChapter = manifest.modules?.[0]?.documents?.[0]?.chapters?.[0]
+check('the manifest lists enemy rows', enemyChapter?.enemies?.length === 1)
+check('the enemy row keeps its heading', enemyChapter?.enemies?.[0]?.title === '铜臭鬼 · 普通', enemyChapter?.enemies?.[0]?.title)
+check('the enemy row keeps its stats', enemyChapter?.enemies?.[0]?.stats === 'hp=300;atk=36', enemyChapter?.enemies?.[0]?.stats)
+
+const enemySave = await json(await fetch(`${base}/dsh-design-doc/enemy-save`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    root: workspace,
+    rel: docRel,
+    chapter: 'demo-01',
+    index: 1,
+    title: '铜臭鬼 · 精英',
+    stats: 'hp=320;atk=40',
+    expectTitle: '铜臭鬼 · 普通',
+    expectStats: 'hp=300;atk=36',
+  }),
+}))
+check('enemy save succeeds', enemySave.ok === true && enemySave.changed >= 1, JSON.stringify(enemySave.error ?? null))
+const afterEnemy = await readFile(path.join(docsRoot, 'modules/demo/documents/01-demo.html'), 'utf8')
+check('the stats attribute is rewritten', afterEnemy.includes('data-stats="hp=320;atk=40"'))
+check('the heading is rewritten', afterEnemy.includes('>铜臭鬼 · 精英</th>'))
+check('the skill row survives', afterEnemy.includes('>撞击<'))
+
+const enemyStale = await fetch(`${base}/dsh-design-doc/enemy-save`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ root: workspace, rel: docRel, chapter: 'demo-01', index: 1, title: 'x', stats: 'hp=1', expectStats: 'hp=300;atk=36' }),
+})
+check('stale enemy data is rejected', enemyStale.status === 409, String(enemyStale.status))
 
 const traversal = await fetch(`${base}/dsh-design-doc/site/..%2F..%2Fpackage.json?root=${root}`)
 check('traversal is refused', traversal.status === 403 || traversal.status === 404, String(traversal.status))

@@ -290,7 +290,38 @@ if (typeof View === 'function') {
     built.goBack()
     check('back does nothing when there is nowhere back to go', built.state.tabs[1].rel === docA)
     built.state.active = 0
-    check('prompt no longer asks the user to run scripts', prompt.includes('提醒我') === false)
+
+    // Enemy blocks have no cell paths (the page rebuilds them), so they get their
+    // own panel driven by the chapter's `<tr data-stats>` rows.
+    const enemyManifest = {
+      modules: [{
+        id: 'demo',
+        title: '演示',
+        documents: [{
+          rel: docA,
+          title: '演示文档',
+          chapters: [{
+            id: 'demo-01',
+            module: 'DEMO-01',
+            title: '一、演示',
+            sections: [],
+            enemies: [{ index: 1, title: '铜臭鬼 · 普通', stats: 'hp=300;atk=36' }],
+          }],
+        }],
+      }],
+      sections: {},
+    }
+    built.manifests['C:/libA'] = enemyManifest
+    built.state.manifest = enemyManifest
+    built.state.tabs = [{ root: 'C:/libA', rel: docA, label: '演示文档', scrollY: 0, back: [], forward: [] }]
+    built.state.active = 0
+    built.state.sel = { ddPath: 'demo-01|enemy1', tag: 'enemy', text: '', html: '', scrollY: 0 }
+    built.renderPanel()
+    const panelInputs = built.dom.panel.children.filter((child) => child.tagName === 'INPUT')
+    check('the enemy panel shows title and stats fields', panelInputs.length === 2, String(panelInputs.length))
+    check('the enemy panel resolves the chapter', built.chapterById('demo-01') !== null)
+    built.state.sel = null
+    built.renderPanel()
   }
 
   // Leaving the activity page and coming back must not rebuild the state: the

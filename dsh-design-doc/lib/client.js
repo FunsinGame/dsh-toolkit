@@ -1095,6 +1095,12 @@ window.__ModuleLoader__.load({
         return
       }
 
+      var enemyMatch = /^([^|]+)\|enemy(\d+)$/.exec(sel.ddPath)
+      if (enemyMatch !== null) {
+        this.renderEnemyPanel(enemyMatch[1], Number(enemyMatch[2]), panel)
+        return
+      }
+
       var manifest = this.activeManifest() || {}
       var placed = this.locate(sel.ddPath)
       var links = (manifest.sections && manifest.sections[placed.scopeId]) || []
@@ -1274,6 +1280,146 @@ window.__ModuleLoader__.load({
         .catch(function (error) { self.status('SVG 保存失败：' + String((error && error.message) || error)) })
     }
 
+    /* ------------------------------------------------------------- enemy -- */
+
+    View.prototype.chapterById = function (id) {
+      var current = this.documentOf(this.activeRel())
+      var found = null
+      ;((current && current.chapters) || []).forEach(function (entry) {
+        if (entry.id === id) found = entry
+      })
+      return found
+    }
+
+    View.prototype.renderEnemyPanel = function (chapterId, index, panel) {
+      var self = this
+      var chapter = this.chapterById(chapterId)
+      var enemy = chapter === null ? null : (chapter.enemies || [])[index - 1]
+      if (!enemy) {
+        panel.append(el('div', { class: 'dd-empty', text: '找不到这只敌人的源数据行，可能文档结构变了，刷新这个页签再试。' }))
+        return
+      }
+
+      var titleInput = el('input', { class: 'dd-rootinput', value: enemy.title })
+      var statsInput = el('input', { class: 'dd-rootinput', value: enemy.stats })
+      var diffBox = el('pre', { class: 'dd-diff', style: 'display:none' })
+      this.dom.diffBox = diffBox
+
+      var card = el('div', { class: 'dd-card' }, [
+        el('div', { class: 'dd-k', text: '文档' }),
+        el('div', { class: 'dd-v', text: this.activeRel() || '' }),
+        el('div', { class: 'dd-k', text: '章节' }),
+        el('div', { class: 'dd-v' }, [(chapter.module ? chapter.module + ' · ' : '') + chapter.title, ' ', el('code', { text: '#' + chapterId })]),
+        el('div', { class: 'dd-k', text: '这一块' }),
+        el('div', { class: 'dd-v', text: '敌人数据表（第 ' + index + ' 只，共 ' + (chapter.enemies || []).length + ' 只）' }),
+        el('div', { class: 'dd-k', text: '坐标' }),
+        el('div', { class: 'dd-v' }, [el('code', { text: this.state.sel.ddPath })]),
+        el('div', { class: 'dd-hint', text: '这张表是页面脚本按 <tr data-stats> 现场生成的，格子没有源码位置；改下面的源数据就行。' }),
+      ])
+
+      panel.append(
+        card,
+        el('div', { class: 'dd-k', text: '标题行（<th> 里的文字）' }),
+        titleInput,
+        el('div', { class: 'dd-k', text: 'data-stats' }),
+        statsInput,
+        el('div', { class: 'dd-hint', text: '写法是 key=value，分号隔开：hp=1600;atk=68;def=30;spd=96;…' }),
+        el('div', { class: 'dd-actions' }, [
+          el('button', {
+            class: 'dd-btn primary',
+            text: '保存到源文件',
+            onclick: function () { self.saveEnemy(chapterId, enemy, titleInput, statsInput) },
+          }),
+          el('button', {
+            class: 'dd-btn',
+            text: '发送到会话',
+            onclick: function () { self.sendEnemy(chapter, chapterId, enemy, titleInput, statsInput) },
+          }),
+        ]),
+        diffBox,
+      )
+    }
+
+    View.prototype.saveEnemy = function (chapterId, enemy, titleInput, statsInput) {
+      var self = this
+      var tab = this.activeTab()
+      if (tab === null || tab.rel === null) {
+        this.status('没有打开的文档')
+        return
+      }
+      this.status('写回源文件…')
+      fetch(PREFIX + '/enemy-save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          root: tab.root,
+          rel: tab.rel,
+          chapter: chapterId,
+          index: enemy.index,
+          title: titleInput.value.trim(),
+          stats: statsInput.value.trim(),
+          expectTitle: enemy.title,
+          expectStats: enemy.stats,
+        }),
+      })
+        .then(function (response) { return response.json() })
+        .then(function (data) {
+          if (!data.ok) {
+            self.status('保存失败：' + ((data.error && data.error.message) || '未知错误'))
+            return
+          }
+          if (data.changed === 0) {
+            self.status('内容和原来一样，没有写入')
+            return
+          }
+          enemy.title = titleInput.value.trim()
+          enemy.stats = statsInput.value.trim()
+          self.reloadFrame()
+          self.renderDiff(data.diff)
+          self.status('已写回 ' + tab.rel + '（改动 ' + data.changed + ' 行）')
+        })
+        .catch(function (error) { self.status('保存失败：' + String((error && error.message) || error)) })
+    }
+
+    View.prototype.sendEnemy = function (chapter, chapterId, enemy, titleInput, statsInput) {
+      var self = this
+      var tab = this.activeTab()
+      var manifest = this.activeManifest() || {}
+      var links = (manifest.sections && manifest.sections[chapterId]) || []
+      var lines = []
+      lines.push('【设计文档修改】' + (tab === null ? '' : tab.rel || ''))
+      lines.push('文档库：' + (tab === null ? '' : tab.root || ''))
+      lines.push('章节：' + (chapter.module ? chapter.module + ' · ' : '') + chapter.title + '（#' + chapterId + '）')
+      lines.push('位置：' + this.state.sel.ddPath + '（页面按 <tr data-stats> 生成的敌人表）')
+      lines.push('标题：' + enemy.title + ' → ' + titleInput.value.trim())
+      lines.push('data-stats：' + enemy.stats + ' → ' + statsInput.value.trim())
+      if (links.length > 0) {
+        lines.push('关联代码（design-map.json 里这一章绑定的文件）：' + links.map(function (file) { return file.split('/').pop() }).join('、'))
+      }
+      this.appendPromptTail(lines, tab)
+      var text = lines.join('\n')
+      var result = insertIntoComposer(text)
+      if (result.ok) {
+        this.status('已插入会话输入框，按回车发送')
+        return
+      }
+      copyText(text).then(function (ok) {
+        self.status(ok ? '插入失败（' + result.reason + '），已复制到剪贴板' : '插入失败（' + result.reason + '），请手动复制')
+      })
+    }
+
+    /** Closing instructions shared by every prompt this panel sends. */
+    View.prototype.appendPromptTail = function (lines, tab) {
+      lines.push('')
+      lines.push('收尾请你自己执行，不要说「记得去跑」：')
+      if (tab !== null && tab.root !== null) {
+        var root = tab.root.replace(/[\\/]+$/, '')
+        lines.push('1. python "' + root + '/Docs/Design/scripts/build_docs.py"')
+        lines.push('2. python "' + root + '/Tools/DesignSync/map.py" status —— 按 dirty 列表逐节处理，处理完 accept')
+      }
+      lines.push('如果改动落在数值/规则上，一并检查并同步对应的 data/*.json。')
+    }
+
     View.prototype.switchMode = function (mode) {
       if (mode === this.state.mode) return
       if (this.dom.editor) {
@@ -1359,14 +1505,7 @@ window.__ModuleLoader__.load({
         ? '状态：已经写回源文件，请按上面的新措辞同步代码'
         : '状态：还没写回源文件 —— 请先把这一处改成上面的措辞，再同步代码')
       if (links.length > 0) lines.push('关联代码（design-map.json 里这一节绑定的文件）：' + links.map(function (file) { return file.split('/').pop() }).join('、'))
-      lines.push('')
-      lines.push('收尾请你自己执行，不要说「记得去跑」：')
-      if (tab !== null && tab.root !== null) {
-        var root = tab.root.replace(/[\\/]+$/, '')
-        lines.push('1. python "' + root + '/Docs/Design/scripts/build_docs.py"')
-        lines.push('2. python "' + root + '/Tools/DesignSync/map.py" status —— 按 dirty 列表逐节处理，处理完 accept')
-      }
-      lines.push('如果改动落在数值/规则上，一并检查并同步对应的 data/*.json。')
+      this.appendPromptTail(lines, tab)
       return lines.join('\n')
     }
 

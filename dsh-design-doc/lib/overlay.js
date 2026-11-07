@@ -113,6 +113,7 @@
       return
     }
     var block = blockAt(event.target)
+    if (block === null && event.target.closest !== undefined) block = event.target.closest('.enemy-block')
     if (block === hovered) return
     clearHover()
     hovered = block
@@ -123,7 +124,10 @@
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
     if (isControl(event.target)) return
     var block = blockAt(event.target)
-    if (block === null) return
+    if (block === null) {
+      selectEnemyBlock(event.target)
+      return
+    }
     post({
       source: 'dsh-design-doc',
       type: 'select',
@@ -131,6 +135,32 @@
       tag: block.tagName.toLowerCase(),
       text: block.innerText,
       html: block.innerHTML,
+      href: window.location.pathname,
+      scrollY: window.scrollY,
+    })
+  }
+
+  /**
+   * Enemy stat tables are rebuilt by the page's own script from each
+   * `<tr data-stats>`, so their cells carry no coordinate. Address the block by
+   * its position inside the chapter instead — the host resolves that same index
+   * back to the source row.
+   */
+  function selectEnemyBlock(target) {
+    var block = target.closest === undefined ? null : target.closest('.enemy-block')
+    if (block === null) return
+    var section = block.closest('section.module') || block.closest('section')
+    if (section === null || section.id === '') return
+    var siblings = section.querySelectorAll('.enemy-block')
+    var index = Array.prototype.indexOf.call(siblings, block) + 1
+    if (index <= 0) return
+    post({
+      source: 'dsh-design-doc',
+      type: 'select',
+      ddPath: section.id + '|enemy' + index,
+      tag: 'enemy',
+      text: '',
+      html: '',
       href: window.location.pathname,
       scrollY: window.scrollY,
     })
