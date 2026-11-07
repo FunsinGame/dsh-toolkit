@@ -1,6 +1,6 @@
 # DSH Notes
 
-DSH Notes 是一个**独立笔记服务端 + DSH 插件**：浏览器用账号密码登录，DSH 页面用可撤销访问令牌连接；笔记支持 Markdown、图片/音频附件、实时自动保存、离线缓存、定时/手动同步，并提供原生 `notes_*` AI 工具与标准 MCP 端点。
+DSH Notes 是一个**独立笔记服务端 + DSH 插件**：浏览器用账号密码登录，DSH 页面用可撤销访问令牌连接；笔记支持 Markdown、任意格式附件（图片/音频内联预览，其他文件下载）、实时自动保存、离线缓存、定时/手动同步，并提供原生 `notes_*` AI 工具与标准 MCP 端点。
 
 ![DSH Notes 网页](docs/screenshot.png)
 
@@ -15,12 +15,12 @@ DSH 插件页面：
 ## 功能
 
 - **账号密码登录**：账号只能通过服务器本机 CLI 创建、改密、禁用、删除；网页/API **没有注册、找回密码、改密、用户或令牌管理入口**。
-- **Markdown 编辑与预览**：GFM 表格、任务列表、代码高亮、图片/音频附件、查找替换、常用格式工具栏；编辑器里直接 `Ctrl+V` 粘贴剪贴板图片即可上传并插入。图片预览通过鉴权接口读取字节并以 `blob:` 渲染（兼容 DSH 桌面端的 `dsh-app://` 页面来源），点击附件缩略图或双击预览图片都能打开大图查看。
+- **Markdown 编辑与预览**：GFM 表格、任务列表、代码高亮、任意格式附件（图片/音频内联预览，其他文件一键下载）、查找替换、常用格式工具栏；编辑器里直接 `Ctrl+V` 粘贴剪贴板图片即可上传并插入。图片预览通过鉴权接口读取字节并以 `blob:` 渲染（兼容 DSH 桌面端的 `dsh-app://` 页面来源），点击附件缩略图或双击预览图片都能打开大图查看。
 - **实时保存**：网页输入停止 800ms 自动保存；SSE 让其他标签页同步刷新。
 - **目录树**：文件夹/笔记创建、重命名、移动、删除、回收站、历史版本、置顶、标签、全文搜索。
 - **DSH 插件**：左侧活动栏入口；本地 SQLite 缓存；离线可读可改；按间隔自动同步、手动同步；冲突 diff 与三种解决方式。
 - **AI / MCP**：DSH 内置 25 个原生 `notes_*` 工具；服务端提供标准 MCP Streamable HTTP `/mcp`（工具、资源、提示词）。
-- **安全**：scrypt 密码哈希、可撤销 Bearer 令牌、会话 Cookie、CSRF/Origin 校验、登录限速、上传白名单与 magic bytes、路径遍历防护、CSP/安全头、默认只监听回环、单业务端口。
+- **安全**：scrypt 密码哈希、可撤销 Bearer 令牌、会话 Cookie、CSRF/Origin 校验、登录限速、任意格式上传 + 内联媒体 magic bytes、非媒体强制下载、路径遍历防护、CSP/安全头、默认只监听回环、单业务端口。
 - **跨平台**：同一份纯 JS 服务端产物可运行在 Windows、Linux、Debian；无原生模块、无需 Visual Studio/Python 构建工具；提供 systemd、Caddy、Nginx、Docker Compose、Windows 计划任务/NSSM 方案。
 
 ## 架构
@@ -77,7 +77,7 @@ cd dsh-notes
 npm install
 npm run build
 npm run package:dist
-npm install -g ./dist/dsh-notes-0.1.0.tgz
+npm install -g ./dist/dsh-notes-0.2.1.tgz
 dsh-notes-server version
 ```
 
@@ -105,7 +105,7 @@ dsh-notes-server version
 node server/bin.js init --data-dir /var/lib/dsh-notes
 
 node server/bin.js user add alice --data-dir /var/lib/dsh-notes
-# alice 是用户名；按提示输入两次密码（不回显，至少 12 位）
+# alice 是用户名；按提示输入两次密码（不回显，至少 8 位）
 
 node server/bin.js token create --user alice --name dsh-plugin --data-dir /var/lib/dsh-notes
 # --user alice 指定令牌所属用户；令牌只显示一次，请立即保存
@@ -230,7 +230,7 @@ MCP 工具、资源（`notes://tree`、`notes://note/{id}`、`notes://recent`）
 - 账号、密码、令牌都只能在**服务器本机 CLI** 管理；没有注册/找密/网页改密接口。
 - 默认只监听回环；公网必须使用 TLS 反代或显式 `--tls-cert/--tls-key`；非回环明文监听会被拒绝。
 - 只开一个业务端口；不暴露数据库/管理/调试端口；支持 Unix Socket。
-- 附件只允许图片/音频，扩展名 + magic bytes 双检；存储于 Web 根目录之外；永不作为 HTML/JS 提供。
+- 附件接受任意格式；只有图片/音频白名单会内联预览，其他格式一律 `application/octet-stream` + `Content-Disposition: attachment` 下载，SVG/HTML/JS 不会在笔记页面里执行；图片/音频额外做 magic bytes 校验。
 - 服务端没有 shell/`child_process`/动态插件加载/任意 URL 拉取。唯一例外是 MCP SDK 内 Ajv 为**静态工具 schema** 编译校验函数（`new Function`），客户端不能提交 schema；详见 [安全文档](docs/security.md)。
 - 登录限速、账号锁定、scrypt 哈希、会话轮换/过期、令牌撤销/只读 scope、CSRF + Origin 校验、路径遍历与大小限制，均有自动化测试。
 - 反向代理、systemd、Docker、Windows ACL 加固示例见 [部署文档](docs/deployment/)。

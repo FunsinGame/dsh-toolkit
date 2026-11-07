@@ -7361,7 +7361,7 @@ import { join as join5, resolve as resolve4 } from "node:path";
 import { backup } from "node:sqlite";
 
 // src/server/http.ts
-import { createHash as createHash2, randomUUID as randomUUID3 } from "node:crypto";
+import { createHash as createHash3, randomUUID as randomUUID3 } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdir as mkdir3, readFile, realpath, rm as rm3, stat as stat2 } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
@@ -7372,8 +7372,8 @@ import { dirname as dirname2, extname, join as join4, resolve as resolve2, sep }
 import { fileURLToPath } from "node:url";
 
 // src/server/service.ts
-import { randomUUID as randomUUID2 } from "node:crypto";
-import { mkdir as mkdir2, rename as rename2, rm as rm2, stat } from "node:fs/promises";
+import { createHash as createHash2, randomUUID as randomUUID2 } from "node:crypto";
+import { mkdir as mkdir2, rename as rename2, rm as rm2, stat, writeFile as writeFile2 } from "node:fs/promises";
 import { rmSync as rmSync2 } from "node:fs";
 import { join as join3 } from "node:path";
 
@@ -7657,6 +7657,182 @@ function closeDatabase(db) {
   }
 }
 
+// src/shared/media.ts
+var INLINE_IMAGE_MIMES = [
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/avif"
+];
+var INLINE_AUDIO_MIMES = [
+  "audio/mpeg",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/ogg",
+  "audio/flac",
+  "audio/mp4",
+  "audio/x-m4a",
+  "audio/aac",
+  "audio/webm",
+  "audio/opus"
+];
+var INLINE = /* @__PURE__ */ new Set([...INLINE_IMAGE_MIMES, ...INLINE_AUDIO_MIMES]);
+function isInlineMime(mime) {
+  return INLINE.has(mime);
+}
+function isInlineImageMime(mime) {
+  return INLINE_IMAGE_MIMES.includes(mime);
+}
+function attachmentMarkdown(filename, mime, id) {
+  const label = filename.replace(/[[\]]/gu, (ch) => ch === "[" ? "\\[" : "\\]");
+  return isInlineImageMime(mime) ? `![${label}](api/attachments/${id})` : `[${label}](api/attachments/${id})`;
+}
+
+// src/server/mime.ts
+var MEDIA = /* @__PURE__ */ new Map([
+  ["image/png", { extensions: ["png"], matches: (b) => startsWith(b, [137, 80, 78, 71]) }],
+  ["image/jpeg", { extensions: ["jpg", "jpeg"], matches: (b) => startsWith(b, [255, 216, 255]) }],
+  ["image/gif", { extensions: ["gif"], matches: (b) => b.subarray(0, 4).toString("ascii") === "GIF8" }],
+  ["image/webp", { extensions: ["webp"], matches: (b) => b.subarray(0, 4).toString("ascii") === "RIFF" && b.subarray(8, 12).toString("ascii") === "WEBP" }],
+  ["image/avif", { extensions: ["avif"], matches: (b) => b.subarray(4, 8).toString("ascii") === "ftyp" && /avi[fs]/u.test(b.subarray(8, 16).toString("ascii")) }],
+  ["audio/mpeg", { extensions: ["mp3"], matches: (b) => startsWith(b, [73, 68, 51]) || b.length >= 2 && b[0] === 255 && (b[1] & 224) === 224 }],
+  ["audio/wav", { extensions: ["wav"], matches: (b) => isRiffWave(b) }],
+  ["audio/x-wav", { extensions: ["wav"], matches: (b) => isRiffWave(b) }],
+  ["audio/ogg", { extensions: ["ogg", "oga", "opus"], matches: (b) => b.subarray(0, 4).toString("ascii") === "OggS" }],
+  ["audio/flac", { extensions: ["flac"], matches: (b) => b.subarray(0, 4).toString("ascii") === "fLaC" }],
+  ["audio/mp4", { extensions: ["m4a", "mp4"], matches: (b) => b.subarray(4, 8).toString("ascii") === "ftyp" }],
+  ["audio/x-m4a", { extensions: ["m4a"], matches: (b) => b.subarray(4, 8).toString("ascii") === "ftyp" }],
+  ["audio/aac", { extensions: ["aac"], matches: (b) => b.length >= 2 && b[0] === 255 && (b[1] === 241 || b[1] === 249) }],
+  ["audio/webm", { extensions: ["webm", "weba"], matches: (b) => startsWith(b, [26, 69, 223, 163]) }],
+  ["audio/opus", { extensions: ["opus", "ogg"], matches: (b) => b.subarray(0, 4).toString("ascii") === "OggS" || startsWith(b, [26, 69, 223, 163]) }]
+]);
+var EXTENSION_TO_MIME = /* @__PURE__ */ new Map();
+for (const [mime, policy] of MEDIA) {
+  for (const extension of policy.extensions) {
+    if (!EXTENSION_TO_MIME.has(extension)) EXTENSION_TO_MIME.set(extension, mime);
+  }
+}
+var TEXT_EXTENSIONS = /* @__PURE__ */ new Set([
+  "txt",
+  "text",
+  "md",
+  "markdown",
+  "mdx",
+  "rst",
+  "log",
+  "csv",
+  "tsv",
+  "json",
+  "jsonc",
+  "yaml",
+  "yml",
+  "toml",
+  "ini",
+  "cfg",
+  "conf",
+  "env",
+  "xml",
+  "html",
+  "htm",
+  "css",
+  "scss",
+  "less",
+  "js",
+  "mjs",
+  "cjs",
+  "jsx",
+  "ts",
+  "tsx",
+  "vue",
+  "svelte",
+  "py",
+  "rb",
+  "go",
+  "rs",
+  "java",
+  "kt",
+  "kts",
+  "c",
+  "h",
+  "cc",
+  "cpp",
+  "hpp",
+  "cs",
+  "php",
+  "swift",
+  "scala",
+  "sh",
+  "bash",
+  "zsh",
+  "ps1",
+  "bat",
+  "cmd",
+  "sql",
+  "graphql",
+  "gql",
+  "diff",
+  "patch",
+  "tex",
+  "bib"
+]);
+var MIME_ALIASES = /* @__PURE__ */ new Map([
+  ["image/jpg", "image/jpeg"],
+  ["audio/wave", "audio/wav"],
+  ["audio/m4a", "audio/mp4"],
+  ["audio/mp3", "audio/mpeg"]
+]);
+var MIME_TOKEN = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,63}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,127}$/u;
+var MAX_FILENAME_LENGTH = 180;
+var OPAQUE_MIME = "application/octet-stream";
+function declaredMime(raw) {
+  return String(raw ?? "").split(";", 1)[0]?.trim().toLowerCase() ?? "";
+}
+function resolveUploadMime(filename, rawMime) {
+  const declared = declaredMime(rawMime);
+  if (declared !== "" && declared !== OPAQUE_MIME) return normalizeMime(declared);
+  const extension = filenameExtension(filename);
+  return EXTENSION_TO_MIME.get(extension) ?? (TEXT_EXTENSIONS.has(extension) ? "text/plain" : OPAQUE_MIME);
+}
+function validateMagic(mime, head) {
+  const policy = MEDIA.get(mime);
+  if (policy === void 0) return false;
+  return policy.matches(head);
+}
+function isMediaMime(mime) {
+  return MEDIA.has(mime);
+}
+function filenameExtension(filename) {
+  const index = filename.lastIndexOf(".");
+  if (index < 0) return "";
+  return filename.slice(index + 1).toLowerCase();
+}
+function safeFilename(filename) {
+  const base = filename.replace(/^.*[\\/]/u, "").replace(/[\u0000-\u001f\u007f]/gu, "").trim();
+  const cleaned = base === "" ? "attachment" : base;
+  return Array.from(cleaned).slice(0, MAX_FILENAME_LENGTH).join("");
+}
+function attachmentStorageKey(id) {
+  return `${id.slice(0, 2)}/${id}`;
+}
+function normalizeMime(mime) {
+  const normalized = MIME_ALIASES.get(mime) ?? mime;
+  return MIME_TOKEN.test(normalized) ? normalized : OPAQUE_MIME;
+}
+function isRiffWave(buffer) {
+  return buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WAVE";
+}
+function startsWith(buffer, bytes) {
+  if (buffer.length < bytes.length) return false;
+  for (let index = 0; index < bytes.length; index += 1) {
+    if (buffer[index] !== bytes[index]) return false;
+  }
+  return true;
+}
+if (INLINE_IMAGE_MIMES.some((mime) => !MEDIA.has(mime)) || INLINE_AUDIO_MIMES.some((mime) => !MEDIA.has(mime))) {
+  throw new Error("inline media policy and magic-byte table disagree");
+}
+
 // src/shared/format.ts
 function noteTitleFromContent(content, fallback = "\u672A\u547D\u540D\u7B14\u8BB0") {
   for (const raw of content.split("\n")) {
@@ -7689,8 +7865,8 @@ import { createHash, randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 var scryptAsync = promisify(scrypt);
 var CURRENT_SCRYPT = { N: 32768, r: 8, p: 1, keylen: 64 };
-var MAX_PASSWORD_LENGTH = 256;
-var MIN_PASSWORD_LENGTH = 12;
+var MAX_PASSWORD_LENGTH = 1024;
+var MIN_PASSWORD_LENGTH = 8;
 var Semaphore = class {
   constructor(limit) {
     this.limit = limit;
@@ -7753,12 +7929,9 @@ async function verifyPassword(password, stored) {
 async function createDummyHash() {
   return passwordSemaphore.run(() => hashPassword(randomBytes(24).toString("base64url")));
 }
-function passwordPolicyError(password, username) {
-  if (password.length < MIN_PASSWORD_LENGTH) return `\u5BC6\u7801\u81F3\u5C11\u9700\u8981 ${MIN_PASSWORD_LENGTH} \u4E2A\u5B57\u7B26`;
+function passwordPolicyError(password, _username) {
+  if (Array.from(password).length < MIN_PASSWORD_LENGTH) return `\u5BC6\u7801\u81F3\u5C11\u9700\u8981 ${MIN_PASSWORD_LENGTH} \u4E2A\u5B57\u7B26`;
   if (password.length > MAX_PASSWORD_LENGTH) return "\u5BC6\u7801\u8FC7\u957F";
-  if (password.trim() === "") return "\u5BC6\u7801\u4E0D\u80FD\u4E3A\u7A7A";
-  if (/^\d+$/u.test(password)) return "\u5BC6\u7801\u4E0D\u80FD\u662F\u7EAF\u6570\u5B57";
-  if (username !== "" && password.toLowerCase() === username.toLowerCase()) return "\u5BC6\u7801\u4E0D\u80FD\u4E0E\u7528\u6237\u540D\u76F8\u540C";
   return null;
 }
 function normalizeUsername(value) {
@@ -8604,6 +8777,55 @@ var NotesService = class {
       throw error2;
     }
   }
+  /**
+   * Create an attachment from an in-memory (base64) payload.
+   *
+   * Used by the MCP `attachments_add` tool and the DSH host tool: the HTTP
+   * upload route streams to a temp file itself. Any format is accepted; the
+   * only checks are the size ceiling and the magic bytes of media types.
+   */
+  async uploadAttachmentBase64(userId, noteId, input) {
+    this.requireNote(userId, noteId);
+    const filename = safeFilename(input.filename);
+    const mime = resolveUploadMime(filename, input.mimeType);
+    const compact = String(input.base64).replace(/\s+/gu, "");
+    if (compact === "") throw new ServiceError(400, "EMPTY_FILE", "\u6587\u4EF6\u5185\u5BB9\u4E3A\u7A7A");
+    if (!/^[A-Za-z0-9+/]+={0,2}$/u.test(compact) || compact.length % 4 !== 0) {
+      throw new ServiceError(400, "INVALID_BASE64", "base64 \u5185\u5BB9\u65E0\u6548");
+    }
+    if (Math.floor(compact.length / 4 * 3) > this.config.maxUploadBytes + 2) {
+      throw new ServiceError(413, "FILE_TOO_LARGE", `\u6587\u4EF6\u8D85\u8FC7 ${Math.round(this.config.maxUploadBytes / 1024 / 1024)}MB \u9650\u5236`);
+    }
+    const buffer = Buffer.from(compact, "base64");
+    if (buffer.byteLength === 0) throw new ServiceError(400, "EMPTY_FILE", "\u6587\u4EF6\u5185\u5BB9\u4E3A\u7A7A");
+    if (buffer.byteLength > this.config.maxUploadBytes) {
+      throw new ServiceError(413, "FILE_TOO_LARGE", `\u6587\u4EF6\u8D85\u8FC7 ${Math.round(this.config.maxUploadBytes / 1024 / 1024)}MB \u9650\u5236`);
+    }
+    if (isMediaMime(mime) && !validateMagic(mime, buffer.subarray(0, 64))) {
+      throw new ServiceError(415, "MEDIA_MISMATCH", "\u6587\u4EF6\u5185\u5BB9\u4E0E\u58F0\u660E\u7684\u7C7B\u578B\u4E0D\u7B26");
+    }
+    const id = randomUUID2();
+    const storageKey = attachmentStorageKey(id);
+    const tempDir = join3(this.config.dataDir, "tmp");
+    await mkdir2(tempDir, { recursive: true, mode: 448 });
+    const tempPath = join3(tempDir, `upload-${id}.tmp`);
+    await writeFile2(tempPath, buffer, { mode: 384 });
+    const sha256 = createHash2("sha256").update(buffer).digest("hex");
+    try {
+      const attachment = await this.createAttachment(userId, noteId, {
+        tempPath,
+        storageKey,
+        filename,
+        mime,
+        size: buffer.byteLength,
+        sha256
+      });
+      return { attachment, markdown: attachmentMarkdown(filename, mime, attachment.id) };
+    } catch (error2) {
+      await rm2(tempPath, { force: true }).catch(() => void 0);
+      throw error2;
+    }
+  }
   getAttachmentForRead(userId, attachmentId) {
     const row = this.db.prepare(
       "SELECT * FROM attachments WHERE id = ? AND owner_id = ? AND deleted_at IS NULL"
@@ -8774,76 +8996,6 @@ async function renameWithRetry(from, to) {
       await new Promise((resolve5) => setTimeout(resolve5, 25 * (attempt + 1)));
     }
   }
-}
-
-// src/server/mime.ts
-var IMAGE_AUDIO = /* @__PURE__ */ new Map([
-  ["image/png", { extensions: ["png"], matches: (b) => startsWith(b, [137, 80, 78, 71]) }],
-  ["image/jpeg", { extensions: ["jpg", "jpeg"], matches: (b) => startsWith(b, [255, 216, 255]) }],
-  ["image/gif", { extensions: ["gif"], matches: (b) => b.subarray(0, 4).toString("ascii") === "GIF8" }],
-  ["image/webp", { extensions: ["webp"], matches: (b) => b.subarray(0, 4).toString("ascii") === "RIFF" && b.subarray(8, 12).toString("ascii") === "WEBP" }],
-  ["image/avif", { extensions: ["avif"], matches: (b) => b.subarray(4, 8).toString("ascii") === "ftyp" && /avi[fs]/u.test(b.subarray(8, 16).toString("ascii")) }],
-  ["audio/mpeg", { extensions: ["mp3"], matches: (b) => startsWith(b, [73, 68, 51]) || b.length >= 2 && b[0] === 255 && (b[1] & 224) === 224 }],
-  ["audio/wav", { extensions: ["wav"], matches: (b) => b.subarray(0, 4).toString("ascii") === "RIFF" && b.subarray(8, 12).toString("ascii") === "WAVE" }],
-  ["audio/x-wav", { extensions: ["wav"], matches: (b) => b.subarray(0, 4).toString("ascii") === "RIFF" && b.subarray(8, 12).toString("ascii") === "WAVE" }],
-  ["audio/ogg", { extensions: ["ogg", "oga", "opus"], matches: (b) => b.subarray(0, 4).toString("ascii") === "OggS" }],
-  ["audio/flac", { extensions: ["flac"], matches: (b) => b.subarray(0, 4).toString("ascii") === "fLaC" }],
-  ["audio/mp4", { extensions: ["m4a", "mp4"], matches: (b) => b.subarray(4, 8).toString("ascii") === "ftyp" }],
-  ["audio/x-m4a", { extensions: ["m4a"], matches: (b) => b.subarray(4, 8).toString("ascii") === "ftyp" }],
-  ["audio/aac", { extensions: ["aac"], matches: (b) => b.length >= 2 && b[0] === 255 && (b[1] === 241 || b[1] === 249) }],
-  ["audio/webm", { extensions: ["webm", "weba"], matches: (b) => startsWith(b, [26, 69, 223, 163]) }],
-  ["audio/opus", { extensions: ["opus", "ogg"], matches: (b) => b.subarray(0, 4).toString("ascii") === "OggS" || startsWith(b, [26, 69, 223, 163]) }]
-]);
-var EXTENSION_TO_MIME = /* @__PURE__ */ new Map();
-for (const [mime, policy] of IMAGE_AUDIO) {
-  for (const extension of policy.extensions) {
-    if (!EXTENSION_TO_MIME.has(extension)) EXTENSION_TO_MIME.set(extension, mime);
-  }
-}
-var MAX_FILENAME_LENGTH = 180;
-function declaredMime(raw) {
-  return String(raw ?? "").split(";", 1)[0]?.trim().toLowerCase() ?? "";
-}
-function resolveUploadMime(filename, rawMime) {
-  let mime = declaredMime(rawMime);
-  if (mime === "image/jpg") mime = "image/jpeg";
-  if (mime === "audio/wave") mime = "audio/wav";
-  if (mime === "audio/m4a") mime = "audio/mp4";
-  if (mime === "video/webm") return null;
-  if (IMAGE_AUDIO.has(mime)) return mime;
-  if (mime === "" || mime === "application/octet-stream") {
-    const extension = filenameExtension(filename);
-    return EXTENSION_TO_MIME.get(extension) ?? null;
-  }
-  return null;
-}
-function validateMagic(mime, head) {
-  const policy = IMAGE_AUDIO.get(mime);
-  if (policy === void 0) return false;
-  return policy.matches(head);
-}
-function filenameExtension(filename) {
-  const index = filename.lastIndexOf(".");
-  if (index < 0) return "";
-  return filename.slice(index + 1).toLowerCase();
-}
-function safeFilename(filename) {
-  const base = filename.replace(/^.*[\\/]/u, "").replace(/[\u0000-\u001f\u007f]/gu, "").trim();
-  const cleaned = base === "" ? "attachment" : base;
-  return Array.from(cleaned).slice(0, MAX_FILENAME_LENGTH).join("");
-}
-function attachmentStorageKey(id) {
-  return `${id.slice(0, 2)}/${id}`;
-}
-function isInlineMime(mime) {
-  return IMAGE_AUDIO.has(mime);
-}
-function startsWith(buffer, bytes) {
-  if (buffer.length < bytes.length) return false;
-  for (let index = 0; index < bytes.length; index += 1) {
-    if (buffer[index] !== bytes[index]) return false;
-  }
-  return true;
 }
 
 // node_modules/zod/v3/external.js
@@ -25769,6 +25921,23 @@ async function handleMcpRequest(context) {
       return failure(error2);
     }
   });
+  register("attachments_add", {
+    title: "\u4E0A\u4F20\u9644\u4EF6",
+    description: "\u4EE5 base64 \u4E0A\u4F20\u4EFB\u610F\u683C\u5F0F\u7684\u6587\u4EF6\u5230\u7B14\u8BB0\uFF0C\u8FD4\u56DE\u9644\u4EF6\u5143\u6570\u636E\u4E0E\u53EF\u63D2\u5165\u6B63\u6587\u7684 Markdown \u94FE\u63A5\u3002\u56FE\u7247/\u97F3\u9891\u4F1A\u5185\u8054\u9884\u89C8\uFF0C\u5176\u4ED6\u683C\u5F0F\u4F5C\u4E3A\u4E0B\u8F7D\u6587\u4EF6\u4FDD\u5B58\u3002",
+    inputSchema: {
+      noteId: external_exports.string().min(1),
+      filename: external_exports.string().min(1).describe("\u6587\u4EF6\u540D\uFF08\u7528\u4E8E\u5C55\u793A\u4E0E\u63A8\u65AD\u7C7B\u578B\uFF09"),
+      mimeType: external_exports.string().optional().describe("\u53EF\u9009\uFF1AMIME \u7C7B\u578B\uFF1B\u7701\u7565\u65F6\u6309\u6587\u4EF6\u540D\u63A8\u65AD"),
+      base64: external_exports.string().min(1).describe("\u6587\u4EF6\u5185\u5BB9\u7684 base64\uFF1B\u5927\u5C0F\u53D7 MCP \u8BF7\u6C42\u4F53\u4E0A\u9650\u4E0E\u670D\u52A1\u5668\u4E0A\u4F20\u4E0A\u9650\u7EA6\u675F")
+    }
+  }, async (args) => {
+    if (!writeAllowed(auth)) return readonlyError();
+    try {
+      return ok(await service.uploadAttachmentBase64(userId, args.noteId, args));
+    } catch (error2) {
+      return failure(error2);
+    }
+  });
   register("attachments_delete", {
     title: "\u5220\u9664\u9644\u4EF6",
     description: "\u6309\u9644\u4EF6 id \u5220\u9664\u9644\u4EF6\u3002",
@@ -26496,7 +26665,6 @@ var NotesHttpServer = class {
       if (extension !== "") filename = `attachment.${extension}`;
     }
     const mime = resolveUploadMime(filename, declared);
-    if (mime === null) throw new HttpError(415, "UNSUPPORTED_MEDIA_TYPE", "\u53EA\u5141\u8BB8\u4E0A\u4F20\u56FE\u7247\u6216\u97F3\u9891\u6587\u4EF6");
     const contentLength = Number(req.headers["content-length"] ?? 0);
     if (Number.isFinite(contentLength) && contentLength > this.config.maxUploadBytes) {
       throw new HttpError(413, "FILE_TOO_LARGE", `\u6587\u4EF6\u8D85\u8FC7 ${Math.round(this.config.maxUploadBytes / 1024 / 1024)}MB \u9650\u5236`);
@@ -26504,7 +26672,7 @@ var NotesHttpServer = class {
     const tempDir = join4(this.config.dataDir, "tmp");
     await mkdir3(tempDir, { recursive: true, mode: 448 });
     const tempPath = join4(tempDir, `upload-${randomUUID3()}.tmp`);
-    const hash = createHash2("sha256");
+    const hash = createHash3("sha256");
     let size = 0;
     let head = Buffer.alloc(0);
     const out = createWriteStream(tempPath, { mode: 384 });
@@ -26523,7 +26691,7 @@ var NotesHttpServer = class {
       out.end();
       await once(out, "finish");
       if (size === 0) throw new HttpError(400, "EMPTY_FILE", "\u6587\u4EF6\u4E3A\u7A7A");
-      if (!validateMagic(mime, head)) {
+      if (isMediaMime(mime) && !validateMagic(mime, head)) {
         throw new HttpError(415, "MEDIA_MISMATCH", "\u6587\u4EF6\u5185\u5BB9\u4E0E\u58F0\u660E\u7684\u7C7B\u578B\u4E0D\u7B26");
       }
       const id = randomUUID3();
@@ -26539,7 +26707,7 @@ var NotesHttpServer = class {
       this.sendJson(res, 201, {
         ok: true,
         attachment,
-        markdown: imageMime(mime) ? `![${filename}](api/attachments/${attachment.id})` : `[${filename}](api/attachments/${attachment.id})`
+        markdown: attachmentMarkdown(filename, mime, attachment.id)
       });
     } catch (error2) {
       out.destroy();
@@ -26551,10 +26719,11 @@ var NotesHttpServer = class {
     const found = await this.service.statAttachment(auth.user.id, id);
     const download = url.searchParams.get("download") === "1";
     const mime = found.meta.mime;
-    res.setHeader("Content-Type", mime);
+    const inline = isInlineMime(mime);
+    res.setHeader("Content-Type", inline ? mime : "application/octet-stream");
     res.setHeader("Accept-Ranges", "bytes");
     res.setHeader("Cache-Control", "private, max-age=3600");
-    res.setHeader("Content-Disposition", contentDisposition(found.meta.filename, download ? "attachment" : isInlineMime(mime) ? "inline" : "attachment"));
+    res.setHeader("Content-Disposition", contentDisposition(found.meta.filename, download || !inline ? "attachment" : "inline"));
     const range = headerValue(req.headers.range);
     if (range !== "") {
       const parsed = parseRange(range, found.size);
@@ -26807,9 +26976,6 @@ function folderValue(value) {
   if (value === null) return null;
   return typeof value === "string" ? value : null;
 }
-function imageMime(mime) {
-  return mime.startsWith("image/");
-}
 function sanitizeDownloadName(value) {
   return value.replace(/[\\/:*?"<>|\u0000-\u001f\u007f]/gu, "_").trim().slice(0, 120) || "note";
 }
@@ -26993,7 +27159,7 @@ function createLogger(level = "info", file = "") {
 }
 
 // src/server/cli.ts
-var VERSION = true ? "0.1.0" : "0.1.0";
+var VERSION = true ? "0.2.1" : "0.2.1";
 function parseArgv(argv) {
   const positionals = [];
   const flags = {};
@@ -27039,6 +27205,7 @@ function configFrom(flags) {
   const logLevelRaw = flagString(flags, "log-level") ?? env("DSH_NOTES_LOG_LEVEL") ?? "info";
   const logLevel = ["off", "error", "warn", "info", "debug"].includes(logLevelRaw) ? logLevelRaw : "info";
   const maxUploadMb = Number(flagString(flags, "max-upload-mb") ?? env("DSH_NOTES_MAX_UPLOAD_MB") ?? 50);
+  const mcpBodyMb = Number(flagString(flags, "mcp-body-mb") ?? env("DSH_NOTES_MCP_BODY_MB") ?? 4);
   const port = Number(flagString(flags, "port") ?? env("DSH_NOTES_PORT") ?? DEFAULT_SERVER_CONFIG.port);
   return normalizeServerConfig({
     dataDir: dataDirFrom(flags),
@@ -27054,6 +27221,7 @@ function configFrom(flags) {
     trustProxy: flagBoolean(flags, "trust-proxy") || env("DSH_NOTES_TRUST_PROXY") === "1",
     trustedProxies: (flagString(flags, "trusted-proxy") ?? env("DSH_NOTES_TRUSTED_PROXY") ?? "127.0.0.1,::1").split(",").map((item) => item.trim()).filter(Boolean),
     maxUploadBytes: Math.round(Math.max(1, Number.isFinite(maxUploadMb) ? maxUploadMb : 50) * 1024 * 1024),
+    mcpBodyBytes: Math.round(Math.max(1, Number.isFinite(mcpBodyMb) ? mcpBodyMb : 4) * 1024 * 1024),
     sessionDays: Number(flagString(flags, "session-days") ?? env("DSH_NOTES_SESSION_DAYS") ?? DEFAULT_SERVER_CONFIG.sessionDays),
     sessionIdleDays: Number(flagString(flags, "session-idle-days") ?? env("DSH_NOTES_SESSION_IDLE_DAYS") ?? DEFAULT_SERVER_CONFIG.sessionIdleDays),
     trashDays: Number(flagString(flags, "trash-days") ?? env("DSH_NOTES_TRASH_DAYS") ?? DEFAULT_SERVER_CONFIG.trashDays),
@@ -27204,7 +27372,7 @@ async function commandUser(parsed) {
     if (action === "add") {
       const username = parsed.positionals[2] ?? flagString(parsed.flags, "username") ?? "";
       if (username === "") throw new Error("\u7528\u6CD5\uFF1Auser add <\u7528\u6237\u540D>");
-      const password = await readPasswordPair(parsed, "\u5BC6\u7801\uFF08\u81F3\u5C11 12 \u4F4D\uFF0C\u4E0D\u56DE\u663E\uFF09\uFF1A", "\u518D\u6B21\u8F93\u5165\u5BC6\u7801\uFF1A");
+      const password = await readPasswordPair(parsed, "\u5BC6\u7801\uFF08\u81F3\u5C11 8 \u4F4D\uFF0C\u4E0D\u56DE\u663E\uFF09\uFF1A", "\u518D\u6B21\u8F93\u5165\u5BC6\u7801\uFF1A");
       if (!validUsername(username.trim().toLowerCase())) throw new Error("\u7528\u6237\u540D\u9700\u4E3A 1-64 \u4F4D\u5B57\u6BCD\u3001\u6570\u5B57\u3001\u70B9\u3001\u4E0B\u5212\u7EBF\u6216\u8FDE\u5B57\u7B26");
       const policy = passwordPolicyError(password, username.trim().toLowerCase());
       if (policy !== null) throw new Error(policy);
@@ -27218,7 +27386,7 @@ async function commandUser(parsed) {
       if (username === "") throw new Error("\u7528\u6CD5\uFF1Auser passwd <\u7528\u6237\u540D>");
       const user = service.getUserByUsername(username);
       if (user === null) throw new Error("\u7528\u6237\u4E0D\u5B58\u5728");
-      const password = await readPasswordPair(parsed, "\u65B0\u5BC6\u7801\uFF08\u81F3\u5C11 12 \u4F4D\uFF0C\u4E0D\u56DE\u663E\uFF09\uFF1A", "\u518D\u6B21\u8F93\u5165\u65B0\u5BC6\u7801\uFF1A");
+      const password = await readPasswordPair(parsed, "\u65B0\u5BC6\u7801\uFF08\u81F3\u5C11 8 \u4F4D\uFF0C\u4E0D\u56DE\u663E\uFF09\uFF1A", "\u518D\u6B21\u8F93\u5165\u65B0\u5BC6\u7801\uFF1A");
       await service.setPassword(user.id, password, { keepTokens: flagBoolean(parsed.flags, "keep-tokens") });
       process.stdout.write(`\u5DF2\u66F4\u65B0\u5BC6\u7801\uFF1A${user.username}${flagBoolean(parsed.flags, "keep-tokens") ? "\uFF08\u4FDD\u7559\u4EE4\u724C\uFF09" : "\uFF08\u5DF2\u64A4\u9500\u5168\u90E8\u4F1A\u8BDD\u4E0E\u4EE4\u724C\uFF09"}
 `);
@@ -27420,6 +27588,7 @@ function printHelp() {
   --trusted-proxy <\u5217\u8868>   \u9017\u53F7\u5206\u9694\u7684\u4EE3\u7406\u5730\u5740\uFF08\u9ED8\u8BA4 127.0.0.1,::1\uFF09
   --insecure-http          \u5141\u8BB8\u975E\u56DE\u73AF\u660E\u6587 HTTP\uFF08\u4EC5\u53D7\u63A7\u5185\u7F51\u6D4B\u8BD5\uFF09
   --max-upload-mb <MB>     \u9644\u4EF6\u5927\u5C0F\u4E0A\u9650\uFF08\u9ED8\u8BA4 50\uFF09
+  --mcp-body-mb <MB>       MCP \u8BF7\u6C42\u4F53\u4E0A\u9650\uFF08\u9ED8\u8BA4 4\uFF1Bbase64 \u4E0A\u4F20\u53D7\u5176\u7EA6\u675F\uFF09
   --session-days <\u5929>      \u4F1A\u8BDD\u7EDD\u5BF9\u6709\u6548\u671F\uFF08\u9ED8\u8BA4 30\uFF09
   --session-idle-days <\u5929> \u4F1A\u8BDD\u7A7A\u95F2\u6709\u6548\u671F\uFF08\u9ED8\u8BA4 7\uFF09
   --trash-days <\u5929>        \u56DE\u6536\u7AD9\u4FDD\u7559\uFF08\u9ED8\u8BA4 30\uFF09

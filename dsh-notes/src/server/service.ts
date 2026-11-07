@@ -6,13 +6,21 @@
  * the CLI. It never renders HTML and never executes user content.
  */
 
-import { randomUUID } from 'node:crypto'
-import { mkdir, rename, rm, stat } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
+import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ServerConfig } from './config.ts'
 import type { NotesDatabase } from './db.ts'
 import { serverId } from './db.ts'
+import {
+  attachmentStorageKey,
+  isMediaMime,
+  resolveUploadMime,
+  safeFilename,
+  validateMagic,
+} from './mime.ts'
+import { attachmentMarkdown } from '../shared/media.ts'
 import { normalizeTags, noteTitleFromContent } from '../shared/format.ts'
 import type {
   AttachmentMeta,
@@ -931,6 +939,61 @@ export class NotesService {
       })
     } catch (error) {
       await rm(finalPath, { force: true }).catch(() => undefined)
+      throw error
+    }
+  }
+
+  /**
+   * Create an attachment from an in-memory (base64) payload.
+   *
+   * Used by the MCP `attachments_add` tool and the DSH host tool: the HTTP
+   * upload route streams to a temp file itself. Any format is accepted; the
+   * only checks are the size ceiling and the magic bytes of media types.
+   */
+  async uploadAttachmentBase64(userId: string, noteId: string, input: {
+    filename: string
+    mimeType?: string
+    base64: string
+  }): Promise<{ attachment: AttachmentMeta; markdown: string }> {
+    this.requireNote(userId, noteId)
+    const filename = safeFilename(input.filename)
+    const mime = resolveUploadMime(filename, input.mimeType)
+    const compact = String(input.base64).replace(/\s+/gu, '')
+    if (compact === '') throw new ServiceError(400, 'EMPTY_FILE', '文件内容为空')
+    if (!/^[A-Za-z0-9+/]+={0,2}$/u.test(compact) || compact.length % 4 !== 0) {
+      throw new ServiceError(400, 'INVALID_BASE64', 'base64 内容无效')
+    }
+    // Reject oversized payloads before decoding the whole string.
+    if (Math.floor((compact.length / 4) * 3) > this.config.maxUploadBytes + 2) {
+      throw new ServiceError(413, 'FILE_TOO_LARGE', `文件超过 ${Math.round(this.config.maxUploadBytes / 1024 / 1024)}MB 限制`)
+    }
+    const buffer = Buffer.from(compact, 'base64')
+    if (buffer.byteLength === 0) throw new ServiceError(400, 'EMPTY_FILE', '文件内容为空')
+    if (buffer.byteLength > this.config.maxUploadBytes) {
+      throw new ServiceError(413, 'FILE_TOO_LARGE', `文件超过 ${Math.round(this.config.maxUploadBytes / 1024 / 1024)}MB 限制`)
+    }
+    if (isMediaMime(mime) && !validateMagic(mime, buffer.subarray(0, 64))) {
+      throw new ServiceError(415, 'MEDIA_MISMATCH', '文件内容与声明的类型不符')
+    }
+    const id = randomUUID()
+    const storageKey = attachmentStorageKey(id)
+    const tempDir = join(this.config.dataDir, 'tmp')
+    await mkdir(tempDir, { recursive: true, mode: 0o700 })
+    const tempPath = join(tempDir, `upload-${id}.tmp`)
+    await writeFile(tempPath, buffer, { mode: 0o600 })
+    const sha256 = createHash('sha256').update(buffer).digest('hex')
+    try {
+      const attachment = await this.createAttachment(userId, noteId, {
+        tempPath,
+        storageKey,
+        filename,
+        mime,
+        size: buffer.byteLength,
+        sha256,
+      })
+      return { attachment, markdown: attachmentMarkdown(filename, mime, attachment.id) }
+    } catch (error) {
+      await rm(tempPath, { force: true }).catch(() => undefined)
       throw error
     }
   }

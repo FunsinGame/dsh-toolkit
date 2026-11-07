@@ -54,8 +54,8 @@ HTTP request
   → JSON / stream
 ```
 
-- 上传附件：原始字节 → 临时文件 + sha256 + 大小限制 → magic bytes 校验 → 移动到 `attachments/ab/<id>` → DB 元数据。
-- 附件下载：鉴权 → 文件 stat → Range → `createReadStream`。
+- 上传附件：任意格式 → 临时文件 + sha256 + 大小限制 → 内联媒体（图片/音频）做 magic bytes 校验 → 移动到 `attachments/ab/<id>` → DB 元数据；非媒体文件原样保存，下载时强制 `application/octet-stream` + attachment。
+- 附件下载：鉴权 → 文件 stat → 只有内联媒体用真实 Content-Type → Range → `createReadStream`。
 - 任何异常：统一 `{ok:false,error}`，不泄露堆栈；日志不含正文/密钥。
 
 ## 4. 本地缓存（DSH）
@@ -140,6 +140,6 @@ meta(key, value)  -- serverId, userId, cursor, lastSyncAt, op:<entity>:<id>
 ## 8. 扩展点
 
 - 新增 MCP/原生工具：在 `src/server/mcp/server.ts` 与 `src/host/tools.ts` 增加同名工具，复用 NotesService/host 方法。
-- 新附件类型：扩展 `src/server/mime.ts` 白名单 + magic；同步更新前端 accept 与预览。
+- 新附件类型：内联预览的类型需同时改 `src/shared/media.ts` 与 `src/server/mime.ts`（MIME + magic bytes）；任意格式上传本身已支持，无需白名单。
 - 新平台：`src/server/platform.ts` 路径/权限/重试；不改业务层。
 - 多用户共享/协作：当前 schema 已有 `owner_id`，可引入 `note_shares` 与权限层；v1 不实现。

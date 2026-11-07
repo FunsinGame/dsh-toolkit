@@ -2385,23 +2385,23 @@ function registerNotesTools(ctx, host) {
   }));
   register(tool({
     name: "attachments_add",
-    description: "\u4EE5 base64 \u4E0A\u4F20\u56FE\u7247\u6216\u97F3\u9891\u9644\u4EF6\u5230\u7B14\u8BB0\uFF0C\u5E76\u8FD4\u56DE\u53EF\u63D2\u5165\u6B63\u6587\u7684 Markdown \u94FE\u63A5\u3002",
+    description: "\u4EE5 base64 \u4E0A\u4F20\u4EFB\u610F\u683C\u5F0F\u7684\u6587\u4EF6\uFF08\u4EE3\u7801\u3001\u6587\u6863\u3001\u538B\u7F29\u5305\u7B49\uFF0C\u226420MB\uFF09\u5230\u7B14\u8BB0\uFF0C\u8FD4\u56DE\u9644\u4EF6\u5143\u6570\u636E\u4E0E\u53EF\u63D2\u5165\u6B63\u6587\u7684 Markdown \u94FE\u63A5\u3002\u56FE\u7247/\u97F3\u9891\u5185\u8054\u9884\u89C8\uFF0C\u5176\u4ED6\u683C\u5F0F\u4F5C\u4E3A\u4E0B\u8F7D\u6587\u4EF6\u4FDD\u5B58\u3002",
     parameters: {
       type: "object",
       properties: {
         noteId: { type: "string" },
         filename: { type: "string" },
-        mimeType: { type: "string" },
+        mimeType: { type: "string", description: "\u53EF\u9009\uFF1AMIME \u7C7B\u578B\uFF1B\u7701\u7565\u65F6\u6309\u6587\u4EF6\u540D\u63A8\u65AD" },
         base64: { type: "string", description: "\u6587\u4EF6\u5185\u5BB9\u7684 base64\uFF1B\u4E0A\u9650 20MB" }
       },
-      required: ["noteId", "filename", "mimeType", "base64"],
+      required: ["noteId", "filename", "base64"],
       additionalProperties: false
     },
     deferLoading: true,
     execute: async (args) => host.uploadBase64(
       requiredString(args, "noteId"),
       requiredString(args, "filename"),
-      requiredString(args, "mimeType"),
+      optionalString(args, "mimeType") ?? "",
       requiredString(args, "base64")
     )
   }));
@@ -2491,7 +2491,7 @@ ${note.content}${tags}${attachments}
 }
 
 // src/host/index.ts
-var VERSION = true ? "0.1.0" : "0.1.0";
+var VERSION = true ? "0.2.1" : "0.2.1";
 var name = "dsh-notes";
 var inject = ["tools"];
 var fallbackLogger = {

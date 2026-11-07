@@ -419,6 +419,24 @@ export async function handleMcpRequest(context: McpRequestContext): Promise<void
     }
   })
 
+  register('attachments_add', {
+    title: '上传附件',
+    description: '以 base64 上传任意格式的文件到笔记，返回附件元数据与可插入正文的 Markdown 链接。图片/音频会内联预览，其他格式作为下载文件保存。',
+    inputSchema: {
+      noteId: z.string().min(1),
+      filename: z.string().min(1).describe('文件名（用于展示与推断类型）'),
+      mimeType: z.string().optional().describe('可选：MIME 类型；省略时按文件名推断'),
+      base64: z.string().min(1).describe('文件内容的 base64；大小受 MCP 请求体上限与服务器上传上限约束'),
+    },
+  }, async (args: { noteId: string; filename: string; mimeType?: string; base64: string }) => {
+    if (!writeAllowed(auth)) return readonlyError()
+    try {
+      return ok(await service.uploadAttachmentBase64(userId, args.noteId, args))
+    } catch (error) {
+      return failure(error)
+    }
+  })
+
   register('attachments_delete', {
     title: '删除附件',
     description: '按附件 id 删除附件。',

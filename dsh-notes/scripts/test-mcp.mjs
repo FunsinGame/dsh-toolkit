@@ -53,7 +53,7 @@ try {
     client = await connect(base, token)
     const tools = await client.listTools()
     const names = tools.tools.map((tool) => tool.name)
-    for (const expected of ['notes_tree', 'notes_get', 'notes_search', 'notes_create', 'notes_update', 'notes_delete', 'attachments_list', 'notes_daily']) {
+    for (const expected of ['notes_tree', 'notes_get', 'notes_search', 'notes_create', 'notes_update', 'notes_delete', 'attachments_list', 'attachments_add', 'notes_daily']) {
       assert(names.includes(expected), `missing tool ${expected}`)
     }
     assert(tools.tools.find((tool) => tool.name === 'notes_get').inputSchema.required.includes('id'), 'notes_get schema')
@@ -66,6 +66,24 @@ try {
     const note = await client.callTool({ name: 'notes_get', arguments: { id: seedId } })
     const notePayload = JSON.parse(note.content[0].text)
     assertEqual(notePayload.note.content, 'hello mcp world')
+  })
+
+  await step('attachments_add uploads an arbitrary file', async () => {
+    const result = await client.callTool({
+      name: 'attachments_add',
+      arguments: {
+        noteId: seedId,
+        filename: 'sample.ts',
+        base64: Buffer.from('export const answer = 42\n').toString('base64'),
+      },
+    })
+    assert(result.isError !== true, `upload failed: ${result.content?.[0]?.text ?? ''}`)
+    const payload = JSON.parse(result.content[0].text)
+    assertEqual(payload.attachment.mime, 'text/plain')
+    assert(payload.markdown.startsWith('['), 'non-image markdown link')
+    const note = await client.callTool({ name: 'notes_get', arguments: { id: seedId } })
+    const notePayload = JSON.parse(note.content[0].text)
+    assert(notePayload.note.attachments.some((item) => item.id === payload.attachment.id), 'attachment saved')
   })
 
   await step('create, append and update a note', async () => {
@@ -108,6 +126,11 @@ try {
       const result = await readonlyClient.callTool({ name: 'notes_create', arguments: { title: 'nope' } })
       assertEqual(result.isError, true)
       assert(result.content[0].text.includes('只读'), 'readonly error text')
+      const upload = await readonlyClient.callTool({
+        name: 'attachments_add',
+        arguments: { noteId: seedId, filename: 'x.ts', base64: 'eA==' },
+      })
+      assertEqual(upload.isError, true, 'readonly upload rejected')
     } finally {
       await readonlyClient.close()
     }

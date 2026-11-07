@@ -21649,6 +21649,34 @@
     return { words, characters, lines };
   }
 
+  // src/shared/media.ts
+  var INLINE_IMAGE_MIMES = [
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "image/avif"
+  ];
+  var INLINE_AUDIO_MIMES = [
+    "audio/mpeg",
+    "audio/wav",
+    "audio/x-wav",
+    "audio/ogg",
+    "audio/flac",
+    "audio/mp4",
+    "audio/x-m4a",
+    "audio/aac",
+    "audio/webm",
+    "audio/opus"
+  ];
+  var INLINE = /* @__PURE__ */ new Set([...INLINE_IMAGE_MIMES, ...INLINE_AUDIO_MIMES]);
+  function isInlineImageMime(mime) {
+    return INLINE_IMAGE_MIMES.includes(mime);
+  }
+  function isInlineAudioMime(mime) {
+    return INLINE_AUDIO_MIMES.includes(mime);
+  }
+
   // node_modules/dompurify/dist/purify.es.mjs
   function _OverloadYield(e, d) {
     this.v = e, this.k = d;
@@ -27139,6 +27167,14 @@ ${quote[1]}> `;
         showToast(errorMessage(caught), "error");
       }
     }, [backend2, showToast]);
+    const handleDownloadAttachment = (0, import_react.useCallback)(async (attachment) => {
+      try {
+        const blob = await backend2.fetchAttachment(attachment.id);
+        saveAttachmentBlob(blob, attachment.filename);
+      } catch (caught) {
+        showToast(`\u4E0B\u8F7D\u5931\u8D25\uFF1A${errorMessage(caught)}`, "error");
+      }
+    }, [backend2, showToast]);
     const openLightbox = (0, import_react.useCallback)((src, alt) => {
       if (src === "") return;
       setLightbox({ src, alt });
@@ -27201,10 +27237,14 @@ ${quote[1]}> `;
       const attachmentId = anchor.getAttribute("data-attachment-id");
       if (attachmentId === null) return;
       const meta = noteRef.current?.attachments.find((item) => item.id === attachmentId);
-      if (meta === void 0 || !meta.mime.startsWith("image/")) return;
+      if (meta === void 0) return;
       event.preventDefault();
+      if (!isInlineImageMime(meta.mime)) {
+        void handleDownloadAttachment(meta);
+        return;
+      }
       void loadAttachmentObjectUrl(backend2, attachmentId).then((url) => openLightbox(url, meta.filename)).catch(() => showToast("\u56FE\u7247\u52A0\u8F7D\u5931\u8D25", "error"));
-    }, [backend2, openLightbox, openNote, showToast]);
+    }, [backend2, handleDownloadAttachment, openLightbox, openNote, showToast]);
     const handlePreviewDoubleClick = (0, import_react.useCallback)((event) => {
       const target = event.target;
       if (!(target instanceof HTMLImageElement)) return;
@@ -27370,7 +27410,6 @@ ${quote[1]}> `;
         {
           ref: fileInputRef,
           type: "file",
-          accept: "image/png,image/jpeg,image/gif,image/webp,image/avif,audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/aac,audio/flac,audio/webm,audio/opus",
           multiple: true,
           hidden: true,
           onChange: (event) => {
@@ -27664,14 +27703,17 @@ ${quote[1]}> `;
               ] })
             ] }),
             uploadProgress !== null && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dsh-notes-upload-progress", children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { style: { width: `${uploadProgress}%` } }) }),
-            note.attachments.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dsh-notes-hint", style: { padding: "9px 14px" }, children: "\u4E0A\u4F20\u56FE\u7247\u6216\u97F3\u9891\uFF0C\u6216\u76F4\u63A5\u628A\u526A\u8D34\u677F\u91CC\u7684\u56FE\u7247\u7C98\u8D34\u8FDB\u7F16\u8F91\u5668\uFF08Ctrl+V\uFF09\uFF1B\u63D2\u5165\u7684 Markdown \u94FE\u63A5\u4F1A\u81EA\u52A8\u5173\u8054\u5230\u9644\u4EF6\u3002" }) : note.attachments.map((attachment) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
+            note.attachments.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dsh-notes-hint", style: { padding: "9px 14px" }, children: "\u4E0A\u4F20\u4EFB\u610F\u683C\u5F0F\u7684\u6587\u4EF6\uFF08\u56FE\u7247/\u97F3\u9891\u4F1A\u5185\u8054\u9884\u89C8\uFF0C\u5176\u4ED6\u683C\u5F0F\u53EF\u4E0B\u8F7D\uFF09\uFF1B\u4E5F\u53EF\u4EE5\u628A\u526A\u8D34\u677F\u91CC\u7684\u56FE\u7247\u76F4\u63A5\u7C98\u8D34\u8FDB\u7F16\u8F91\u5668\uFF08Ctrl+V\uFF09\u3002\u63D2\u5165\u7684 Markdown \u94FE\u63A5\u4F1A\u81EA\u52A8\u5173\u8054\u5230\u9644\u4EF6\u3002" }) : note.attachments.map((attachment) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
               AttachmentRow,
               {
                 attachment,
                 url: backend2.attachmentUrl(attachment.id),
                 backend: backend2,
                 onPreview: (url, alt) => openLightbox(url, alt),
-                onInsert: () => insertIntoNote(`${attachment.mime.startsWith("image/") ? "!" : ""}[${attachment.filename}](api/attachments/${attachment.id})`),
+                onInsert: () => insertIntoNote(`${isInlineImageMime(attachment.mime) ? "!" : ""}[${attachment.filename}](api/attachments/${attachment.id})`),
+                onDownload: () => {
+                  void handleDownloadAttachment(attachment);
+                },
                 onDelete: () => {
                   void handleDeleteAttachment(attachment.id);
                 }
@@ -28085,8 +28127,8 @@ ${quote[1]}> `;
     }, [backend2, id]);
     return { url, failed, retry };
   }
-  function AttachmentRow({ attachment, url, backend: backend2, onPreview, onInsert, onDelete }) {
-    const isImage = attachment.mime.startsWith("image/");
+  function AttachmentRow({ attachment, url, backend: backend2, onPreview, onInsert, onDownload, onDelete }) {
+    const isImage = isInlineImageMime(attachment.mime);
     const media = useAttachmentMedia(backend2, attachment.id, isImage);
     return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: "dsh-notes-attachment", children: [
       isImage && media.url !== null ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
@@ -28119,9 +28161,10 @@ ${quote[1]}> `;
           " \xB7 ",
           attachment.mime
         ] }),
-        attachment.mime.startsWith("audio/") && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("audio", { controls: true, preload: "none", src: url })
+        isInlineAudioMime(attachment.mime) && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("audio", { controls: true, preload: "none", src: url })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { className: "dsh-notes-btn", onClick: onInsert, children: "\u63D2\u5165" }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { className: "dsh-notes-btn", onClick: onDownload, title: `\u4E0B\u8F7D ${attachment.filename}`, children: "\u4E0B\u8F7D" }),
       /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { className: "dsh-notes-btn dsh-notes-btn-danger", onClick: onDelete, children: "\u5220\u9664" })
     ] });
   }
@@ -28569,6 +28612,19 @@ ${quote[1]}> `;
       ] }, item.noteId)) }),
       error !== null && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: "dsh-notes-error", children: error })
     ] });
+  }
+  function saveAttachmentBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.rel = "noopener";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 1e4);
   }
 
   // src/web/backend.ts

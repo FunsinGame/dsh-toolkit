@@ -38,9 +38,9 @@ sudo install -d -o root -g root -m 0755 /etc/dsh-notes
 解压 zip/tgz 到 `/opt/dsh-notes`：
 
 ```bash
-sudo unzip dsh-notes-server-0.1.0.zip -d /opt/dsh-notes
+sudo unzip dsh-notes-server-0.2.1.zip -d /opt/dsh-notes
 # 或
-sudo tar -xzf dsh-notes-0.1.0.tgz -C /tmp
+sudo tar -xzf dsh-notes-0.2.1.tgz -C /tmp
 sudo cp -a /tmp/package/. /opt/dsh-notes/
 ```
 
@@ -63,7 +63,7 @@ sudo -u dshnotes node server/bin.js user add alice --data-dir /var/lib/dsh-notes
 sudo -u dshnotes node server/bin.js token create --user alice --name dsh-plugin --data-dir /var/lib/dsh-notes
 ```
 
-- 密码交互输入，至少 12 位。
+- 密码交互输入，至少 8 位。
 - 令牌只显示一次。
 - 账号管理只能本机 CLI，没有 Web 注册/改密/令牌管理。
 
@@ -157,7 +157,7 @@ sudo -u dshnotes node /opt/dsh-notes/server/bin.js backup \
 ```bash
 sudo systemctl stop dsh-notes
 sudo -u dshnotes node /opt/dsh-notes/server/bin.js backup --data-dir /var/lib/dsh-notes --out /var/lib/dsh-notes/backups
-sudo unzip -o dsh-notes-server-0.1.0.zip -d /opt/dsh-notes   # 新版本
+sudo unzip -o dsh-notes-server-0.2.1.zip -d /opt/dsh-notes   # 新版本
 sudo systemctl start dsh-notes
 sudo systemctl status dsh-notes
 ```

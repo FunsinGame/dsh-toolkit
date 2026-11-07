@@ -13,7 +13,7 @@ DSH Notes 的安全目标是：**即使服务端暴露在公网，攻击者也�
 | 令牌泄露 | 只存 SHA-256；可过期、可撤销、可只读；建议给 AI 单独签发；日志不记录令牌 |
 | CSRF | SameSite=Strict + 写请求 `X-Notes-Request: 1` + Origin/Host 校验；Bearer 请求不走 Cookie |
 | XSS | 客户端 DOMPurify 清洗；CSP 禁止内联脚本；服务端从不渲染用户 HTML；外链 rel=noopener |
-| 上传木马/WebShell | 只允许图片/音频白名单；扩展名 + magic bytes 双检；拒绝 SVG/HTML/JS/可执行文件；附件在 Web 根目录外；鉴权路由 + nosniff + 明确 Content-Type；永不执行 |
+| 上传木马/WebShell | 任意格式均可上传；仅图片/音频白名单内联渲染（扩展名 + magic bytes 双检），其余格式一律 `application/octet-stream` + `Content-Disposition: attachment` + nosniff，SVG/HTML/JS 永不执行；附件在 Web 根目录外；鉴权路由读取 |
 | 路径遍历 | 附件只用 UUID 存储；静态文件 `realpath` + 根目录约束；拒绝 `..`、反斜杠、点文件；无目录列表 |
 | SQL 注入 | 全部 prepared statement；LIKE 通配符转义 |
 | 点击劫持/嗅探 | `X-Frame-Options: DENY`、CSP `frame-ancestors 'none'`、`nosniff`、`Referrer-Policy: no-referrer` |
@@ -24,7 +24,7 @@ DSH Notes 的安全目标是：**即使服务端暴露在公网，攻击者也�
 ## 2. 账号与登录
 
 - 密码：Node 内置 `scrypt`，`N=32768, r=8, p=1, keylen=64`，16 字节随机盐；格式 `scrypt$N$r$p$salt$hash`；常数时间比较。
-- 密码策略：12–256 字符；拒绝纯数字、纯用户名；改密只能 `dsh-notes-server user passwd`。
+- 密码策略：至少 8 个字符，不做复杂度要求（纯数字、与用户名相同均可）；超过 1024 字符仅作为防御性上限；改密只能 `dsh-notes-server user passwd`。
 - 账号只能通过服务器本机 CLI：
   ```bash
   dsh-notes-server user add alice
@@ -72,18 +72,27 @@ DSH Notes 的安全目标是：**即使服务端暴露在公网，攻击者也�
 
 ## 5. 上传与附件
 
-允许的 MIME（扩展名 + magic bytes）：
+任意格式的文件都可以上传为附件。服务端把附件分成两类处理：
+
+**可内联媒体（扩展名 + magic bytes 双检）**
 
 - 图片：png、jpeg、gif、webp、avif
 - 音频：mpeg/mp3、wav、ogg/oga/opus、flac、mp4/m4a、aac、webm
 
-明确拒绝：
+只有这些类型会用真实的 `Content-Type` 内联返回，供 `<img>`/`<audio>` 渲染。
 
-- SVG（可含脚本）、HTML、JavaScript、可执行文件、MIME 不匹配、空文件、超限文件。
+**不透明文件（其他所有格式：代码、Office、压缩包、可执行文件……）**
+
+- 照常存储、列出、下载；响应固定为 `application/octet-stream` + `Content-Disposition: attachment`，浏览器不会在笔记站点 origin 内解析或执行它。
+- 这些格式没有可靠的 magic bytes，因此不校验内容签名；上传的 HTML/SVG/JS 只是文件，不会被当作页面或脚本。
+- 声明为图片/音频但内容 magic bytes 不匹配的上传仍返回 415；空文件 400。
+- 支持 Range（音频拖动）；`?download=1` 强制附件下载。
+- 单文件默认 50MB（`--max-upload-mb`）；MCP base64 附件工具上限 20MB，并且受 `--mcp-body-mb` 的请求体上限约束。
+
+共同约束：
+
 - 用户文件名不参与磁盘路径；磁盘名是 UUID；显示名仅清洗后存元数据。
-- 附件目录位于 Web 根目录之外；只通过 `/api/attachments/<id>`（需鉴权）读取；响应带 `nosniff`、明确 `Content-Type`、`Content-Disposition`、`Cache-Control: private`。
-- 支持 Range（音频拖动）；只允许图片/音频内联，其余强制 attachment。
-- 单文件默认 50MB（`--max-upload-mb`）；MCP base64 附件工具上限 20MB。
+- 附件目录位于 Web 根目录之外；只通过 `/api/attachments/<id>`（需鉴权）读取；响应带 `nosniff`、`Content-Disposition`、`Cache-Control: private`。
 - 永久删除笔记时删除附件文件；普通删除只进回收站。
 
 ## 6. 代码执行面
@@ -157,7 +166,7 @@ DSH Notes 的安全目标是：**即使服务端暴露在公网，攻击者也�
 - 未知用户/错误密码统一 401；登录限速 429。
 - 会话 Cookie 标志、CSRF 缺失 403、跨源 403。
 - 只读令牌写 403、撤销令牌 401。
-- 上传：SVG/HTML/JS/伪造 PNG 拒绝；文件名路径字符清洗；超限 413；Range 206。
+- 上传：任意格式（文本/代码/压缩包）可存可下载且强制 attachment；伪造 PNG/图片 magic 不符 415；文件名路径字符清洗；超限 413；Range 206。
 - 静态路径遍历/源码泄露/目录列表拒绝。
 - 安全响应头、令牌/密码不入日志。
 - 非回环明文监听拒绝。

@@ -19,8 +19,9 @@ export interface ScryptParams {
 }
 
 export const CURRENT_SCRYPT: ScryptParams = { N: 32768, r: 8, p: 1, keylen: 64 }
-const MAX_PASSWORD_LENGTH = 256
-const MIN_PASSWORD_LENGTH = 12
+/** Defensive upper bound only: it is not a password-composition requirement. */
+const MAX_PASSWORD_LENGTH = 1024
+const MIN_PASSWORD_LENGTH = 8
 
 /** Semaphore keeps concurrent scrypt verifications from exhausting memory. */
 export class Semaphore {
@@ -96,12 +97,17 @@ export async function createDummyHash(): Promise<string> {
   return passwordSemaphore.run(() => hashPassword(randomBytes(24).toString('base64url')))
 }
 
-export function passwordPolicyError(password: string, username: string): string | null {
-  if (password.length < MIN_PASSWORD_LENGTH) return `密码至少需要 ${MIN_PASSWORD_LENGTH} 个字符`
+/**
+ * Password policy: a minimum length of 8 characters and nothing else.
+ *
+ * Composition rules (digits-only, username-like, ...) are deliberately not
+ * enforced: the caller asked for a length-only policy. `username` stays in the
+ * signature because account creation passes it, but it no longer affects the
+ * result.
+ */
+export function passwordPolicyError(password: string, _username: string): string | null {
+  if (Array.from(password).length < MIN_PASSWORD_LENGTH) return `密码至少需要 ${MIN_PASSWORD_LENGTH} 个字符`
   if (password.length > MAX_PASSWORD_LENGTH) return '密码过长'
-  if (password.trim() === '') return '密码不能为空'
-  if (/^\d+$/u.test(password)) return '密码不能是纯数字'
-  if (username !== '' && password.toLowerCase() === username.toLowerCase()) return '密码不能与用户名相同'
   return null
 }
 

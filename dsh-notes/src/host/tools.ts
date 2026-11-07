@@ -406,23 +406,23 @@ export function registerNotesTools(ctx: ToolContext, host: NotesHost): void {
 
   register(tool({
     name: 'attachments_add',
-    description: '以 base64 上传图片或音频附件到笔记，并返回可插入正文的 Markdown 链接。',
+    description: '以 base64 上传任意格式的文件（代码、文档、压缩包等，≤20MB）到笔记，返回附件元数据与可插入正文的 Markdown 链接。图片/音频内联预览，其他格式作为下载文件保存。',
     parameters: {
       type: 'object',
       properties: {
         noteId: { type: 'string' },
         filename: { type: 'string' },
-        mimeType: { type: 'string' },
+        mimeType: { type: 'string', description: '可选：MIME 类型；省略时按文件名推断' },
         base64: { type: 'string', description: '文件内容的 base64；上限 20MB' },
       },
-      required: ['noteId', 'filename', 'mimeType', 'base64'],
+      required: ['noteId', 'filename', 'base64'],
       additionalProperties: false,
     },
     deferLoading: true,
     execute: async (args) => host.uploadBase64(
       requiredString(args, 'noteId'),
       requiredString(args, 'filename'),
-      requiredString(args, 'mimeType'),
+      optionalString(args, 'mimeType') ?? '',
       requiredString(args, 'base64'),
     ),
   }))

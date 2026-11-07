@@ -142,13 +142,24 @@ try {
     noteId = response.payload.note.id
   })
 
-  await step('SVG, HTML, executable and mismatched uploads are rejected', async () => {
-    const svg = await uploadAttachment(base, token, noteId, 'evil.svg', 'image/svg+xml', Buffer.from('<svg><script>alert(1)</script></svg>'))
-    assertEqual(svg.status, 415)
-    const html = await uploadAttachment(base, token, noteId, 'evil.html', 'text/html', Buffer.from('<html>hi</html>'))
-    assertEqual(html.status, 415)
-    const js = await uploadAttachment(base, token, noteId, 'evil.js', 'application/javascript', Buffer.from('alert(1)'))
-    assertEqual(js.status, 415)
+  await step('active-content uploads are stored but never served inline', async () => {
+    for (const [name, mime, body] of [
+      ['evil.svg', 'image/svg+xml', '<svg><script>alert(1)</script></svg>'],
+      ['evil.html', 'text/html', '<html>hi</html>'],
+      ['evil.js', 'application/javascript', 'alert(1)'],
+    ]) {
+      const uploaded = await uploadAttachment(base, token, noteId, name, mime, Buffer.from(body))
+      assertEqual(uploaded.status, 201, `${name} upload`)
+      assert(!uploaded.payload.markdown.startsWith('!'), `${name} is not an inline image`)
+      const served = await fetch(`${base}/api/attachments/${uploaded.payload.attachment.id}`, {
+        headers: { authorization: `Bearer ${token}` },
+      })
+      assertEqual(served.status, 200, `${name} download`)
+      // Stored HTML/SVG/JS must never render in the notes origin.
+      assertEqual(served.headers.get('content-type'), 'application/octet-stream', `${name} content type`)
+      assert((served.headers.get('content-disposition') ?? '').startsWith('attachment'), `${name} disposition`)
+      assertEqual(served.headers.get('x-content-type-options'), 'nosniff', `${name} nosniff`)
+    }
     const fakePng = await uploadAttachment(base, token, noteId, 'fake.png', 'image/png', Buffer.from('<html>not png</html>'))
     assertEqual(fakePng.status, 415)
   })
@@ -206,6 +217,26 @@ try {
       assertEqual(locked.status, 429)
     } finally {
       await second.stop()
+    }
+  })
+
+  await step('password policy is an 8-character minimum only', async () => {
+    const policyDir = await makeTempDir('security-password-policy')
+    let shortError = ''
+    try {
+      await createAccount(policyDir, 'shorty', '1234567')
+    } catch (error) {
+      shortError = error.message
+    }
+    assert(shortError.includes('密码至少需要 8 个字符'), `7-character password must be rejected: ${shortError.slice(0, 200)}`)
+    // Exactly 8 characters, digits only, and identical to the username are all allowed.
+    await createAccount(policyDir, 'passpass', 'passpass')
+    const policyServer = await startServer({ dataDir: policyDir })
+    try {
+      const accepted = await login(policyServer.base, 'passpass', 'passpass')
+      assertEqual(accepted.status, 200)
+    } finally {
+      await policyServer.stop()
     }
   })
 

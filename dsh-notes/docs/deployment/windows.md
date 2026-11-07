@@ -13,7 +13,7 @@
 
 ## 2. 解压服务端
 
-把 `dsh-notes-server-0.1.0.zip` 解压到例如 `C:\dsh-notes`：
+把 `dsh-notes-server-0.2.1.zip` 解压到例如 `C:\dsh-notes`：
 
 ```text
 C:\dsh-notes\
@@ -27,7 +27,7 @@ C:\dsh-notes\
 也可以全局安装 tgz：
 
 ```powershell
-npm install -g .\dsh-notes-0.1.0.tgz
+npm install -g .\dsh-notes-0.2.1.tgz
 dsh-notes-server version
 ```
 
@@ -72,7 +72,7 @@ node .\server\bin.js user add alice --data-dir C:\ProgramData\dsh-notes
 node .\server\bin.js token create --user alice --name dsh-plugin --data-dir C:\ProgramData\dsh-notes
 ```
 
-- 密码交互输入（不回显），至少 12 位；自动化可用 `--password-stdin`，不要把密码写进命令历史。
+- 密码交互输入（不回显），至少 8 位；自动化可用 `--password-stdin`，不要把密码写进命令历史。
 - 令牌只显示一次，立即存进密码管理器。
 - 网页/插件没有注册/改密入口。
 

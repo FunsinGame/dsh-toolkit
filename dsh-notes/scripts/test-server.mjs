@@ -43,7 +43,7 @@ try {
   await step('health and session expose the token user', async () => {
     const health = await request(base, '/api/health', { token })
     assertEqual(health.status, 200)
-    assert(health.payload.server.version === '0.1.0', 'version')
+    assert(health.payload.server.version === '0.2.1', 'version')
     const session = await request(base, '/api/auth/session', { token })
     assertEqual(session.payload.user.username, 'alice')
     assertEqual(session.payload.auth.kind, 'token')
@@ -156,18 +156,34 @@ try {
 
   let image
   let audio
-  await step('upload image and audio attachments', async () => {
+  let code
+  await step('upload image, audio and arbitrary code attachments', async () => {
     const imageResult = await uploadAttachment(base, token, note.id, 'pixel.png', 'image/png', pngBuffer())
     assertEqual(imageResult.status, 201)
     image = imageResult.payload.attachment
     assertEqual(image.mime, 'image/png')
-    assert(imageResult.payload.markdown.includes(image.id), 'markdown link')
+    assert(imageResult.payload.markdown.startsWith('!['), 'image markdown link')
     const audioResult = await uploadAttachment(base, token, note.id, 'tone.wav', 'audio/wav', wavBuffer())
     assertEqual(audioResult.status, 201)
     audio = audioResult.payload.attachment
     assertEqual(audio.mime, 'audio/wav')
+    const codeResult = await uploadAttachment(base, token, note.id, 'sample.ts', 'text/plain', Buffer.from('export const answer = 42\n'))
+    assertEqual(codeResult.status, 201)
+    code = codeResult.payload.attachment
+    assertEqual(code.mime, 'text/plain')
+    // A non-image is referenced as a plain link, not an inline image.
+    assert(codeResult.payload.markdown.startsWith('['), 'code markdown link')
     const list = await request(base, `/api/notes/${note.id}/attachments`, { token })
-    assertEqual(list.payload.attachments.length, 2)
+    assertEqual(list.payload.attachments.length, 3)
+  })
+
+  await step('non-media attachments download as opaque files', async () => {
+    const response = await fetch(`${base}/api/attachments/${code.id}`, { headers: { authorization: `Bearer ${token}` } })
+    assertEqual(response.status, 200)
+    assertEqual(response.headers.get('content-type'), 'application/octet-stream')
+    assert((response.headers.get('content-disposition') ?? '').startsWith('attachment'), 'attachment disposition')
+    assertEqual(response.headers.get('x-content-type-options'), 'nosniff')
+    assertEqual(Buffer.from(await response.arrayBuffer()).toString('utf8'), 'export const answer = 42\n')
   })
 
   await step('attachment download supports range', async () => {
@@ -196,7 +212,7 @@ try {
     const bootstrap = await request(base, '/api/sync/bootstrap', { token })
     assertEqual(bootstrap.status, 200)
     assert(bootstrap.payload.notes.some((item) => item.id === note.id), 'bootstrap note')
-    assert(bootstrap.payload.attachments.length === 2, 'bootstrap attachments')
+    assert(bootstrap.payload.attachments.length === 3, 'bootstrap attachments')
   })
 
   await step('export returns markdown', async () => {

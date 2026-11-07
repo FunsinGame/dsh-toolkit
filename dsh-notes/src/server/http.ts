@@ -23,11 +23,12 @@ import { ServiceError } from './service.ts'
 import {
   attachmentStorageKey,
   filenameExtension,
-  isInlineMime,
+  isMediaMime,
   resolveUploadMime,
   safeFilename,
   validateMagic,
 } from './mime.ts'
+import { attachmentMarkdown, isInlineMime } from '../shared/media.ts'
 import {
   createDummyHash,
   LoginGuard,
@@ -693,8 +694,8 @@ export class NotesHttpServer {
       const extension = filenameExtension(declared)
       if (extension !== '') filename = `attachment.${extension}`
     }
+    // Any file format is accepted; the type only decides how it is served later.
     const mime = resolveUploadMime(filename, declared)
-    if (mime === null) throw new HttpError(415, 'UNSUPPORTED_MEDIA_TYPE', '只允许上传图片或音频文件')
     const contentLength = Number(req.headers['content-length'] ?? 0)
     if (Number.isFinite(contentLength) && contentLength > this.config.maxUploadBytes) {
       throw new HttpError(413, 'FILE_TOO_LARGE', `文件超过 ${Math.round(this.config.maxUploadBytes / 1024 / 1024)}MB 限制`)
@@ -721,7 +722,9 @@ export class NotesHttpServer {
       out.end()
       await once(out, 'finish')
       if (size === 0) throw new HttpError(400, 'EMPTY_FILE', '文件为空')
-      if (!validateMagic(mime, head)) {
+      // Only renderable media get a magic-byte check; other formats have no
+      // reliable signature and are stored as opaque downloads.
+      if (isMediaMime(mime) && !validateMagic(mime, head)) {
         throw new HttpError(415, 'MEDIA_MISMATCH', '文件内容与声明的类型不符')
       }
       const id = randomUUID()
@@ -737,7 +740,7 @@ export class NotesHttpServer {
       this.sendJson(res, 201, {
         ok: true,
         attachment,
-        markdown: imageMime(mime) ? `![${filename}](api/attachments/${attachment.id})` : `[${filename}](api/attachments/${attachment.id})`,
+        markdown: attachmentMarkdown(filename, mime, attachment.id),
       })
     } catch (error) {
       out.destroy()
@@ -750,10 +753,14 @@ export class NotesHttpServer {
     const found = await this.service.statAttachment(auth.user.id, id)
     const download = url.searchParams.get('download') === '1'
     const mime = found.meta.mime
-    res.setHeader('Content-Type', mime)
+    const inline = isInlineMime(mime)
+    // Only the inline media allowlist is served with its real Content-Type.
+    // Every other format is an opaque attachment so stored HTML/SVG/JS can
+    // never be interpreted in the notes origin.
+    res.setHeader('Content-Type', inline ? mime : 'application/octet-stream')
     res.setHeader('Accept-Ranges', 'bytes')
     res.setHeader('Cache-Control', 'private, max-age=3600')
-    res.setHeader('Content-Disposition', contentDisposition(found.meta.filename, download ? 'attachment' : isInlineMime(mime) ? 'inline' : 'attachment'))
+    res.setHeader('Content-Disposition', contentDisposition(found.meta.filename, download || !inline ? 'attachment' : 'inline'))
     const range = headerValue(req.headers.range)
     if (range !== '') {
       const parsed = parseRange(range, found.size)
@@ -1016,10 +1023,6 @@ function stringValue(value: unknown): string {
 function folderValue(value: unknown): string | null {
   if (value === null) return null
   return typeof value === 'string' ? value : null
-}
-
-function imageMime(mime: string): boolean {
-  return mime.startsWith('image/')
 }
 
 function sanitizeDownloadName(value: string): string {

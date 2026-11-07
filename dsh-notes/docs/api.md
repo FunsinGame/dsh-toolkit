@@ -156,7 +156,7 @@ curl -X POST https://notes.example.com/api/notes/<note-id>/attachments \
 }
 ```
 
-正文中用 `api/attachments/<id>` 引用；Web/DSH/导出会解析成实际地址。只允许图片/音频白名单；SVG/HTML/JS 会被拒绝（415）。
+正文中用 `api/attachments/<id>` 引用；Web/DSH/导出会解析成实际地址。**任意格式**都可上传：图片/音频（png/jpeg/gif/webp/avif/mp3/wav/ogg/flac/m4a/aac/webm）内联预览并以真实类型返回，其他格式固定以 `application/octet-stream` + `Content-Disposition: attachment` 下载（`?download=1` 也强制下载）。声明为图片/音频但内容 magic bytes 不匹配返回 415。
 
 ## 7. 同步
 

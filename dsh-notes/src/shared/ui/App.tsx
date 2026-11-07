@@ -27,6 +27,7 @@ import type {
   VersionSummary,
 } from '../types.ts'
 import { formatBytes, formatDateTime, formatRelative, wordCount } from '../format.ts'
+import { isInlineAudioMime, isInlineImageMime } from '../media.ts'
 import { renderMarkdown, attachmentIdFromHref } from './markdown.ts'
 import { cachedAttachmentObjectUrl, forgetAttachmentObjectUrl, loadAttachmentObjectUrl } from './attachmentMedia.ts'
 import { ensureNotesStyles } from './styles.ts'
@@ -682,6 +683,23 @@ export function NotesApp({ backend, onLogout, brand = '笔记' }: NotesAppProps)
     }
   }, [backend, showToast])
 
+  /**
+   * Save an attachment through the surface transport.
+   *
+   * A plain link to `attachmentUrl()` only carries cookie auth on the
+   * standalone web origin; reading the bytes through `fetchAttachment` and
+   * downloading the resulting blob works on both surfaces (the DSH page lives
+   * on the `dsh-app://` scheme).
+   */
+  const handleDownloadAttachment = useCallback(async (attachment: { id: string; filename: string }): Promise<void> => {
+    try {
+      const blob = await backend.fetchAttachment(attachment.id)
+      saveAttachmentBlob(blob, attachment.filename)
+    } catch (caught) {
+      showToast(`下载失败：${errorMessage(caught)}`, 'error')
+    }
+  }, [backend, showToast])
+
   const openLightbox = useCallback((src: string, alt: string): void => {
     if (src === '') return
     setLightbox({ src, alt })
@@ -755,16 +773,21 @@ export function NotesApp({ backend, onLogout, brand = '笔记' }: NotesAppProps)
       return
     }
     // An image attachment link opens in the viewer: the raw attachment URL is
-    // not directly addressable from the DSH Desktop page origin.
+    // not directly addressable from the DSH Desktop page origin. Every other
+    // format is downloaded through the same authenticated transport.
     const attachmentId = anchor.getAttribute('data-attachment-id')
     if (attachmentId === null) return
     const meta = noteRef.current?.attachments.find((item) => item.id === attachmentId)
-    if (meta === undefined || !meta.mime.startsWith('image/')) return
+    if (meta === undefined) return
     event.preventDefault()
+    if (!isInlineImageMime(meta.mime)) {
+      void handleDownloadAttachment(meta)
+      return
+    }
     void loadAttachmentObjectUrl(backend, attachmentId)
       .then((url) => openLightbox(url, meta.filename))
       .catch(() => showToast('图片加载失败', 'error'))
-  }, [backend, openLightbox, openNote, showToast])
+  }, [backend, handleDownloadAttachment, openLightbox, openNote, showToast])
 
   const handlePreviewDoubleClick = useCallback((event: React.MouseEvent<HTMLDivElement>): void => {
     const target = event.target
@@ -946,7 +969,6 @@ export function NotesApp({ backend, onLogout, brand = '笔记' }: NotesAppProps)
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/png,image/jpeg,image/gif,image/webp,image/avif,audio/mpeg,audio/wav,audio/ogg,audio/mp4,audio/aac,audio/flac,audio/webm,audio/opus"
         multiple
         hidden
         onChange={(event) => {
@@ -1242,7 +1264,7 @@ export function NotesApp({ backend, onLogout, brand = '笔记' }: NotesAppProps)
                 </div>
                 {uploadProgress !== null && <div className="dsh-notes-upload-progress"><div style={{ width: `${uploadProgress}%` }} /></div>}
                 {note.attachments.length === 0 ? (
-                  <div className="dsh-notes-hint" style={{ padding: '9px 14px' }}>上传图片或音频，或直接把剪贴板里的图片粘贴进编辑器（Ctrl+V）；插入的 Markdown 链接会自动关联到附件。</div>
+                  <div className="dsh-notes-hint" style={{ padding: '9px 14px' }}>上传任意格式的文件（图片/音频会内联预览，其他格式可下载）；也可以把剪贴板里的图片直接粘贴进编辑器（Ctrl+V）。插入的 Markdown 链接会自动关联到附件。</div>
                 ) : (
                   note.attachments.map((attachment) => (
                     <AttachmentRow
@@ -1251,7 +1273,8 @@ export function NotesApp({ backend, onLogout, brand = '笔记' }: NotesAppProps)
                       url={backend.attachmentUrl(attachment.id)}
                       backend={backend}
                       onPreview={(url, alt) => openLightbox(url, alt)}
-                      onInsert={() => insertIntoNote(`${attachment.mime.startsWith('image/') ? '!' : ''}[${attachment.filename}](api/attachments/${attachment.id})`)}
+                      onInsert={() => insertIntoNote(`${isInlineImageMime(attachment.mime) ? '!' : ''}[${attachment.filename}](api/attachments/${attachment.id})`)}
+                      onDownload={() => { void handleDownloadAttachment(attachment) }}
                       onDelete={() => { void handleDeleteAttachment(attachment.id) }}
                     />
                   ))
@@ -1677,15 +1700,16 @@ function useAttachmentMedia(backend: AppBackend, id: string, enabled: boolean): 
   return { url, failed, retry }
 }
 
-function AttachmentRow({ attachment, url, backend, onPreview, onInsert, onDelete }: {
+function AttachmentRow({ attachment, url, backend, onPreview, onInsert, onDownload, onDelete }: {
   attachment: { id: string; filename: string; mime: string; size: number }
   url: string
   backend: AppBackend
   onPreview: (url: string, alt: string) => void
   onInsert: () => void
+  onDownload: () => void
   onDelete: () => void
 }): React.ReactElement {
-  const isImage = attachment.mime.startsWith('image/')
+  const isImage = isInlineImageMime(attachment.mime)
   const media = useAttachmentMedia(backend, attachment.id, isImage)
   return (
     <div className="dsh-notes-attachment">
@@ -1715,9 +1739,10 @@ function AttachmentRow({ attachment, url, backend, onPreview, onInsert, onDelete
       <div className="dsh-notes-attachment-main">
         <div className="dsh-notes-attachment-name" title={attachment.filename}>{attachment.filename}</div>
         <div className="dsh-notes-attachment-sub">{formatBytes(attachment.size)} · {attachment.mime}</div>
-        {attachment.mime.startsWith('audio/') && <audio controls preload="none" src={url} />}
+        {isInlineAudioMime(attachment.mime) && <audio controls preload="none" src={url} />}
       </div>
       <button className="dsh-notes-btn" onClick={onInsert}>插入</button>
+      <button className="dsh-notes-btn" onClick={onDownload} title={`下载 ${attachment.filename}`}>下载</button>
       <button className="dsh-notes-btn dsh-notes-btn-danger" onClick={onDelete}>删除</button>
     </div>
   )
@@ -2171,6 +2196,20 @@ function ConflictListDialog({ backend, conflicts, onClose, onOpen }: {
       {error !== null && <div className="dsh-notes-error">{error}</div>}
     </Modal>
   )
+}
+
+/** Save fetched attachment bytes under the attachment's display filename. */
+function saveAttachmentBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  anchor.rel = 'noopener'
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  // Revoke on a delay: some engines start the download asynchronously.
+  setTimeout(() => { URL.revokeObjectURL(url) }, 10_000)
 }
 
 export { attachmentIdFromHref }

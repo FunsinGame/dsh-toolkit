@@ -148,6 +148,14 @@ try {
     assert(remoteNote.payload.note.attachments.some((item) => item.id === result.attachment.id), 'remote attachment')
     const local = await routeJson(`/notes/${hostNoteId}`)
     assert(local.payload.note.attachments.some((item) => item.id === result.attachment.id), 'local attachment')
+    // Arbitrary formats work the same way; the type is inferred from the name.
+    const code = await tools.get('attachments_add').execute({
+      noteId: hostNoteId,
+      filename: 'sample.ts',
+      base64: Buffer.from('export const answer = 42\n').toString('base64'),
+    })
+    assertEqual(code.attachment.mime, 'text/plain')
+    assert(code.markdown.startsWith('['), 'code markdown link')
   })
 
   await step('offline edit stays local and syncs after reconnect', async () => {
