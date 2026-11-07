@@ -176,6 +176,18 @@
     post({ source: 'dsh-design-doc', type: 'contextmenu', x: event.clientX, y: event.clientY })
   }
 
+  /** Alt+←/→ inside the document is forwarded to the plugin's tab history. */
+  function onKeyDown(event) {
+    if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+    event.preventDefault()
+    post({
+      source: 'dsh-design-doc',
+      type: 'history',
+      direction: event.key === 'ArrowLeft' ? 'back' : 'forward',
+    })
+  }
+
   function onReady() {
     installStyle()
     post({ source: 'dsh-design-doc', type: 'ready', href: window.location.pathname })
@@ -185,6 +197,7 @@
   document.addEventListener('click', onClick, true)
   document.addEventListener('click', onClickLink, false)
   document.addEventListener('contextmenu', onContextMenu, true)
+  document.addEventListener('keydown', onKeyDown, true)
   document.addEventListener('mouseleave', clearHover, true)
   window.addEventListener('message', onMessage, false)
 

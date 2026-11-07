@@ -1043,6 +1043,11 @@ window.__ModuleLoader__.load({
       if (data.type === 'contextmenu') {
         var rect = this.dom.frame.getBoundingClientRect ? this.dom.frame.getBoundingClientRect() : { left: 0, top: 0 }
         this.openMenu(rect.left + data.x, rect.top + data.y, this.menuItems())
+        return
+      }
+      if (data.type === 'history') {
+        if (data.direction === 'back') this.goBack()
+        else this.goForward()
       }
     }
 
