@@ -24,6 +24,10 @@ window.__ModuleLoader__.load({
       '.dd-root{display:flex;flex-direction:column;flex:1 1 auto;width:100%;min-width:0;min-height:0;height:100%;font-size:13px;color:var(--dsh-fg,inherit)}',
       '.dd-topbar{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--dsh-border,rgba(127,127,127,.25));flex:none;min-width:0}',
       '.dd-title{font-weight:600;white-space:nowrap}',
+      '.dd-navgroup{display:flex;gap:2px;flex:none}',
+      '.dd-nav{width:24px;height:24px;line-height:1;border:1px solid transparent;border-radius:6px;background:transparent;color:inherit;cursor:pointer;font-size:13px;padding:0}',
+      '.dd-nav:hover:not(:disabled){background:rgba(127,127,127,.16)}',
+      '.dd-nav:disabled{opacity:.3;cursor:default}',
       '.dd-tabs{display:flex;align-items:center;gap:4px;overflow-x:auto;overflow-y:hidden;flex:1;min-width:0;scrollbar-width:thin}',
       '.dd-tab{display:inline-flex;align-items:center;gap:6px;flex:none;max-width:230px;border:1px solid transparent;border-radius:6px;padding:3px 6px 3px 9px;background:rgba(127,127,127,.1);cursor:pointer;font-size:12px;color:inherit}',
       '.dd-tab:hover{background:rgba(127,127,127,.18)}',
@@ -198,8 +202,9 @@ window.__ModuleLoader__.load({
     /* ---------------------------------------------------------------- view -- */
 
     /**
-     * A tab is `{ root, rel, label, scrollY }`. `root` is that tab's own
-     * workspace, so two tabs may read two different document libraries.
+     * A tab is `{ root, rel, label, scrollY, back, forward }`. `root` is that
+     * tab's own workspace, so two tabs may read two different document
+     * libraries; `back` / `forward` are that tab's own page history.
      */
     function newTabState(root, rel, label) {
       return {
@@ -207,7 +212,30 @@ window.__ModuleLoader__.load({
         rel: typeof rel === 'string' && rel !== '' ? rel : null,
         label: typeof label === 'string' && label !== '' ? label : null,
         scrollY: 0,
+        back: [],
+        forward: [],
       }
+    }
+
+    /** One page in a tab's history: where it was, what it was called, how far down. */
+    function historyEntry(rel, label, scrollY) {
+      return {
+        rel: typeof rel === 'string' && rel !== '' ? rel : null,
+        label: typeof label === 'string' && label !== '' ? label : null,
+        scrollY: typeof scrollY === 'number' && scrollY > 0 ? Math.round(scrollY) : 0,
+      }
+    }
+
+    var HISTORY_LIMIT = 60
+
+    function readHistory(raw) {
+      if (!Array.isArray(raw)) return []
+      var out = []
+      raw.forEach(function (item) {
+        if (!item || typeof item.rel !== 'string' || item.rel === '') return
+        out.push(historyEntry(item.rel, item.label, item.scrollY))
+      })
+      return out.slice(-HISTORY_LIMIT)
     }
 
     function View() {
@@ -247,6 +275,8 @@ window.__ModuleLoader__.load({
               if (root === null && rel === null) return
               var entry = newTabState(root, rel, tab.label)
               entry.scrollY = typeof tab.scrollY === 'number' ? tab.scrollY : 0
+              entry.back = readHistory(tab.back)
+              entry.forward = readHistory(tab.forward)
               restored.push(entry)
             })
             this.state.tabs = restored
@@ -284,6 +314,8 @@ window.__ModuleLoader__.load({
               rel: tab.rel,
               label: tab.label,
               scrollY: Math.round(tab.scrollY || 0),
+              back: tab.back.slice(-HISTORY_LIMIT),
+              forward: tab.forward.slice(-HISTORY_LIMIT),
             }
           }),
           active: this.state.active,
@@ -321,9 +353,23 @@ window.__ModuleLoader__.load({
       this.dom.view = el('div', { class: 'dd-view' }, [this.dom.frame, this.dom.placeholder])
       this.dom.panel = el('section', { class: 'dd-panel' })
 
+      this.dom.back = el('button', {
+        class: 'dd-nav',
+        title: '后退（Alt+←）',
+        text: '←',
+        onclick: function () { self.goBack() },
+      })
+      this.dom.forward = el('button', {
+        class: 'dd-nav',
+        title: '前进（Alt+→）',
+        text: '→',
+        onclick: function () { self.goForward() },
+      })
+
       this.dom.root = el('div', { class: 'dd-root' }, [
         el('div', { class: 'dd-topbar' }, [
           el('span', { class: 'dd-title', text: '设计文档' }),
+          el('div', { class: 'dd-navgroup' }, [this.dom.back, this.dom.forward]),
           this.dom.tabs,
           this.dom.plus,
           el('button', { class: 'dd-btn', text: '刷新', onclick: function () { self.reload(true) } }),
@@ -366,6 +412,20 @@ window.__ModuleLoader__.load({
         }
       })
       this.onMessage = function (event) { self.receive(event) }
+      this.onKeyDown = function (event) {
+        if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+        var target = event.target
+        var tag = target && target.tagName ? String(target.tagName).toLowerCase() : ''
+        if (tag === 'input' || tag === 'textarea' || tag === 'select') return
+        if (event.key === 'ArrowLeft') {
+          event.preventDefault()
+          self.goBack()
+        } else if (event.key === 'ArrowRight') {
+          event.preventDefault()
+          self.goForward()
+        }
+      }
+      window.addEventListener('keydown', this.onKeyDown)
 
       this.dom.root.addEventListener('contextmenu', function (event) {
         var target = event.target
@@ -377,6 +437,7 @@ window.__ModuleLoader__.load({
 
       this.renderTabs()
       this.renderRootBar()
+      this.renderHistory()
       this.renderPlaceholder()
       this.renderPanel()
       this.applyWidths()
@@ -453,6 +514,7 @@ window.__ModuleLoader__.load({
 
     View.prototype.unbind = function () {
       window.removeEventListener('message', this.onMessage)
+      window.removeEventListener('keydown', this.onKeyDown)
       this.captureScroll()
       this.closeMenu()
       if (this.dom.root.parentNode) this.dom.root.parentNode.removeChild(this.dom.root)
@@ -596,6 +658,9 @@ window.__ModuleLoader__.load({
       this.captureScroll()
       var copy = newTabState(current.root, current.rel, current.label)
       copy.scrollY = current.scrollY
+      // The copy starts with the same history, so it can also go back.
+      copy.back = current.back.slice(-HISTORY_LIMIT)
+      copy.forward = current.forward.slice(-HISTORY_LIMIT)
       this.state.tabs.splice(this.state.active + 1, 0, copy)
       this.state.active += 1
       this.state.sel = null
@@ -605,6 +670,65 @@ window.__ModuleLoader__.load({
       this.renderTabs()
       this.refresh()
       this.renderPanel()
+    }
+
+    /* ----------------------------------------------------------- history -- */
+
+    /** Remembers where the tab is now, before it navigates somewhere else. */
+    View.prototype.pushHistory = function (tab) {
+      if (tab === null || tab.rel === null) return
+      tab.back.push(historyEntry(tab.rel, tab.label, tab.scrollY))
+      if (tab.back.length > HISTORY_LIMIT) tab.back.shift()
+      tab.forward = []
+    }
+
+    View.prototype.applyHistoryEntry = function (tab, entry) {
+      tab.rel = entry.rel
+      tab.label = entry.label
+      tab.scrollY = entry.scrollY
+      this.state.sel = null
+      this.state.drafts = {}
+      this.state.svg = null
+      this.state.saved = false
+      this.persist()
+      this.renderTabs()
+      this.mountActive()
+      this.renderPanel()
+      this.renderHistory()
+    }
+
+    View.prototype.goBack = function () {
+      var tab = this.activeTab()
+      if (tab === null) return
+      this.captureScroll()
+      var entry = tab.back.pop()
+      if (entry === undefined) return
+      tab.forward.push(historyEntry(tab.rel, tab.label, tab.scrollY))
+      this.applyHistoryEntry(tab, entry)
+    }
+
+    View.prototype.goForward = function () {
+      var tab = this.activeTab()
+      if (tab === null) return
+      this.captureScroll()
+      var entry = tab.forward.pop()
+      if (entry === undefined) return
+      tab.back.push(historyEntry(tab.rel, tab.label, tab.scrollY))
+      this.applyHistoryEntry(tab, entry)
+    }
+
+    View.prototype.renderHistory = function () {
+      var tab = this.activeTab()
+      var canBack = tab !== null && tab.back.length > 0
+      var canForward = tab !== null && tab.forward.length > 0
+      if (this.dom.back) {
+        this.dom.back.disabled = !canBack
+        this.dom.back.style.opacity = canBack ? '' : '.3'
+      }
+      if (this.dom.forward) {
+        this.dom.forward.disabled = !canForward
+        this.dom.forward.style.opacity = canForward ? '' : '.3'
+      }
     }
 
     /* -------------------------------------------------------------- menu -- */
@@ -706,6 +830,7 @@ window.__ModuleLoader__.load({
         ])
         self.dom.tabs.append(tabNode)
       })
+      this.renderHistory()
     }
 
     View.prototype.renderRootBar = function () {
@@ -730,8 +855,12 @@ window.__ModuleLoader__.load({
       tab.rel = null
       tab.label = null
       tab.scrollY = 0
+      // History belongs to the old library; it must not lead back into it.
+      tab.back = []
+      tab.forward = []
       this.state.sel = null
       this.state.drafts = {}
+      this.state.svg = null
       this.persist()
       this.renderTabs()
       this.refresh()
@@ -796,17 +925,21 @@ window.__ModuleLoader__.load({
         return
       }
       var document_ = this.documentOf(rel)
+      this.captureScroll()
+      if (tab.rel !== null && tab.rel !== rel) this.pushHistory(tab)
       tab.rel = rel
       tab.label = document_ === null ? rel.split('/').pop().replace(/\.html$/, '') : document_.title
       tab.scrollY = 0
       this.state.sel = null
       this.state.drafts = {}
+      this.state.svg = null
       this.state.saved = false
       this.persist()
       this.renderTabs()
       this.mountActive()
       this.renderPlaceholder()
       this.renderPanel()
+      this.renderHistory()
     }
 
     View.prototype.mountActive = function () {

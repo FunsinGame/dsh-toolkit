@@ -257,6 +257,39 @@ if (typeof View === 'function') {
     check('prompt carries the build_docs command', prompt.includes('/Docs/Design/scripts/build_docs.py'))
     check('prompt carries the map.py command', prompt.includes('/Tools/DesignSync/map.py'))
     check('prompt tells the agent to run them itself', prompt.includes('收尾请你自己执行'))
+
+    // Per-tab history: back/forward restore the page and its scroll position.
+    built.state.tabs = [{
+      root: 'C:/libA',
+      rel: docA,
+      label: '演示文档',
+      scrollY: 300,
+      back: [],
+      forward: [],
+    }]
+    built.state.active = 0
+    built.openInActiveTab(otherA)
+    check('navigation pushes the previous page', built.state.tabs[0].back.length === 1 && built.state.tabs[0].back[0].rel === docA)
+    check('the pushed entry keeps its scroll', built.state.tabs[0].back[0].scrollY === 300)
+
+    built.goBack()
+    check('back returns to the previous page', built.state.tabs[0].rel === docA)
+    check('back restores the scroll position', built.state.tabs[0].scrollY === 300)
+    check('back fills the forward stack', built.state.tabs[0].forward.length === 1 && built.state.tabs[0].forward[0].rel === otherA)
+
+    built.goForward()
+    check('forward returns to the later page', built.state.tabs[0].rel === otherA)
+
+    built.goBack()
+    built.openInActiveTab(otherA)
+    check('a new navigation clears the forward stack', built.state.tabs[0].forward.length === 0)
+
+    built.state.tabs.push({ root: 'C:/libA', rel: docA, label: '演示文档', scrollY: 10, back: [], forward: [] })
+    built.state.active = 1
+    check('a fresh tab starts with an empty history', built.state.tabs[1].back.length === 0)
+    built.goBack()
+    check('back does nothing when there is nowhere back to go', built.state.tabs[1].rel === docA)
+    built.state.active = 0
     check('prompt no longer asks the user to run scripts', prompt.includes('提醒我') === false)
   }
 
