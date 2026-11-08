@@ -77,7 +77,7 @@ cd dsh-notes
 npm install
 npm run build
 npm run package:dist
-npm install -g ./dist/dsh-notes-0.2.1.tgz
+npm install -g ./dist/dsh-notes-0.3.0.tgz
 dsh-notes-server version
 ```
 
@@ -223,7 +223,7 @@ dsh web --patch ./dsh-notes/tmp/dev.patch.yml --no-open --port 18888
       Authorization: !!js '`Bearer ${process.env.DSH_NOTES_TOKEN}`'
 ```
 
-MCP 工具、资源（`notes://tree`、`notes://note/{id}`、`notes://recent`）和提示词（`notes.summarize`、`notes.organize`）见 [MCP 文档](docs/mcp.md)。
+MCP 工具（含 `attachments_list` / `attachments_download`）、资源（`notes://tree`、`notes://note/{id}`、`notes://attachment/{id}`、`notes://recent`）和提示词（`notes.summarize`、`notes.organize`）见 [MCP 文档](docs/mcp.md)。
 
 ## 安全要点
 

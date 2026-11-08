@@ -2491,7 +2491,7 @@ ${note.content}${tags}${attachments}
 }
 
 // src/host/index.ts
-var VERSION = true ? "0.2.1" : "0.2.1";
+var VERSION = true ? "0.3.0" : "0.3.0";
 var name = "dsh-notes";
 var inject = ["tools"];
 var fallbackLogger = {

@@ -10,6 +10,7 @@ import {
   makeTempDir,
   request,
   startServer,
+  uploadAttachment,
 } from './lib/harness.mjs'
 
 let server
@@ -53,7 +54,7 @@ try {
     client = await connect(base, token)
     const tools = await client.listTools()
     const names = tools.tools.map((tool) => tool.name)
-    for (const expected of ['notes_tree', 'notes_get', 'notes_search', 'notes_create', 'notes_update', 'notes_delete', 'attachments_list', 'attachments_add', 'notes_daily']) {
+    for (const expected of ['notes_tree', 'notes_get', 'notes_search', 'notes_create', 'notes_update', 'notes_delete', 'attachments_list', 'attachments_add', 'attachments_download', 'notes_daily']) {
       assert(names.includes(expected), `missing tool ${expected}`)
     }
     assert(tools.tools.find((tool) => tool.name === 'notes_get').inputSchema.required.includes('id'), 'notes_get schema')
@@ -68,6 +69,7 @@ try {
     assertEqual(notePayload.note.content, 'hello mcp world')
   })
 
+  let uploadedAttachmentId = ''
   await step('attachments_add uploads an arbitrary file', async () => {
     const result = await client.callTool({
       name: 'attachments_add',
@@ -81,9 +83,50 @@ try {
     const payload = JSON.parse(result.content[0].text)
     assertEqual(payload.attachment.mime, 'text/plain')
     assert(payload.markdown.startsWith('['), 'non-image markdown link')
+    uploadedAttachmentId = payload.attachment.id
     const note = await client.callTool({ name: 'notes_get', arguments: { id: seedId } })
     const notePayload = JSON.parse(note.content[0].text)
     assert(notePayload.note.attachments.some((item) => item.id === payload.attachment.id), 'attachment saved')
+  })
+
+  await step('attachments_list and attachments_download return the file', async () => {
+    const listed = await client.callTool({ name: 'attachments_list', arguments: { noteId: seedId } })
+    const listedPayload = JSON.parse(listed.content[0].text)
+    assert(listedPayload.attachments.some((item) => item.id === uploadedAttachmentId), 'attachment listed')
+
+    const downloaded = await client.callTool({ name: 'attachments_download', arguments: { id: uploadedAttachmentId } })
+    assert(downloaded.isError !== true, `download failed: ${downloaded.content?.[0]?.text ?? ''}`)
+    const payload = JSON.parse(downloaded.content[0].text)
+    assertEqual(payload.attachment.id, uploadedAttachmentId)
+    assertEqual(payload.downloadPath, `api/attachments/${uploadedAttachmentId}?download=1`)
+    assertEqual(Buffer.from(payload.base64, 'base64').toString('utf8'), 'export const answer = 42\n')
+
+    const resource = await client.readResource({ uri: `notes://attachment/${uploadedAttachmentId}` })
+    const blob = resource.contents[0].blob
+    assertEqual(Buffer.from(blob, 'base64').toString('utf8'), 'export const answer = 42\n')
+  })
+
+  await step('attachments_download enforces the MCP attachment ceiling', async () => {
+    const smallDir = await makeTempDir('mcp-attachment-limit')
+    await createAccount(smallDir, 'bob')
+    const smallToken = await createToken(smallDir, 'bob', { name: 'mcp-limit' })
+    const small = await startServer({ dataDir: smallDir, extraArgs: ['--mcp-attachment-mb', '1'] })
+    try {
+      const created = await request(small.base, '/api/notes', { method: 'POST', token: smallToken, body: { title: 'limit' } })
+      const noteId = created.payload.note.id
+      const upload = await uploadAttachment(small.base, smallToken, noteId, 'large.txt', 'text/plain', Buffer.alloc(1_200_000, 0x61))
+      assertEqual(upload.status, 201)
+      const smallClient = await connect(small.base, smallToken)
+      try {
+        const result = await smallClient.callTool({ name: 'attachments_download', arguments: { id: upload.payload.attachment.id } })
+        assertEqual(result.isError, true)
+        assert(result.content[0].text.includes('MCP 下载上限'), 'size limit message')
+      } finally {
+        await smallClient.close()
+      }
+    } finally {
+      await small.stop()
+    }
   })
 
   await step('create, append and update a note', async () => {

@@ -22,6 +22,8 @@ export interface McpRequestContext {
   service: NotesService
   auth: AuthContext
   version: string
+  /** Per-attachment ceiling for MCP downloads (base64 size is ~4/3 of it). */
+  maxAttachmentBytes: number
 }
 
 type ToolResult = {
@@ -93,12 +95,12 @@ function treeMarkdown(folders: Array<{ id: string; parentId: string | null; name
 }
 
 export async function handleMcpRequest(context: McpRequestContext): Promise<void> {
-  const { req, res, body, service, auth, version } = context
+  const { req, res, body, service, auth, version, maxAttachmentBytes } = context
   const userId = auth.user.id
   const server = new McpServer(
     { name: 'dsh-notes', version },
     {
-      instructions: '管理当前账号的 Markdown 笔记。笔记用 id 标识，附件用 api/attachments/<id> 引用。写入前先读取 revision，并用 baseRevision 防止覆盖他人修改。',
+      instructions: '管理当前账号的 Markdown 笔记。笔记用 id 标识，附件用 api/attachments/<id> 引用。先用 attachments_list 列出附件，再用 attachments_download 或资源 notes://attachment/<id> 获取内容。写入前先读取 revision，并用 baseRevision 防止覆盖他人修改。',
     },
   )
 
@@ -419,6 +421,22 @@ export async function handleMcpRequest(context: McpRequestContext): Promise<void
     }
   })
 
+  register('attachments_download', {
+    title: '下载附件',
+    description: '按附件 id 读取文件内容并以 base64 返回，同时给出附件元数据与 downloadPath。超过 MCP 下载上限时返回错误，可调大 --mcp-attachment-mb 或改用 HTTP 下载。',
+    inputSchema: {
+      id: z.string().min(1).describe('附件 id（来自 attachments_list 或 notes_get）'),
+    },
+  }, async (args: { id: string }) => {
+    try {
+      const item = await service.readAttachmentBase64(userId, args.id, maxAttachmentBytes)
+      // Compact JSON: the base64 payload dominates and pretty-printing only wastes bytes.
+      return { content: [{ type: 'text' as const, text: JSON.stringify(item) }] }
+    } catch (error) {
+      return failure(error)
+    }
+  })
+
   register('attachments_add', {
     title: '上传附件',
     description: '以 base64 上传任意格式的文件到笔记，返回附件元数据与可插入正文的 Markdown 链接。图片/音频会内联预览，其他格式作为下载文件保存。',
@@ -508,6 +526,17 @@ export async function handleMcpRequest(context: McpRequestContext): Promise<void
       const id = String(variables.id ?? '')
       const note = service.noteDetail(userId, id)
       return { contents: [{ uri: uri.href, mimeType: 'text/markdown', text: noteMarkdown(note) }] }
+    },
+  )
+
+  server.registerResource(
+    'notes-attachment',
+    new ResourceTemplate('notes://attachment/{id}', { list: undefined }),
+    { title: '笔记附件', description: '按附件 id 读取文件内容（base64 blob）', mimeType: 'application/octet-stream' },
+    async (uri: URL, variables: { id?: string }) => {
+      const id = String(variables.id ?? '')
+      const item = await service.readAttachmentBase64(userId, id, maxAttachmentBytes)
+      return { contents: [{ uri: uri.href, mimeType: item.attachment.mime, blob: item.base64 }] }
     },
   )
 

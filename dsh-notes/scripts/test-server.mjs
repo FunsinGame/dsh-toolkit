@@ -43,7 +43,7 @@ try {
   await step('health and session expose the token user', async () => {
     const health = await request(base, '/api/health', { token })
     assertEqual(health.status, 200)
-    assert(health.payload.server.version === '0.2.1', 'version')
+    assert(health.payload.server.version === '0.3.0', 'version')
     const session = await request(base, '/api/auth/session', { token })
     assertEqual(session.payload.user.username, 'alice')
     assertEqual(session.payload.auth.kind, 'token')

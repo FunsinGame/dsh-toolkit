@@ -869,6 +869,7 @@ export class NotesHttpServer {
       service: this.service,
       auth,
       version: this.version,
+      maxAttachmentBytes: this.config.mcpAttachmentBytes,
     })
   }
 

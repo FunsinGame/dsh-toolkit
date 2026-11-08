@@ -7,7 +7,7 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import type { ServerConfig } from './config.ts'
@@ -1023,6 +1023,36 @@ export class NotesService {
     const info = await stat(found.path).catch(() => null)
     if (info === null) throw new ServiceError(404, 'ATTACHMENT_FILE_MISSING', '附件文件不存在')
     return { ...found, size: info.size }
+  }
+
+  /**
+   * Read one attachment as base64 for MCP download.
+   *
+   * `maxBytes` is enforced before reading so a large attachment cannot blow up
+   * an MCP response; callers pass the configured MCP attachment ceiling.
+   */
+  async readAttachmentBase64(userId: string, attachmentId: string, maxBytes: number): Promise<{
+    attachment: AttachmentMeta
+    base64: string
+    size: number
+    downloadPath: string
+  }> {
+    const found = await this.statAttachment(userId, attachmentId)
+    if (found.size > maxBytes) {
+      const limitMb = maxBytes / 1024 / 1024
+      throw new ServiceError(
+        413,
+        'ATTACHMENT_TOO_LARGE',
+        `附件大小 ${found.size} 字节超过 MCP 下载上限（${Number.isInteger(limitMb) ? limitMb : limitMb.toFixed(1)}MB）。可调大 --mcp-attachment-mb，或用 HTTP GET api/attachments/${attachmentId}?download=1 下载`,
+      )
+    }
+    const data = await readFile(found.path)
+    return {
+      attachment: found.meta,
+      base64: data.toString('base64'),
+      size: found.size,
+      downloadPath: `api/attachments/${attachmentId}?download=1`,
+    }
   }
 
   // -- sync -----------------------------------------------------------------

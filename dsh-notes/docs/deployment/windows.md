@@ -13,7 +13,7 @@
 
 ## 2. 解压服务端
 
-把 `dsh-notes-server-0.2.1.zip` 解压到例如 `C:\dsh-notes`：
+把 `dsh-notes-server-0.3.0.zip` 解压到例如 `C:\dsh-notes`：
 
 ```text
 C:\dsh-notes\
@@ -27,7 +27,7 @@ C:\dsh-notes\
 也可以全局安装 tgz：
 
 ```powershell
-npm install -g .\dsh-notes-0.2.1.tgz
+npm install -g .\dsh-notes-0.3.0.tgz
 dsh-notes-server version
 ```
 

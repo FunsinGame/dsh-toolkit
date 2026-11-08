@@ -11,7 +11,7 @@ services:
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile
-    image: dsh-notes:0.2.1
+    image: dsh-notes:0.3.0
     restart: unless-stopped
     environment:
       DSH_NOTES_PUBLIC_URL: "https://${NOTES_DOMAIN:-localhost}"

@@ -52,6 +52,8 @@ dsh-notes-server token create --user alice --name ai-readonly --read-only
 | `notes_stats` | — | 笔记/目录/附件/待同步/冲突数量 |
 | `notes_history` | `id` | 历史版本列表 |
 | `notes_export_markdown` | `id` | 带标题/标签/附件链接的 Markdown |
+| `attachments_list` | `noteId` | 某条笔记的附件列表（id、文件名、MIME、大小） |
+| `attachments_download` | `id` | 附件内容（base64）+ 元数据；超过 `--mcp-attachment-mb` 返回错误 |
 
 ### 写入
 
@@ -68,7 +70,6 @@ dsh-notes-server token create --user alice --name ai-readonly --read-only
 | `notes_folders_create` | `name`, `parentId?`, `id?` | 创建目录 |
 | `notes_folders_update` | `id`, `name?`, `parentId?`, `baseRevision?` | 重命名/移动目录 |
 | `notes_folders_delete` | `id`, `recursive?` | 删除目录 |
-| `attachments_list` | `noteId` | 附件列表 |
 | `attachments_add` | `noteId`, `filename`, `base64`, `mimeType?` | base64 上传任意格式文件（受请求体/上传上限约束），返回 Markdown 链接 |
 | `attachments_delete` | `id` | 删除附件 |
 | `notes_daily` | `date?`, `folderId?` | 获取/创建今日日记 |
@@ -97,9 +98,10 @@ Web/DSH 预览会把它解析为鉴权 URL；导出会改成绝对 URL。
 |---|---|
 | `notes://tree` | 当前账号目录树（Markdown） |
 | `notes://note/{id}` | 单条笔记 Markdown |
+| `notes://attachment/{id}` | 附件原始字节（base64 `blob`，MIME 为附件类型） |
 | `notes://recent` | 最近笔记列表 |
 
-`resources/list` 会列出静态资源；`notes://note/{id}` 是资源模板，需要 `resources/templates/list` + `resources/read`。
+`resources/list` 会列出静态资源；`notes://note/{id}`、`notes://attachment/{id}` 是资源模板，需要 `resources/templates/list` + `resources/read`。
 
 ## 5. 提示词
 
@@ -136,7 +138,7 @@ await client.close()
 - **append 适合长文**：AI 逐段写笔记时用 `notes_append`，避免每次都传全文。
 - **replace 适合修订**：明确 `oldText`，失败说明上下文已变。
 - **目录与标签**：先 `notes_tree`，复用已有目录/标签，避免创建重复结构。
-- **附件**：优先 `api/attachments/<id>` 引用；任意格式都可用 `attachments_add` 以 base64 上传（图片/音频内联，其余下载）。MCP 请求体默认 4MB，可用 `--mcp-body-mb` 放大。
+- **附件**：优先 `api/attachments/<id>` 引用；任意格式都可用 `attachments_add` 以 base64 上传（图片/音频内联，其余下载）。读取时先 `attachments_list`，再用 `attachments_download`（base64）或资源 `notes://attachment/<id>`；单附件默认上限 10MB，可用 `--mcp-attachment-mb` 放大。MCP 请求体默认 4MB，可用 `--mcp-body-mb` 放大。
 - **离线**：DSH 原生工具写入本地缓存并返回 `synced:false` 时，稍后用 `notes_sync`/`notes_sync_status` 确认；MCP 直连服务器则立即写入。
 - **删除**：默认进回收站；永久删除只能通过 HTTP `?permanent=1`（MCP 未暴露，避免误删）。
 

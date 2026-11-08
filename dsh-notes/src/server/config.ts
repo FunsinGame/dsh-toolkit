@@ -26,6 +26,8 @@ export interface ServerConfig {
   trustProxy: boolean
   /** MCP request body ceiling in bytes. */
   mcpBodyBytes: number
+  /** Ceiling for one attachment returned by MCP (download tool / resource). */
+  mcpAttachmentBytes: number
 }
 
 export const DEFAULT_SERVER_CONFIG: ServerConfig = {
@@ -49,6 +51,7 @@ export const DEFAULT_SERVER_CONFIG: ServerConfig = {
   logFile: '',
   trustProxy: false,
   mcpBodyBytes: 4 * 1024 * 1024,
+  mcpAttachmentBytes: 10 * 1024 * 1024,
 }
 
 export function normalizeServerConfig(input: Partial<ServerConfig>): ServerConfig {
@@ -73,6 +76,7 @@ export function normalizeServerConfig(input: Partial<ServerConfig>): ServerConfi
     trustedProxies: input.trustedProxies ?? DEFAULT_SERVER_CONFIG.trustedProxies,
     logLevel: input.logLevel ?? DEFAULT_SERVER_CONFIG.logLevel,
     mcpBodyBytes: clampInt(input.mcpBodyBytes, 1024, 64 * 1024 * 1024, DEFAULT_SERVER_CONFIG.mcpBodyBytes),
+    mcpAttachmentBytes: clampInt(input.mcpAttachmentBytes, 1024, 512 * 1024 * 1024, DEFAULT_SERVER_CONFIG.mcpAttachmentBytes),
   }
 }
 

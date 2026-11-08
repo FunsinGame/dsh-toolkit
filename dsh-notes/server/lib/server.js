@@ -7363,7 +7363,7 @@ import { backup } from "node:sqlite";
 // src/server/http.ts
 import { createHash as createHash3, randomUUID as randomUUID3 } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir as mkdir3, readFile, realpath, rm as rm3, stat as stat2 } from "node:fs/promises";
+import { mkdir as mkdir3, readFile as readFile2, realpath, rm as rm3, stat as stat2 } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { createWriteStream } from "node:fs";
@@ -7373,7 +7373,7 @@ import { fileURLToPath } from "node:url";
 
 // src/server/service.ts
 import { createHash as createHash2, randomUUID as randomUUID2 } from "node:crypto";
-import { mkdir as mkdir2, rename as rename2, rm as rm2, stat, writeFile as writeFile2 } from "node:fs/promises";
+import { mkdir as mkdir2, readFile, rename as rename2, rm as rm2, stat, writeFile as writeFile2 } from "node:fs/promises";
 import { rmSync as rmSync2 } from "node:fs";
 import { join as join3 } from "node:path";
 
@@ -8849,6 +8849,30 @@ var NotesService = class {
     const info = await stat(found.path).catch(() => null);
     if (info === null) throw new ServiceError(404, "ATTACHMENT_FILE_MISSING", "\u9644\u4EF6\u6587\u4EF6\u4E0D\u5B58\u5728");
     return { ...found, size: info.size };
+  }
+  /**
+   * Read one attachment as base64 for MCP download.
+   *
+   * `maxBytes` is enforced before reading so a large attachment cannot blow up
+   * an MCP response; callers pass the configured MCP attachment ceiling.
+   */
+  async readAttachmentBase64(userId, attachmentId, maxBytes) {
+    const found = await this.statAttachment(userId, attachmentId);
+    if (found.size > maxBytes) {
+      const limitMb = maxBytes / 1024 / 1024;
+      throw new ServiceError(
+        413,
+        "ATTACHMENT_TOO_LARGE",
+        `\u9644\u4EF6\u5927\u5C0F ${found.size} \u5B57\u8282\u8D85\u8FC7 MCP \u4E0B\u8F7D\u4E0A\u9650\uFF08${Number.isInteger(limitMb) ? limitMb : limitMb.toFixed(1)}MB\uFF09\u3002\u53EF\u8C03\u5927 --mcp-attachment-mb\uFF0C\u6216\u7528 HTTP GET api/attachments/${attachmentId}?download=1 \u4E0B\u8F7D`
+      );
+    }
+    const data = await readFile(found.path);
+    return {
+      attachment: found.meta,
+      base64: data.toString("base64"),
+      size: found.size,
+      downloadPath: `api/attachments/${attachmentId}?download=1`
+    };
   }
   // -- sync -----------------------------------------------------------------
   currentCursor(userId) {
@@ -25618,12 +25642,12 @@ function treeMarkdown(folders, notes) {
   return lines.join("\n");
 }
 async function handleMcpRequest(context) {
-  const { req, res, body, service, auth, version: version2 } = context;
+  const { req, res, body, service, auth, version: version2, maxAttachmentBytes } = context;
   const userId = auth.user.id;
   const server = new McpServer(
     { name: "dsh-notes", version: version2 },
     {
-      instructions: "\u7BA1\u7406\u5F53\u524D\u8D26\u53F7\u7684 Markdown \u7B14\u8BB0\u3002\u7B14\u8BB0\u7528 id \u6807\u8BC6\uFF0C\u9644\u4EF6\u7528 api/attachments/<id> \u5F15\u7528\u3002\u5199\u5165\u524D\u5148\u8BFB\u53D6 revision\uFF0C\u5E76\u7528 baseRevision \u9632\u6B62\u8986\u76D6\u4ED6\u4EBA\u4FEE\u6539\u3002"
+      instructions: "\u7BA1\u7406\u5F53\u524D\u8D26\u53F7\u7684 Markdown \u7B14\u8BB0\u3002\u7B14\u8BB0\u7528 id \u6807\u8BC6\uFF0C\u9644\u4EF6\u7528 api/attachments/<id> \u5F15\u7528\u3002\u5148\u7528 attachments_list \u5217\u51FA\u9644\u4EF6\uFF0C\u518D\u7528 attachments_download \u6216\u8D44\u6E90 notes://attachment/<id> \u83B7\u53D6\u5185\u5BB9\u3002\u5199\u5165\u524D\u5148\u8BFB\u53D6 revision\uFF0C\u5E76\u7528 baseRevision \u9632\u6B62\u8986\u76D6\u4ED6\u4EBA\u4FEE\u6539\u3002"
     }
   );
   const register = (name, config2, handler) => {
@@ -25921,6 +25945,20 @@ async function handleMcpRequest(context) {
       return failure(error2);
     }
   });
+  register("attachments_download", {
+    title: "\u4E0B\u8F7D\u9644\u4EF6",
+    description: "\u6309\u9644\u4EF6 id \u8BFB\u53D6\u6587\u4EF6\u5185\u5BB9\u5E76\u4EE5 base64 \u8FD4\u56DE\uFF0C\u540C\u65F6\u7ED9\u51FA\u9644\u4EF6\u5143\u6570\u636E\u4E0E downloadPath\u3002\u8D85\u8FC7 MCP \u4E0B\u8F7D\u4E0A\u9650\u65F6\u8FD4\u56DE\u9519\u8BEF\uFF0C\u53EF\u8C03\u5927 --mcp-attachment-mb \u6216\u6539\u7528 HTTP \u4E0B\u8F7D\u3002",
+    inputSchema: {
+      id: external_exports.string().min(1).describe("\u9644\u4EF6 id\uFF08\u6765\u81EA attachments_list \u6216 notes_get\uFF09")
+    }
+  }, async (args) => {
+    try {
+      const item = await service.readAttachmentBase64(userId, args.id, maxAttachmentBytes);
+      return { content: [{ type: "text", text: JSON.stringify(item) }] };
+    } catch (error2) {
+      return failure(error2);
+    }
+  });
   register("attachments_add", {
     title: "\u4E0A\u4F20\u9644\u4EF6",
     description: "\u4EE5 base64 \u4E0A\u4F20\u4EFB\u610F\u683C\u5F0F\u7684\u6587\u4EF6\u5230\u7B14\u8BB0\uFF0C\u8FD4\u56DE\u9644\u4EF6\u5143\u6570\u636E\u4E0E\u53EF\u63D2\u5165\u6B63\u6587\u7684 Markdown \u94FE\u63A5\u3002\u56FE\u7247/\u97F3\u9891\u4F1A\u5185\u8054\u9884\u89C8\uFF0C\u5176\u4ED6\u683C\u5F0F\u4F5C\u4E3A\u4E0B\u8F7D\u6587\u4EF6\u4FDD\u5B58\u3002",
@@ -26010,6 +26048,16 @@ ${attachments}
       const id = String(variables.id ?? "");
       const note = service.noteDetail(userId, id);
       return { contents: [{ uri: uri.href, mimeType: "text/markdown", text: noteMarkdown(note) }] };
+    }
+  );
+  server.registerResource(
+    "notes-attachment",
+    new ResourceTemplate("notes://attachment/{id}", { list: void 0 }),
+    { title: "\u7B14\u8BB0\u9644\u4EF6", description: "\u6309\u9644\u4EF6 id \u8BFB\u53D6\u6587\u4EF6\u5185\u5BB9\uFF08base64 blob\uFF09", mimeType: "application/octet-stream" },
+    async (uri, variables) => {
+      const id = String(variables.id ?? "");
+      const item = await service.readAttachmentBase64(userId, id, maxAttachmentBytes);
+      return { contents: [{ uri: uri.href, mimeType: item.attachment.mime, blob: item.base64 }] };
     }
   );
   server.registerResource(
@@ -26143,8 +26191,8 @@ var NotesHttpServer = class {
     let server;
     if (this.config.tlsCert !== "" && this.config.tlsKey !== "") {
       const [cert, key] = await Promise.all([
-        readFile(this.config.tlsCert),
-        readFile(this.config.tlsKey)
+        readFile2(this.config.tlsCert),
+        readFile2(this.config.tlsKey)
       ]);
       server = createHttpsServer({ cert, key, minVersion: "TLSv1.2" }, handler);
     } else {
@@ -26830,7 +26878,8 @@ data: ${JSON.stringify(change)}
       body,
       service: this.service,
       auth,
-      version: this.version
+      version: this.version,
+      maxAttachmentBytes: this.config.mcpAttachmentBytes
     });
   }
   // -- static ---------------------------------------------------------------
@@ -26872,7 +26921,7 @@ data: ${JSON.stringify(change)}
         res.end();
         return;
       }
-      const html = await readFile(file, "utf8");
+      const html = await readFile2(file, "utf8");
       const baseHref = `${this.config.basePath === "" ? "" : this.config.basePath}/`;
       const rendered = html.replace("__BASE_HREF__", escapeHtmlAttr(baseHref));
       res.statusCode = 200;
@@ -27029,7 +27078,8 @@ var DEFAULT_SERVER_CONFIG = {
   logLevel: "info",
   logFile: "",
   trustProxy: false,
-  mcpBodyBytes: 4 * 1024 * 1024
+  mcpBodyBytes: 4 * 1024 * 1024,
+  mcpAttachmentBytes: 10 * 1024 * 1024
 };
 function normalizeServerConfig(input) {
   const dataDir = input.dataDir !== void 0 && input.dataDir !== "" ? expandPath(input.dataDir) : DEFAULT_SERVER_CONFIG.dataDir;
@@ -27050,7 +27100,8 @@ function normalizeServerConfig(input) {
     versionsPerNote: clampInt(input.versionsPerNote, 0, 500, DEFAULT_SERVER_CONFIG.versionsPerNote),
     trustedProxies: input.trustedProxies ?? DEFAULT_SERVER_CONFIG.trustedProxies,
     logLevel: input.logLevel ?? DEFAULT_SERVER_CONFIG.logLevel,
-    mcpBodyBytes: clampInt(input.mcpBodyBytes, 1024, 64 * 1024 * 1024, DEFAULT_SERVER_CONFIG.mcpBodyBytes)
+    mcpBodyBytes: clampInt(input.mcpBodyBytes, 1024, 64 * 1024 * 1024, DEFAULT_SERVER_CONFIG.mcpBodyBytes),
+    mcpAttachmentBytes: clampInt(input.mcpAttachmentBytes, 1024, 512 * 1024 * 1024, DEFAULT_SERVER_CONFIG.mcpAttachmentBytes)
   };
 }
 function clampInt(value, min, max, fallback) {
@@ -27159,7 +27210,7 @@ function createLogger(level = "info", file = "") {
 }
 
 // src/server/cli.ts
-var VERSION = true ? "0.2.1" : "0.2.1";
+var VERSION = true ? "0.3.0" : "0.3.0";
 function parseArgv(argv) {
   const positionals = [];
   const flags = {};
@@ -27206,6 +27257,7 @@ function configFrom(flags) {
   const logLevel = ["off", "error", "warn", "info", "debug"].includes(logLevelRaw) ? logLevelRaw : "info";
   const maxUploadMb = Number(flagString(flags, "max-upload-mb") ?? env("DSH_NOTES_MAX_UPLOAD_MB") ?? 50);
   const mcpBodyMb = Number(flagString(flags, "mcp-body-mb") ?? env("DSH_NOTES_MCP_BODY_MB") ?? 4);
+  const mcpAttachmentMb = Number(flagString(flags, "mcp-attachment-mb") ?? env("DSH_NOTES_MCP_ATTACHMENT_MB") ?? 10);
   const port = Number(flagString(flags, "port") ?? env("DSH_NOTES_PORT") ?? DEFAULT_SERVER_CONFIG.port);
   return normalizeServerConfig({
     dataDir: dataDirFrom(flags),
@@ -27222,6 +27274,7 @@ function configFrom(flags) {
     trustedProxies: (flagString(flags, "trusted-proxy") ?? env("DSH_NOTES_TRUSTED_PROXY") ?? "127.0.0.1,::1").split(",").map((item) => item.trim()).filter(Boolean),
     maxUploadBytes: Math.round(Math.max(1, Number.isFinite(maxUploadMb) ? maxUploadMb : 50) * 1024 * 1024),
     mcpBodyBytes: Math.round(Math.max(1, Number.isFinite(mcpBodyMb) ? mcpBodyMb : 4) * 1024 * 1024),
+    mcpAttachmentBytes: Math.round(Math.max(1, Number.isFinite(mcpAttachmentMb) ? mcpAttachmentMb : 10) * 1024 * 1024),
     sessionDays: Number(flagString(flags, "session-days") ?? env("DSH_NOTES_SESSION_DAYS") ?? DEFAULT_SERVER_CONFIG.sessionDays),
     sessionIdleDays: Number(flagString(flags, "session-idle-days") ?? env("DSH_NOTES_SESSION_IDLE_DAYS") ?? DEFAULT_SERVER_CONFIG.sessionIdleDays),
     trashDays: Number(flagString(flags, "trash-days") ?? env("DSH_NOTES_TRASH_DAYS") ?? DEFAULT_SERVER_CONFIG.trashDays),
@@ -27589,6 +27642,7 @@ function printHelp() {
   --insecure-http          \u5141\u8BB8\u975E\u56DE\u73AF\u660E\u6587 HTTP\uFF08\u4EC5\u53D7\u63A7\u5185\u7F51\u6D4B\u8BD5\uFF09
   --max-upload-mb <MB>     \u9644\u4EF6\u5927\u5C0F\u4E0A\u9650\uFF08\u9ED8\u8BA4 50\uFF09
   --mcp-body-mb <MB>       MCP \u8BF7\u6C42\u4F53\u4E0A\u9650\uFF08\u9ED8\u8BA4 4\uFF1Bbase64 \u4E0A\u4F20\u53D7\u5176\u7EA6\u675F\uFF09
+  --mcp-attachment-mb <MB> MCP \u5355\u9644\u4EF6\u4E0B\u8F7D\u4E0A\u9650\uFF08\u9ED8\u8BA4 10\uFF09
   --session-days <\u5929>      \u4F1A\u8BDD\u7EDD\u5BF9\u6709\u6548\u671F\uFF08\u9ED8\u8BA4 30\uFF09
   --session-idle-days <\u5929> \u4F1A\u8BDD\u7A7A\u95F2\u6709\u6548\u671F\uFF08\u9ED8\u8BA4 7\uFF09
   --trash-days <\u5929>        \u56DE\u6536\u7AD9\u4FDD\u7559\uFF08\u9ED8\u8BA4 30\uFF09

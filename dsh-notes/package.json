@@ -1,6 +1,6 @@
 {
   "name": "dsh-notes",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "DSH notes plugin and standalone notes server: markdown notes, attachments, account/password login, offline sync, AI tools and MCP.",
   "type": "module",
   "main": "lib/index.js",

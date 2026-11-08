@@ -12,7 +12,7 @@ import { registerNotesTools } from './tools.ts'
 import type { PluginConfig } from './settings.ts'
 
 declare const __DSH_NOTES_VERSION__: string
-const VERSION = typeof __DSH_NOTES_VERSION__ === 'string' ? __DSH_NOTES_VERSION__ : '0.2.1'
+const VERSION = typeof __DSH_NOTES_VERSION__ === 'string' ? __DSH_NOTES_VERSION__ : '0.3.0'
 
 export const name = 'dsh-notes'
 export const inject = ['tools']

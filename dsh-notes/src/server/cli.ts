@@ -29,7 +29,7 @@ import {
 import { hashPassword, passwordPolicyError, validUsername } from './security.ts'
 
 declare const __DSH_NOTES_VERSION__: string
-const VERSION = typeof __DSH_NOTES_VERSION__ === 'string' ? __DSH_NOTES_VERSION__ : '0.2.1'
+const VERSION = typeof __DSH_NOTES_VERSION__ === 'string' ? __DSH_NOTES_VERSION__ : '0.3.0'
 
 interface Parsed {
   positionals: string[]
@@ -87,6 +87,7 @@ function configFrom(flags: Record<string, string | true>): ServerConfig {
   const logLevel = (['off', 'error', 'warn', 'info', 'debug'].includes(logLevelRaw) ? logLevelRaw : 'info') as LogLevel
   const maxUploadMb = Number(flagString(flags, 'max-upload-mb') ?? env('DSH_NOTES_MAX_UPLOAD_MB') ?? 50)
   const mcpBodyMb = Number(flagString(flags, 'mcp-body-mb') ?? env('DSH_NOTES_MCP_BODY_MB') ?? 4)
+  const mcpAttachmentMb = Number(flagString(flags, 'mcp-attachment-mb') ?? env('DSH_NOTES_MCP_ATTACHMENT_MB') ?? 10)
   const port = Number(flagString(flags, 'port') ?? env('DSH_NOTES_PORT') ?? DEFAULT_SERVER_CONFIG.port)
   return normalizeServerConfig({
     dataDir: dataDirFrom(flags),
@@ -106,6 +107,7 @@ function configFrom(flags: Record<string, string | true>): ServerConfig {
       .filter(Boolean),
     maxUploadBytes: Math.round(Math.max(1, Number.isFinite(maxUploadMb) ? maxUploadMb : 50) * 1024 * 1024),
     mcpBodyBytes: Math.round(Math.max(1, Number.isFinite(mcpBodyMb) ? mcpBodyMb : 4) * 1024 * 1024),
+    mcpAttachmentBytes: Math.round(Math.max(1, Number.isFinite(mcpAttachmentMb) ? mcpAttachmentMb : 10) * 1024 * 1024),
     sessionDays: Number(flagString(flags, 'session-days') ?? env('DSH_NOTES_SESSION_DAYS') ?? DEFAULT_SERVER_CONFIG.sessionDays),
     sessionIdleDays: Number(flagString(flags, 'session-idle-days') ?? env('DSH_NOTES_SESSION_IDLE_DAYS') ?? DEFAULT_SERVER_CONFIG.sessionIdleDays),
     trashDays: Number(flagString(flags, 'trash-days') ?? env('DSH_NOTES_TRASH_DAYS') ?? DEFAULT_SERVER_CONFIG.trashDays),
@@ -456,6 +458,7 @@ function printHelp(): void {
   --insecure-http          允许非回环明文 HTTP（仅受控内网测试）
   --max-upload-mb <MB>     附件大小上限（默认 50）
   --mcp-body-mb <MB>       MCP 请求体上限（默认 4；base64 上传受其约束）
+  --mcp-attachment-mb <MB> MCP 单附件下载上限（默认 10）
   --session-days <天>      会话绝对有效期（默认 30）
   --session-idle-days <天> 会话空闲有效期（默认 7）
   --trash-days <天>        回收站保留（默认 30）

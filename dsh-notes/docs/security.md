@@ -87,7 +87,7 @@ DSH Notes 的安全目标是：**即使服务端暴露在公网，攻击者也�
 - 这些格式没有可靠的 magic bytes，因此不校验内容签名；上传的 HTML/SVG/JS 只是文件，不会被当作页面或脚本。
 - 声明为图片/音频但内容 magic bytes 不匹配的上传仍返回 415；空文件 400。
 - 支持 Range（音频拖动）；`?download=1` 强制附件下载。
-- 单文件默认 50MB（`--max-upload-mb`）；MCP base64 附件工具上限 20MB，并且受 `--mcp-body-mb` 的请求体上限约束。
+- 单文件默认 50MB（`--max-upload-mb`）；MCP base64 附件工具上限 20MB，并且受 `--mcp-body-mb` 的请求体上限约束；MCP 附件下载默认上限 10MB（`--mcp-attachment-mb`）。
 
 共同约束：
 

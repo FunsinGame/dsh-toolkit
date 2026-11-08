@@ -23,7 +23,7 @@ node -e "require('node:sqlite'); console.log('node:sqlite ok')"
 sudo useradd --system --home /var/lib/dsh-notes --shell /usr/sbin/nologin dshnotes
 sudo install -d -o dshnotes -g dshnotes -m 0700 /var/lib/dsh-notes
 sudo install -d -o root -g root -m 0755 /opt/dsh-notes /etc/dsh-notes
-sudo unzip dsh-notes-server-0.2.1.zip -d /opt/dsh-notes
+sudo unzip dsh-notes-server-0.3.0.zip -d /opt/dsh-notes
 sudo chown -R root:root /opt/dsh-notes
 sudo chmod -R a-w /opt/dsh-notes
 ```
@@ -37,7 +37,7 @@ sudo -u dshnotes node server/bin.js user add alice --data-dir /var/lib/dsh-notes
 sudo -u dshnotes node server/bin.js token create --user alice --name dsh-plugin --data-dir /var/lib/dsh-notes
 ```
 
-> 如果使用 `npm install -g .\dsh-notes-0.2.1.tgz` 安装，当前目录没有 `server/`，请改用
+> 如果使用 `npm install -g .\dsh-notes-0.3.0.tgz` 安装，当前目录没有 `server/`，请改用
 > `dsh-notes-server init ...`（或 `node "$(npm root -g)/dsh-notes/server/bin.js" ...`）。
 > systemd 服务仍建议使用 `/opt/dsh-notes/server/bin.js` 绝对路径。
 
@@ -115,7 +115,7 @@ sudo -u dshnotes node /opt/dsh-notes/server/bin.js backup \
 ```bash
 sudo systemctl stop dsh-notes
 sudo -u dshnotes node /opt/dsh-notes/server/bin.js backup --data-dir /var/lib/dsh-notes --out /var/lib/dsh-notes/backups
-sudo unzip -o dsh-notes-server-0.2.1.zip -d /opt/dsh-notes
+sudo unzip -o dsh-notes-server-0.3.0.zip -d /opt/dsh-notes
 sudo chown -R root:root /opt/dsh-notes && sudo chmod -R a-w /opt/dsh-notes
 sudo systemctl start dsh-notes
 sudo journalctl -u dsh-notes -n 100 --no-pager

@@ -1,5 +1,5 @@
 # Build from the dsh-notes package root:
-#   docker build -f deploy/docker/Dockerfile -t dsh-notes:0.2.1 .
+#   docker build -f deploy/docker/Dockerfile -t dsh-notes:0.3.0 .
 #
 # Runtime needs only Node 24. Accounts and tokens are created with `docker compose
 # exec notes node server/bin.js user add ...`; they are never accepted over HTTP.
