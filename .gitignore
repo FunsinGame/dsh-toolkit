@@ -50,3 +50,6 @@ Thumbs.db
 tmp/
 temp/
 *.tmp
+
+# Windows 沙箱权限修复留下的备份与报告（本机才有意义）
+.acl-repair/

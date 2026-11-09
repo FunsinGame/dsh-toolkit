@@ -107,6 +107,12 @@ node scripts/smoke-real.mjs     # 直接跑真实文档库
 
 改宿主半侧要重启 DSH；只改 `lib/client.js` 或 `lib/overlay.js` 刷新窗口即可。
 
+## 浏览器扩展（只读坐标）
+
+只想在 Chrome / Edge 里读文档、顺手取坐标时，同目录的 `dsh-design-doc-extension` 是一个零依赖的 MV3 扩展：鼠标停在任意一段上按 `Ctrl+C`，复制出来的就是这里的 `job-10-2|p3`。坐标规则和本插件逐条一致（真实文档库上全部一致），页面由本插件托管时还会优先用宿主注入的 `data-dd-path`。
+
+它不连 DSH、不起本地服务、不读写文件，因此也不提供写回、`design-map.json` 代码关联和派生层生成——那些仍然在插件里做。详见该目录的 README。
+
 ## 边界
 
 - **只改 HTML。** `data/*.json` 是数值真源，插件不改也不校验；改了表格数字要自己去同步。

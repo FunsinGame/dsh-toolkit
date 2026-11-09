@@ -1,0 +1,16 @@
+{
+  "name": "dsh-design-doc-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chrome/Edge extension: hover a block in a design document and Ctrl+C copies its chapter coordinate (job-10-2|p3) — the same key the DSH plugin and design-map.json use.",
+  "type": "module",
+  "scripts": {
+    "check": "node --check src/dd-path.js && node --check src/content.js && node --check src/background.js && node --check src/sidepanel.js",
+    "test": "node scripts/test-paths.mjs && node scripts/test-content.mjs",
+    "test:e2e": "node scripts/test-browser.mjs",
+    "compare": "node scripts/compare-rendered.mjs",
+    "icons": "python scripts/make-icons.py",
+    "zip": "powershell -NoProfile -Command \"Compress-Archive -Path manifest.json,src,media,README.md -DestinationPath dsh-design-doc-extension.zip -Force\""
+  },
+  "license": "MIT"
+}
