@@ -143,7 +143,16 @@ const style = window.document.getElementById('dsh-music-player-style')
 if (style === null) throw new Error('stylesheet was not injected')
 console.log('style bytes', style.textContent.length)
 
-// Render the status bar item separately.
+// Render the status bar item separately, with a current track so its
+// previous/play/next controls exist.
+const controller = window.__DSH_MUSIC_PLAYER__.controller
+controller.player.set((state) => ({
+  ...state,
+  track: { bvid: 'BV1test', title: '测试曲目', cover: '', author: 'tester', durationSeconds: 192, pageCount: 1 },
+  duration: 192,
+  position: 61,
+  playing: true,
+}))
 const statusContainer = window.document.createElement('div')
 window.document.body.append(statusContainer)
 const statusRoot = createRoot(statusContainer)
@@ -151,6 +160,11 @@ const injected = statusItem.options.inject()
 statusRoot.render(React.createElement(statusItem.component, injected))
 await new Promise((resolve) => setTimeout(resolve, 100))
 console.log('status text', statusContainer.textContent ?? '')
+const statusTitles = Array.from(statusContainer.querySelectorAll('.dmp-status-btn')).map((node) => node.title)
+console.log('status buttons', statusTitles)
+for (const title of ['上一首', '暂停', '下一首']) {
+  if (!statusTitles.includes(title)) throw new Error(`status bar is missing the ${title} button`)
+}
 
 // Click through each nav tab to catch render-time crashes.
 for (const label of ['收藏夹', '队列', '账户', '设置', '搜索']) {

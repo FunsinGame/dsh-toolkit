@@ -680,7 +680,13 @@ body[data-ds-dark-theme] .dmp-modal-mask {
 .dmp-upnext-row .dmp-caption { flex: 0 0 auto; }
 
 /* ── toast / modal ───────────────────────────────────────────────────── */
-.dmp-toast {
+/*
+ * Toasts render as buttons inside .dmp-root, where the ".dmp-root button"
+ * rule (specificity 0-1-1) forces color: inherit. The scoped selectors below
+ * beat that rule so the label keeps var(--dsw-alias-toast-label) on the dark
+ * toast surface instead of inheriting the page's normal text color.
+ */
+.dmp-root .dmp-toast {
   position: absolute;
   left: 50%;
   bottom: 24px;
@@ -690,18 +696,19 @@ body[data-ds-dark-theme] .dmp-modal-mask {
   gap: 8px;
   max-width: min(560px, calc(100% - 48px));
   padding: 10px 15px;
-  border: 1px solid var(--dmp-border);
+  border: 1px solid rgba(0, 0, 0, .1);
   border-radius: 12px;
-  background: var(--dsw-alias-toast-bg, #2b2c2f);
+  background: var(--dsw-alias-toast-bg, #353638);
   color: var(--dsw-alias-toast-label, #fff);
   box-shadow: 0 18px 44px rgba(0, 0, 0, .3);
   font-size: 11.5px;
   transform: translateX(-50%);
   animation: dmp-toast-in .22s ease;
 }
-.dmp-toast.error { background: color-mix(in srgb, var(--dmp-danger) 90%, #000); }
-.dmp-toast.warn { background: color-mix(in srgb, var(--dmp-warn) 88%, #000); color: #fff; }
-.dmp-toast.success { background: color-mix(in srgb, var(--dmp-success) 84%, #000); color: #fff; }
+.dmp-root .dmp-toast svg { color: inherit; }
+.dmp-root .dmp-toast.error { background: color-mix(in srgb, var(--dmp-danger) 90%, #000); color: #fff; }
+.dmp-root .dmp-toast.warn { background: color-mix(in srgb, var(--dmp-warn) 88%, #000); color: #fff; }
+.dmp-root .dmp-toast.success { background: color-mix(in srgb, var(--dmp-success) 84%, #000); color: #fff; }
 .dmp-modal-mask {
   position: fixed;
   inset: 0;

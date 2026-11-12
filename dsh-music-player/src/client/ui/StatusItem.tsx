@@ -1,8 +1,8 @@
-/** Compact status-bar item: current track plus play/next controls. */
+/** Compact status-bar item: current track plus previous/play/next controls. */
 
 import React from 'react'
 import { imageUrl } from '../api'
-import { IconMusic, IconNext, IconPause, IconPlay, IconSpinner } from '../icons'
+import { IconMusic, IconNext, IconPause, IconPlay, IconPrev, IconSpinner } from '../icons'
 import type { PlayerController } from '../player'
 import { formatTime, useStore } from './common'
 
@@ -32,6 +32,14 @@ export function StatusItem({ controller, open }: StatusItemProps): React.ReactEl
         </span>
         <span className="dmp-status-title">{track.title}</span>
         <span className="dmp-status-time">{formatTime(player.position)}</span>
+      </button>
+      <button
+        type="button"
+        className="dmp-status-btn"
+        title="上一首"
+        onClick={() => { void controller.previous() }}
+      >
+        <IconPrev size={11} />
       </button>
       <button
         type="button"
