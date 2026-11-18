@@ -27,27 +27,47 @@ export interface InsertResponse {
   readonly ack?: string
 }
 
+/** A Host answer outside the protocol, carrying the status that produced it. */
+export class DshHttpError extends Error {
+  /** The HTTP status the Host answered with. */
+  readonly status: number
+
+  /**
+   * Record one rejected request.
+   * @param status - the answered HTTP status.
+   */
+  constructor(status: number) {
+    super(`DSH answered HTTP ${String(status)}`)
+    this.name = 'DshHttpError'
+    this.status = status
+  }
+}
+
 /**
  * POST one insertion request to a live instance.
  * @param instance - discovered instance endpoint and capability token.
  * @param request - content to insert.
  * @param cwd - the VS Code workspace, used as a Session tiebreaker.
+ * @param cookie - optional web-session cookie, required by DSH 0.2.2 and later.
  * @returns the Host answer.
- * @throws when the Host cannot be reached or answers outside the protocol.
+ * @throws {DshHttpError} when the Host answers outside the protocol.
  */
 export async function insert(
   instance: DshInstance,
   request: InsertRequest,
   cwd: string | undefined,
+  cookie: string | undefined = undefined,
 ): Promise<InsertResponse> {
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    authorization: `Bearer ${instance.token}`,
+  }
+  if (cookie !== undefined) headers.cookie = cookie
   const response = await fetch(`${instance.url}/external-input/v1/insert`, {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${instance.token}`,
-    },
+    headers,
     body: JSON.stringify({ ...request, ...(cwd === undefined ? {} : { cwd }) }),
   })
-  if (!response.ok) throw new Error(`DSH answered HTTP ${String(response.status)}`)
+  if (!response.ok) throw new DshHttpError(response.status)
   return await response.json() as InsertResponse
 }

@@ -3,17 +3,20 @@
  * already running DeepSeek Harness instance.
  *
  * The extension owns no server. It reads the instance file the Host writes
- * under `$DSH_HOME/runtime/external-input`, then POSTs one authenticated
- * request to `/external-input/v1/insert`; the Host broadcasts the request to
- * every open Client, and the Client that owns the active Session inserts the
- * reference at its caret.
+ * under `$DSH_HOME/runtime/external-input`, then POSTs one request to
+ * `/external-input/v1/insert`; the Host broadcasts the request to every open
+ * Client, and the Client that owns the active Session inserts the reference at
+ * its caret. Since DSH 0.2.2 the Host admits that route through its web
+ * session gate first, so the request carries both the instance's capability
+ * token and a locally derived session cookie.
  */
 
 import { basename } from 'node:path'
 import * as vscode from 'vscode'
-import { insert, type InsertRequest, type InsertResponse } from './client'
-import { candidateHomes, dshHome, readInstancesFrom, type DshInstance } from './discovery'
+import { DshHttpError, insert, type InsertRequest, type InsertResponse } from './client'
+import { candidateHomes, dshHome, readBrowserSessionSecret, readInstancesFrom, type DshInstance } from './discovery'
 import { lineRangeOf, samePath } from './format'
+import { mintSessionCookie } from './session'
 
 /** Output channel for discovery and protocol diagnostics. */
 let output: vscode.OutputChannel | undefined
@@ -49,6 +52,42 @@ async function resolveInstance(): Promise<DshInstance | undefined> {
 }
 
 /**
+ * Derive the web-session cookie one instance's gate expects.
+ * @param instance - the instance being addressed.
+ * @returns the cookie pair, or undefined when this home stores no secret.
+ */
+async function sessionCookie(instance: DshInstance): Promise<string | undefined> {
+  const secret = await readBrowserSessionSecret(instance.home)
+  if (secret === undefined) {
+    output?.appendLine(`no browser-session secret under ${instance.home}; sending the capability token alone`)
+    return undefined
+  }
+  return mintSessionCookie(new URL(instance.url).host, secret)
+}
+
+/**
+ * Send one insertion, tolerating a session secret that was recreated since it
+ * was first read: DSH rewrites the credential record when it recreates it, and
+ * an editor session can outlive that.
+ * @param instance - the instance being addressed.
+ * @param request - content to insert.
+ * @returns the Host answer.
+ */
+async function insertWithSession(instance: DshInstance, request: InsertRequest): Promise<InsertResponse> {
+  const cwd = workspaceCwd()
+  const cookie = await sessionCookie(instance)
+  try {
+    return await insert(instance, request, cwd, cookie)
+  } catch (error) {
+    if (!(error instanceof DshHttpError) || error.status !== 401) throw error
+    const refreshed = await sessionCookie(instance)
+    if (refreshed === undefined || refreshed === cookie) throw error
+    output?.appendLine('the Host rejected the session cookie; retrying with the credential record re-read')
+    return await insert(instance, request, cwd, refreshed)
+  }
+}
+
+/**
  * Send one insertion request and surface the Host's answer.
  * @param request - content to insert.
  */
@@ -65,7 +104,7 @@ async function send(request: InsertRequest): Promise<void> {
     return
   }
   try {
-    const response: InsertResponse = await insert(instance, request, workspaceCwd())
+    const response: InsertResponse = await insertWithSession(instance, request)
     output?.appendLine(`insert -> ${JSON.stringify(response)}`)
     if (response.ok === true) {
       const target = response.sessionId === undefined ? 'DSH' : `会话 ${response.sessionId.slice(0, 8)}`
@@ -91,7 +130,11 @@ async function send(request: InsertRequest): Promise<void> {
     }
   } catch (error) {
     output?.appendLine(`insert failed: ${errorMessage(error)}`)
-    void vscode.window.showWarningMessage(`无法连接 DSH：${errorMessage(error)}`)
+    void vscode.window.showWarningMessage(
+      error instanceof DshHttpError && error.status === 401
+        ? 'DSH 拒绝了本次请求（401）：会话凭据缺失或已失效。请确认 DSH 与 VS Code 运行在同一用户下，且没有删除 ~/.dsh/.credentials.yaml。'
+        : `无法连接 DSH：${errorMessage(error)}`,
+    )
   }
 }
 
