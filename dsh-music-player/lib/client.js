@@ -48,7 +48,8 @@ __export(index_exports, {
 module.exports = __toCommonJS(index_exports);
 
 // src/client/api.ts
-var HOST_ORIGIN = (() => {
+var PAGE_IS_HTTP = typeof location === "undefined" ? false : location.protocol === "http:" || location.protocol === "https:";
+var STREAM_ORIGIN = (() => {
   const raw = globalThis.__DSH_TRANSPORT__?.streamBaseUrl;
   if (typeof raw !== "string" || raw.trim() === "") return "";
   try {
@@ -57,10 +58,20 @@ var HOST_ORIGIN = (() => {
     return "";
   }
 })();
-var BASE = `${HOST_ORIGIN}/dsh-music-player`;
+var PREFIX = "/dsh-music-player";
+var RELATIVE_BASE = PREFIX;
+var ABSOLUTE_BASE = STREAM_ORIGIN === "" ? "" : `${STREAM_ORIGIN}${PREFIX}`;
+var activeBase = PAGE_IS_HTTP && ABSOLUTE_BASE !== "" ? ABSOLUTE_BASE : RELATIVE_BASE;
+function activeOrigin() {
+  return activeBase === RELATIVE_BASE ? "" : STREAM_ORIGIN;
+}
 function hostUrl(path) {
   if (/^[a-z][a-z0-9+.-]*:/i.test(path)) return path;
-  return `${HOST_ORIGIN}${path.startsWith("/") ? "" : "/"}${path}`;
+  return `${activeOrigin()}${path.startsWith("/") ? "" : "/"}${path}`;
+}
+function alternateBase(current) {
+  if (ABSOLUTE_BASE === "") return "";
+  return current === RELATIVE_BASE ? ABSOLUTE_BASE : RELATIVE_BASE;
 }
 var ApiError = class extends Error {
   constructor(message, kind = "api", status = 0) {
@@ -70,10 +81,23 @@ var ApiError = class extends Error {
     this.name = "ApiError";
   }
 };
+async function send(path, init) {
+  const base = activeBase;
+  try {
+    return await fetch(`${base}${path}`, init);
+  } catch (error) {
+    const method = (init.method ?? "GET").toUpperCase();
+    const alternate = method === "GET" || method === "HEAD" ? alternateBase(base) : "";
+    if (alternate === "") throw error;
+    const response = await fetch(`${alternate}${path}`, init);
+    activeBase = alternate;
+    return response;
+  }
+}
 async function request(path, init) {
   let response;
   try {
-    response = await fetch(`${BASE}${path}`, {
+    response = await send(path, {
       credentials: "same-origin",
       ...init,
       headers: {
@@ -146,9 +170,11 @@ function imageUrl(url) {
   if (url === null || url === void 0 || url === "") return "";
   if (url.startsWith("data:") || url.startsWith("blob:")) return url;
   const raw = unwrapImageProxy(url);
-  if (raw.startsWith("/dsh-music-player")) return hostUrl(raw);
-  if (HOST_ORIGIN !== "" && raw.startsWith(`${HOST_ORIGIN}/dsh-music-player`)) return raw;
-  return `${BASE}/image?url=${encodeURIComponent(raw)}`;
+  if (raw.startsWith(PREFIX)) return hostUrl(raw);
+  if (STREAM_ORIGIN !== "" && raw.startsWith(`${STREAM_ORIGIN}${PREFIX}`)) {
+    return hostUrl(raw.slice(STREAM_ORIGIN.length));
+  }
+  return `${activeBase}/image?url=${encodeURIComponent(raw)}`;
 }
 function modeLabel(mode) {
   switch (mode) {

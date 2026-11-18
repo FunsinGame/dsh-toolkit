@@ -15,13 +15,13 @@ interface TransportGlobal {
   __DSH_TRANSPORT__?: { streamBaseUrl?: string }
 }
 
-/**
- * The desktop renderer runs on its own `dsh-app:` scheme while the host's Web
- * server lives on `http://127.0.0.1:<port>`. `streamBaseUrl` is the host
- * origin in that composition; the served Web app omits it and stays
- * same-origin.
- */
-export const HOST_ORIGIN = (() => {
+/** A page that is not served over HTTP(S) cannot address a Host origin. */
+const PAGE_IS_HTTP = typeof location === 'undefined'
+  ? false
+  : location.protocol === 'http:' || location.protocol === 'https:'
+
+/** Host origin the transport reports for a shell-owned Host, if any. */
+const STREAM_ORIGIN = (() => {
   const raw = (globalThis as TransportGlobal).__DSH_TRANSPORT__?.streamBaseUrl
   if (typeof raw !== 'string' || raw.trim() === '') return ''
   try {
@@ -31,12 +31,50 @@ export const HOST_ORIGIN = (() => {
   }
 })()
 
-export const BASE = `${HOST_ORIGIN}/dsh-music-player`
+const PREFIX = '/dsh-music-player'
+/** Document-relative base: the served Web app's own origin, and the Desktop page. */
+const RELATIVE_BASE = PREFIX
+/** Absolute base for a Host living on another origin; empty when none is known. */
+const ABSOLUTE_BASE = STREAM_ORIGIN === '' ? '' : `${STREAM_ORIGIN}${PREFIX}`
 
-/** Resolve a host-relative path against the desktop host origin. */
+/**
+ * The Desktop renderer is a static `dsh-app://app/` page. Electron's protocol
+ * handler forwards its document-relative requests to the owned Host together
+ * with the private credential, so `/dsh-music-player/...` reaches the Host. A
+ * direct `http://127.0.0.1:<port>` request from that page is cross-origin and
+ * carries no credential, and the Host's own responses grant no CORS origin, so
+ * the browser rejects it as `TypeError: Failed to fetch` before the route runs.
+ *
+ * Only an HTTP(S) page starts on the absolute base: the served Web app is
+ * same-origin either way, and a shell-owned Host on another origin needs its
+ * reported origin. Every other page stays document-relative, and a network
+ * failure promotes the other base (`send`), so either composition works.
+ */
+let activeBase = PAGE_IS_HTTP && ABSOLUTE_BASE !== '' ? ABSOLUTE_BASE : RELATIVE_BASE
+
+/** Origin stem for the base in use; empty while the client is document-relative. */
+function activeOrigin(): string {
+  return activeBase === RELATIVE_BASE ? '' : STREAM_ORIGIN
+}
+
+/** The API base the client currently uses. */
+export function apiBase(): string {
+  return activeBase
+}
+
+/** Resolve a host-relative path against the base in use. */
 export function hostUrl(path: string): string {
   if (/^[a-z][a-z0-9+.-]*:/i.test(path)) return path
-  return `${HOST_ORIGIN}${path.startsWith('/') ? '' : '/'}${path}`
+  return `${activeOrigin()}${path.startsWith('/') ? '' : '/'}${path}`
+}
+
+/**
+ * The base to retry with after a network failure, or `''` when there is no
+ * different one to try.
+ */
+function alternateBase(current: string): string {
+  if (ABSOLUTE_BASE === '') return ''
+  return current === RELATIVE_BASE ? ABSOLUTE_BASE : RELATIVE_BASE
 }
 
 export class ApiError extends Error {
@@ -57,10 +95,25 @@ interface Envelope<T> {
   kind?: string
 }
 
+async function send(path: string, init: RequestInit): Promise<Response> {
+  const base = activeBase
+  try {
+    return await fetch(`${base}${path}`, init)
+  } catch (error) {
+    // Only a read is retried: a failed write may already have run on the Host.
+    const method = (init.method ?? 'GET').toUpperCase()
+    const alternate = method === 'GET' || method === 'HEAD' ? alternateBase(base) : ''
+    if (alternate === '') throw error
+    const response = await fetch(`${alternate}${path}`, init)
+    activeBase = alternate
+    return response
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response
   try {
-    response = await fetch(`${BASE}${path}`, {
+    response = await send(path, {
       credentials: 'same-origin',
       ...init,
       headers: {
@@ -224,9 +277,12 @@ export function imageUrl(url: string | null | undefined): string {
   if (url === null || url === undefined || url === '') return ''
   if (url.startsWith('data:') || url.startsWith('blob:')) return url
   const raw = unwrapImageProxy(url)
-  if (raw.startsWith('/dsh-music-player')) return hostUrl(raw)
-  if (HOST_ORIGIN !== '' && raw.startsWith(`${HOST_ORIGIN}/dsh-music-player`)) return raw
-  return `${BASE}/image?url=${encodeURIComponent(raw)}`
+  if (raw.startsWith(PREFIX)) return hostUrl(raw)
+  if (STREAM_ORIGIN !== '' && raw.startsWith(`${STREAM_ORIGIN}${PREFIX}`)) {
+    // Already addressed to this Host: keep it on whichever base is in use.
+    return hostUrl(raw.slice(STREAM_ORIGIN.length))
+  }
+  return `${activeBase}/image?url=${encodeURIComponent(raw)}`
 }
 
 export function modeLabel(mode: PlayMode): string {

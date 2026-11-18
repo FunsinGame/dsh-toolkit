@@ -27,7 +27,7 @@
     "build": "node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check": "node --check lib/index.js && node --check lib/client.js",
-    "test": "node scripts/test-host.mjs && node scripts/test-client.mjs",
+    "test": "node scripts/test-host.mjs && node scripts/test-client.mjs && node scripts/test-transport.mjs",
     "test:browser": "node scripts/test-browser.mjs",
     "test:audio": "node scripts/run-test-audio.mjs"
   },
